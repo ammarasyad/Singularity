@@ -29,7 +29,7 @@ add_library(imgui STATIC ${IMGUI_GLOB})
 target_include_directories(imgui PUBLIC ${imgui} ${imgui}/backends)
 target_link_libraries(imgui PRIVATE glfw Vulkan::Vulkan)
 
-include_directories(${glm} ${glfw}/include ${D3D12MemoryAllocator}/include common graphics engine)
+include_directories(${glm} ${glfw}/include ${D3D12MemoryAllocator}/include common graphics engine third_party/stb)
 
 add_executable(Singularity WIN32 main.cpp
         graphics/d3d12_renderer.cpp
@@ -54,6 +54,7 @@ add_executable(Singularity WIN32 main.cpp
         engine/objects/material.h
         graphics/vk/vk_pipeline_builder.h
         graphics/vk/vk_pipeline_builder.cpp
+        common/stbi_image.cpp
         #        graphics/vk/vk_pipeline_builder.h
 #        graphics/common/stats/stats_common.h
 #        graphics/common/stats/stats.cpp
