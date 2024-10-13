@@ -38,6 +38,12 @@ void Camera::ProcessKeyboardInput(const int key, const int action, const float d
 
         if (key == GLFW_KEY_D)
             position += right * 0.1f * deltaTime;
+
+        if (key == GLFW_KEY_SPACE)
+            position += up * 0.1f * deltaTime;
+
+        if (key == GLFW_KEY_LEFT_CONTROL)
+            position -= up * 0.1f * deltaTime;
     }
 
     // if (action == GLFW_RELEASE) {
@@ -60,15 +66,15 @@ void Camera::ProcessMouseInput(double xpos, double ypos) {
     else if (pitch < -89.0f)
         pitch = -89.0f;
 
-    // UpdateVectors();
+    UpdateVectors();
 }
 
 void Camera::UpdateVectors() {
     // position += glm::vec3(RotationMatrix() * glm::vec4(velocity * 0.5f, 0.f));
-    front = glm::normalize(glm::vec3(cos(glm::radians(yaw)) * cos(glm::radians(pitch)), sin(glm::radians(pitch)), sin(glm::radians(yaw)) * cos(glm::radians(pitch))));
+    front = normalize(glm::vec3(cos(glm::radians(yaw)) * cos(glm::radians(pitch)), sin(glm::radians(pitch)), sin(glm::radians(yaw)) * cos(glm::radians(pitch))));
 
-    right = glm::normalize(glm::cross(front, worldUp));
-    up = glm::normalize(glm::cross(right, front));
+    right = normalize(cross(front, worldUp));
+    up = normalize(cross(right, front));
 }
 
 
