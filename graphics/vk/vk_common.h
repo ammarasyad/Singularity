@@ -4,8 +4,8 @@
 
 #include <cassert>
 #include <vulkan/vulkan.hpp>
-#include "vk_mem_alloc.h"
-#include <glm.hpp>
+#include "../../third_party/VulkanMemoryAllocator/include/vk_mem_alloc.h"
+#include <../../third_party/glm/glm.hpp>
 
 #define VK_CHECK(x) do { VkResult err = x; if (err) { printf("Detected Vulkan error: %d\n", err); abort(); } } while (0)
 

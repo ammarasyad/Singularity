@@ -5,6 +5,7 @@
 #include "vk_renderer.h"
 
 #include <imgui_impl_vulkan.h>
+#include <ranges>
 #include <gtc/matrix_transform.hpp>
 #include <gtx/transform.inl>
 #include "vk/memory/vk_mesh_assets.h"
@@ -72,7 +73,7 @@ VkRenderer::VkRenderer(GLFWwindow *window, const bool dynamicRendering, const bo
 
     PickPhysicalDevice();
     CreateLogicalDevice();
-    CreateQueryPool();
+    // CreateQueryPool();
 
     memoryManager = std::make_shared<VkMemoryManager>(instance, physicalDevice, device);
 
@@ -114,18 +115,19 @@ VkRenderer::VkRenderer(GLFWwindow *window, const bool dynamicRendering, const bo
     CreateDescriptors();
     CreatePipelineLayout();
     CreateGraphicsPipeline();
-    CreateComputePipeline();
+    // CreateComputePipeline();
 
     if (!dynamicRendering)
         CreateFramebuffers();
 
     CreateCommandPool();
 
-    meshAssets = LoadGltfMeshes(this, "../assets/BoxVertexColors.glb").value();
+    meshAssets = LoadGltfMeshes(this, "../assets/basicmesh.glb").value();
 
     CreateCommandBuffers();
     CreateDefaultTexture();
     CreateSyncObjects();
+    InitDefaultData();
 
     isVkRunning = true;
 }
@@ -207,6 +209,8 @@ void VkRenderer::InitializeInstance() {
 void VkRenderer::Render(EngineStats &stats) {
     stats.drawCallCount = 0;
     stats.triangleCount = 0;
+
+    UpdateScene();
 
     vkWaitForFences(device, 1, &frames[currentFrame].inFlightFence, VK_TRUE, UINT64_MAX);
 
@@ -391,41 +395,95 @@ void VkRenderer::Draw(const VkCommandBuffer &commandBuffer, uint32_t imageIndex,
         vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
     }
 
-    vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipeline);
+    VkBufferCreateInfo bufferCreateInfo{
+        VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+        VK_NULL_HANDLE,
+        0,
+        sizeof(SceneData),
+        VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+        VK_SHARING_MODE_EXCLUSIVE
+    };
 
-    std::array layout = {mainDescriptorSetLayout};
-    auto imageSet = frames[currentFrame].frameDescriptors.Allocate(device, layout);
+    VmaAllocationCreateInfo allocationCreateInfo{
+        VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
+        VMA_MEMORY_USAGE_AUTO
+    };
+
+    auto [buffer, alloc] = memoryManager->createUnmanagedBuffer(&bufferCreateInfo, &allocationCreateInfo);
+    frames[currentFrame].frameCallbacks.emplace_back([&, buffer, alloc] { memoryManager->destroyBuffer(&buffer, &alloc); });
+
+    SceneData *data;
+    memoryManager->mapBuffer(&buffer, reinterpret_cast<void **>(&data), &alloc);
+    // *data = sceneData;
+    memcpy(data, &sceneData, sizeof(SceneData));
+    memoryManager->unmapBuffer(&buffer, &alloc);
+
+    std::array layouts = {sceneDescriptorSetLayout};
+    auto sceneDescriptorSet = frames[currentFrame].frameDescriptors.Allocate(device, layouts);
 
     {
         DescriptorWriter writer;
-        writer.WriteImage(1, defaultImage.imageView, textureSamplerNearest, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
-        writer.UpdateSet(device, mainDescriptorSet);
-        writer.UpdateSet(device, imageSet);
+        writer.WriteBuffer(0, buffer, 0, sizeof(SceneData), VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
+        writer.UpdateSet(device, sceneDescriptorSet);
     }
-
-    vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &imageSet, 0, VK_NULL_HANDLE);
 
     vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
     vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
 
-    MeshPushConstants meshPushConstants{
-        glm::mat4{1.f},
-        meshAssets[0]->mesh.vertexBufferDeviceAddress
-    };
+    for (VkRenderObject &draw : mainDrawContext.opaqueSurfaces) {
+        // TODO: This is inefficient, we should batch by material
+        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, draw.materialInstance->pipeline->pipeline);
+        vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, draw.materialInstance->pipeline->layout, 0, 1, &sceneDescriptorSet, 0, VK_NULL_HANDLE);
+        vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, draw.materialInstance->pipeline->layout, 1, 1, &draw.materialInstance->descriptorSet, 0, VK_NULL_HANDLE);
 
-    UpdatePushConstants(meshPushConstants);
+        vkCmdBindIndexBuffer(commandBuffer, draw.indexBuffer, 0, VK_INDEX_TYPE_UINT16);
 
-    vkCmdPushConstants(commandBuffer, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(MeshPushConstants), &meshPushConstants);
+        MeshPushConstants pushConstants{
+            draw.transform,
+            draw.vertexBufferAddress
+        };
+        vkCmdPushConstants(commandBuffer, draw.materialInstance->pipeline->layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(MeshPushConstants), &pushConstants);
 
-    auto indexCount = meshAssets[0]->surfaces[0].indexCount;
+        vkCmdDrawIndexed(commandBuffer, draw.indexCount, 1, draw.firstIndex, 0, 0);
+        stats.drawCallCount++;
+        stats.triangleCount += draw.indexCount / 3;
+    }
 
-    VkDeviceSize deviceSize{0};
-    vkCmdBindVertexBuffers(commandBuffer, 0, 1, &meshAssets[0]->mesh.vertexBuffer, &deviceSize);
-    vkCmdBindIndexBuffer(commandBuffer, meshAssets[0]->mesh.indexBuffer, 0, VK_INDEX_TYPE_UINT16);
-    vkCmdDrawIndexed(commandBuffer, indexCount, 1, meshAssets[0]->surfaces[0].startIndex, 0, 0);
-
-    stats.drawCallCount++;
-    stats.triangleCount += indexCount / 3;
+    // vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipeline);
+    //
+    // std::array layout = {mainDescriptorSetLayout};
+    // auto imageSet = frames[currentFrame].frameDescriptors.Allocate(device, layout);
+    //
+    // {
+    //     DescriptorWriter writer;
+    //     writer.WriteImage(1, defaultImage.imageView, textureSamplerNearest, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+    //     writer.UpdateSet(device, mainDescriptorSet);
+    //     writer.UpdateSet(device, imageSet);
+    // }
+    //
+    // vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &imageSet, 0, VK_NULL_HANDLE);
+    //
+    // vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
+    // vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
+    //
+    // MeshPushConstants meshPushConstants{
+    //     glm::mat4{1.f},
+    //     meshAssets[0]->mesh.vertexBufferDeviceAddress
+    // };
+    //
+    // UpdatePushConstants(meshPushConstants);
+    //
+    // vkCmdPushConstants(commandBuffer, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(MeshPushConstants), &meshPushConstants);
+    //
+    // auto indexCount = meshAssets[0]->surfaces[0].indexCount;
+    //
+    // VkDeviceSize deviceSize{0};
+    // vkCmdBindVertexBuffers(commandBuffer, 0, 1, &meshAssets[0]->mesh.vertexBuffer, &deviceSize);
+    // vkCmdBindIndexBuffer(commandBuffer, meshAssets[0]->mesh.indexBuffer, 0, VK_INDEX_TYPE_UINT16);
+    // vkCmdDrawIndexed(commandBuffer, indexCount, 1, meshAssets[0]->surfaces[0].startIndex, 0, 0);
+    //
+    // stats.drawCallCount++;
+    // stats.triangleCount += indexCount / 3;
 
     if (dynamicRendering) {
         vkCmdEndRendering(commandBuffer);
@@ -552,6 +610,9 @@ void VkRenderer::Shutdown() {
 
         vkDestroyCommandPool(device, frames[i].commandPool, nullptr);
         frames[i].frameDescriptors.Destroy(device);
+
+        for (auto &callback : frames[i].frameCallbacks)
+            callback();
     }
 
     vkDestroyCommandPool(device, immediateCommandPool, nullptr);
@@ -568,8 +629,8 @@ void VkRenderer::Shutdown() {
     vkDestroyDescriptorSetLayout(device, mainDescriptorSetLayout, nullptr);
     vkDestroyDescriptorSetLayout(device, sceneDescriptorSetLayout, nullptr);
 
-    vkDestroyPipeline(device, graphicsPipeline, nullptr);
-    vkDestroyPipeline(device, computePipeline, nullptr);
+    // vkDestroyPipeline(device, graphicsPipeline, nullptr);
+    // vkDestroyPipeline(device, computePipeline, nullptr);
     vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
 
     SavePipelineCache();
@@ -578,6 +639,8 @@ void VkRenderer::Shutdown() {
 
     if (!dynamicRendering)
         vkDestroyRenderPass(device, renderPass, nullptr);
+
+    metalRoughMaterial.clearResources(device);
 
     vkDestroyDevice(device, nullptr);
 
@@ -802,15 +865,15 @@ void VkRenderer::CreateLogicalDevice() {
         .dynamicRendering = VK_TRUE,
     };
 
-    VkPhysicalDeviceHostQueryResetFeatures hostQueryResetFeatures{
-        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_HOST_QUERY_RESET_FEATURES,
-        &vulkan13Features,
-        VK_TRUE
-    };
+    // VkPhysicalDeviceHostQueryResetFeatures hostQueryResetFeatures{
+    //     VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_HOST_QUERY_RESET_FEATURES,
+    //     &vulkan13Features,
+    //     VK_TRUE
+    // };
 
     VkPhysicalDeviceFeatures2 deviceFeatures2{
         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
-        &hostQueryResetFeatures,
+        &vulkan13Features,
         {.multiDrawIndirect = VK_TRUE }
     };
 
@@ -1090,6 +1153,9 @@ void VkRenderer::CreatePipelineLayout() {
 }
 
 void VkRenderer::CreateGraphicsPipeline() {
+    metalRoughMaterial.buildPipelines(this);
+    return;
+
     auto vertShaderCode = ReadFile<char>("shaders/shader.vert.spv");
     auto fragShaderCode = ReadFile<char>("shaders/shader.frag.spv");
 
@@ -1366,13 +1432,14 @@ void VkRenderer::CreateCommandBuffers() {
 }
 
 void VkRenderer::CreateDefaultTexture() {
-    const uint32_t purple = packUnorm4x8(glm::vec4{1, 0, 1, 1});
+    // const uint32_t purple = packUnorm4x8(glm::vec4{1, 0, 1, 1});
 
     constexpr uint32_t textureSize = 16;
     std::array<uint32_t, textureSize * textureSize> pixels{};
-    for (size_t i = 0; i < textureSize * textureSize; i++) {
-        pixels[i] = (i / textureSize + i % textureSize) % 2 == 0 ? 0 : purple;
-    }
+    std::fill_n(pixels.begin(), pixels.size(), UINT32_MAX);
+    // for (size_t i = 0; i < textureSize * textureSize; i++) {
+    //     pixels[i] = (i / textureSize + i % textureSize) % 2 == 0 ? 0 : purple;
+    // }
 
     defaultImage = memoryManager->createTexture(pixels.data(), this, {16, 16, 1}, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT);
 
@@ -1422,13 +1489,13 @@ void VkRenderer::CreateDescriptors() {
     {
         DescriptorLayoutBuilder builder;
         builder.AddBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT);
-        builder.AddBinding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT);
         mainDescriptorSetLayout = builder.Build(device);
     }
 
     {
         DescriptorLayoutBuilder builder;
         builder.AddBinding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
+        builder.AddBinding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT);
         sceneDescriptorSetLayout = builder.Build(device);
     }
 
@@ -1452,6 +1519,57 @@ void VkRenderer::CreateDescriptors() {
         frames[i].frameDescriptors = DescriptorAllocator{};
         frames[i].frameDescriptors.InitPool(device, 1000, frameSizes);
     }
+}
+
+void VkRenderer::InitDefaultData() {
+    VkGLTFMetallic_Roughness::MaterialResources materialResources{};
+    materialResources.colorImage = defaultImage;
+    materialResources.colorSampler = textureSamplerLinear;
+    materialResources.metalRoughImage = defaultImage;
+    materialResources.metalRoughSampler = textureSamplerLinear;
+
+    VkBufferCreateInfo bufferCreateInfo{
+        VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+        VK_NULL_HANDLE,
+        0,
+        sizeof(VkGLTFMetallic_Roughness::MaterialConstants),
+        VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+        VK_SHARING_MODE_EXCLUSIVE
+    };
+
+    VmaAllocationCreateInfo allocationCreateInfo{
+        VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
+        VMA_MEMORY_USAGE_AUTO_PREFER_HOST
+    };
+
+    auto [buffer, allocation] = memoryManager->createManagedBuffer(&bufferCreateInfo, &allocationCreateInfo);
+
+    VkGLTFMetallic_Roughness::MaterialConstants *sceneUniformData;
+    memoryManager->mapBuffer(&buffer, reinterpret_cast<void **>(&sceneUniformData), &allocation);
+    sceneUniformData->colorFactors = glm::vec4(1.0f);
+    sceneUniformData->metalRoughFactors = glm::vec4(1.0f, 0.5f, 0.f, 0.f);
+    memoryManager->unmapBuffer(&buffer, &allocation);
+
+    materialResources.dataBuffer = buffer;
+
+    defaultMaterialInstance = metalRoughMaterial.writeMaterial(device, MaterialPass::MainColor, materialResources, mainDescriptorAllocator);
+
+    for (const auto &m : meshAssets) {
+        auto newNode = std::make_shared<MeshNode>();
+        newNode->mesh = m;
+        newNode->localTransform = glm::mat4{1.f};
+        newNode->worldTransform = glm::mat4{1.f};
+
+        for (auto &[startIndex, indexCount, material] : newNode->mesh->surfaces) {
+            material = std::make_shared<GLTFMaterial>(defaultMaterialInstance);
+        }
+
+        loadedNodes[m->name] = std::move(newNode);
+    }
+
+    sceneData.ambientColor = glm::vec4(0.1f, 0.1f, 0.1f, 1.0f);
+    sceneData.sunlightColor = glm::vec4(1.0f, 1.0f, 1.0f, 1.0f);
+    sceneData.sunlightDirection = glm::vec4(0.f, 1.0f, 0.5f, 1.0f);
 }
 
 void VkRenderer::FindQueueFamilies(const VkPhysicalDevice &gpu) {
@@ -1601,7 +1719,7 @@ VkImageCreateInfo VkRenderer::CreateImageCreateInfo(VkFormat format, VkExtent3D 
 }
 
 void VkRenderer::UpdatePushConstants(MeshPushConstants &meshPushConstants) const {
-    const glm::mat4 view = lookAt(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+    const glm::mat4 view = lookAt(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f), glm::vec3(0.0f, 0.0f, 0.0f));
     glm::mat4 proj = glm::perspective(glm::radians(fov),
                                       static_cast<float>(swapChainExtent.width) / static_cast<float>(swapChainExtent.
                                           height), 0.1f, 10000.f);
@@ -1619,6 +1737,27 @@ void VkRenderer::SavePipelineCache() const {
 
     std::ofstream file("pipeline_cache.bin", std::ios::binary);
     file.write(reinterpret_cast<const char *>(data.data()), static_cast<std::streamsize>(size));
+}
+
+void VkRenderer::UpdateScene() {
+    mainDrawContext.opaqueSurfaces.clear();
+
+    // loadedNodes["Suzanne"]->Draw(glm::mat4{1.f}, mainDrawContext);
+    for (const auto &node : std::ranges::views::values(loadedNodes)) {
+        node->Draw(glm::mat4{1.f}, mainDrawContext);
+    }
+
+    for (int i = -3; i < 3; i++) {
+        glm::mat4 scale = glm::scale(glm::vec3{0.2});
+        glm::mat4 translation = glm::translate(glm::vec3{i, 1, 0});
+
+        loadedNodes["Cube"]->Draw(translation * scale, mainDrawContext);
+    }
+
+    sceneData.view = lookAt(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+    sceneData.projection = glm::perspective(glm::radians(fov), static_cast<float>(swapChainExtent.width) / static_cast<float>(swapChainExtent.height), 0.1f, 10000.f);
+    sceneData.projection[1][1] *= -1;
+    sceneData.vp = sceneData.projection * sceneData.view;
 }
 
 #ifndef _NDEBUG

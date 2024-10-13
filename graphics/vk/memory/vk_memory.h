@@ -2,7 +2,7 @@
 #define D3D12_STUFF_VK_MEMORY_H
 
 #include "vk_mem_alloc.h"
-#include "vk_common.h"
+#include "vk/vk_common.h"
 #include <functional>
 #include <unordered_map>
 

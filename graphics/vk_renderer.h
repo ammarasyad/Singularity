@@ -8,6 +8,9 @@
 #include <memory>
 #include <optional>
 #include <vector>
+
+#include "objects/material.h"
+#include "objects/render_object.h"
 #include "vk/memory/vk_memory.h"
 #include "vk/vk_descriptor_layout.h"
 
@@ -104,12 +107,16 @@ public:
         return swapChain;
     }
 
-    [[nodiscard]] VkRenderPass render_pass() const {
-        return renderPass;
-    }
-
     [[nodiscard]] VkSurfaceFormatKHR surface_format() const {
         return surfaceFormat;
+    }
+
+    [[nodiscard]] VkDescriptorSetLayout main_descriptor_set_layout() const {
+        return mainDescriptorSetLayout;
+    }
+
+    [[nodiscard]] VkDescriptorSetLayout scene_descriptor_set_layout() const {
+        return sceneDescriptorSetLayout;
     }
 
     [[nodiscard]] VkPipelineLayout pipeline_layout() const {
@@ -248,6 +255,7 @@ private:
     inline void CreateDefaultTexture();
     inline void CreateSyncObjects();
     inline void CreateDescriptors();
+    inline void InitDefaultData();
 
     inline void FindQueueFamilies(const VkPhysicalDevice &gpu);
     [[nodiscard]] inline SwapChainSupportDetails QuerySwapChainSupport(const VkPhysicalDevice &gpu) const;
@@ -260,6 +268,8 @@ private:
 
     inline void UpdatePushConstants(MeshPushConstants &meshPushConstants) const;
     inline void SavePipelineCache() const;
+
+    inline void UpdateScene();
 
     GLFWwindow *glfwWindow;
 
@@ -309,6 +319,13 @@ private:
     VkSampler textureSamplerNearest;
 
     VkDescriptorSetLayout sceneDescriptorSetLayout;
+
+    VkMaterialInstance defaultMaterialInstance;
+    VkGLTFMetallic_Roughness metalRoughMaterial;
+
+    VkDrawContext mainDrawContext;
+    std::unordered_map<std::string, std::shared_ptr<Node>> loadedNodes;
+    SceneData sceneData{};
 
     std::shared_ptr<VkMemoryManager> memoryManager;
 };

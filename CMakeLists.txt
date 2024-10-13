@@ -29,7 +29,7 @@ add_library(imgui STATIC ${IMGUI_GLOB})
 target_include_directories(imgui PUBLIC ${imgui} ${imgui}/backends)
 target_link_libraries(imgui PRIVATE glfw Vulkan::Vulkan)
 
-include_directories(${glm} ${glfw}/include ${D3D12MemoryAllocator}/include common graphics graphics/common)
+include_directories(${glm} ${glfw}/include ${D3D12MemoryAllocator}/include common graphics engine)
 
 add_executable(Singularity WIN32 main.cpp
         graphics/d3d12_renderer.cpp
@@ -42,7 +42,7 @@ add_executable(Singularity WIN32 main.cpp
         engine/camera.cpp
         engine/camera.h
         graphics/vk/vk_descriptor_layout.h
-        graphics/common/vk_common.h
+        graphics/vk/vk_common.h
         graphics/vk/vk_gui.cpp
         graphics/vk/vk_gui.h
         graphics/vk/memory/vk_mesh_assets.cpp
@@ -52,7 +52,9 @@ add_executable(Singularity WIN32 main.cpp
         engine/objects/render_object.h
         engine/objects/material.cpp
         engine/objects/material.h
-#        graphics/vk/vk_pipeline_builder.h
+        graphics/vk/vk_pipeline_builder.h
+        graphics/vk/vk_pipeline_builder.cpp
+        #        graphics/vk/vk_pipeline_builder.h
 #        graphics/common/stats/stats_common.h
 #        graphics/common/stats/stats.cpp
 #        graphics/common/stats/stats.h

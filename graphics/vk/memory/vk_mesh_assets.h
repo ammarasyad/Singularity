@@ -6,11 +6,17 @@
 #include <memory>
 #include <string>
 #include <vector>
-#include "vk_common.h"
+#include "vk/vk_common.h"
+#include "objects/material.h"
+
+struct GLTFMaterial {
+    VkMaterialInstance data;
+};
 
 struct GeoSurface {
     uint32_t startIndex;
     uint32_t indexCount;
+    std::shared_ptr<GLTFMaterial> material;
 };
 
 struct MeshAsset {

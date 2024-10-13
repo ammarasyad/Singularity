@@ -29,13 +29,14 @@ std::optional<std::vector<std::shared_ptr<MeshAsset>>> LoadGltfMeshes(VkRenderer
     std::vector<uint16_t> indices;
     std::vector<VkVertex> vertices;
 
-    for (auto &mesh : gltf.meshes) {
+    for (auto &[primitives, weights, name] : gltf.meshes) {
         MeshAsset meshAsset;
+        meshAsset.name = name;
 
         indices.clear();
         vertices.clear();
 
-        for (auto &&primitive : mesh.primitives) {
+        for (auto &&primitive : primitives) {
             GeoSurface geoSurface{
                 static_cast<uint32_t>(indices.size()),
                 static_cast<uint32_t>(gltf.accessors[primitive.indicesAccessor.value()].count)
