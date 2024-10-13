@@ -61,7 +61,7 @@ struct Node : IRenderable {
 
     void RefreshTransform(const glm::mat4 &parentTransform) {
         worldTransform = parentTransform * localTransform;
-        for (auto &c : children) {
+        for (const auto &c : children) {
             c->RefreshTransform(worldTransform);
         }
     }
@@ -73,7 +73,7 @@ struct Node : IRenderable {
     }
 };
 
-struct MeshNode : Node {
+struct MeshNode final : Node {
     std::shared_ptr<MeshAsset> mesh;
 
     void Draw(const glm::mat4 &topMatrix, VkDrawContext &ctx) override;

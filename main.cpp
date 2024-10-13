@@ -42,7 +42,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow) {
             return renderer.InitWindow(hInstance, nCmdShow, "D3D12 Renderer");
         }
         case RendererType::VK: {
-            VkGui gui(1280, 720, false);
+            VkGui gui(1920, 1080, false);
             gui.Loop();
             gui.Shutdown();
             // VkRenderer renderer(1280, 720, false);

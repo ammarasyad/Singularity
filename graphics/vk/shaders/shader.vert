@@ -29,7 +29,7 @@ layout(location = 2) out vec2 fragUV;
 void main() {
     Vertex v = pushConstants.vertexBuffer.vertices[gl_VertexIndex];
 
-    gl_Position = sceneData.viewProj * pushConstants.worldMatrix * vec4(v.position, 1.0);
+    gl_Position = sceneData.worldMatrix * pushConstants.worldMatrix * vec4(v.position, 1.0);
 
     fragNormal = (pushConstants.worldMatrix * vec4(v.normal, 0.0)).xyz;
     fragColor = v.color;

@@ -1,13 +1,14 @@
 #include "vk_gui.h"
+#include "camera.h"
 
 #include <chrono>
-#include <../../third_party/imgui/backends/imgui_impl_glfw.h>
-#include <../../third_party/imgui/backends/imgui_impl_vulkan.h>
-#include "../vk_renderer.h"
+#include <backends/imgui_impl_glfw.h>
+#include <backends/imgui_impl_vulkan.h>
+#include "vk_renderer.h"
 
 static constexpr uint32_t MIN_IMAGE_COUNT = 2;
 
-VkGui::VkGui(const int width, const int height, const bool dynamicRendering, const bool asyncCompute): imguiDescriptorPool(VK_NULL_HANDLE) {
+VkGui::VkGui(const int width, const int height, const bool dynamicRendering, const bool asyncCompute) : imguiDescriptorPool(VK_NULL_HANDLE) {
     // GLFW initialization
     glfwSetErrorCallback(errorCallback);
     if (!glfwInit())
@@ -19,10 +20,20 @@ VkGui::VkGui(const int width, const int height, const bool dynamicRendering, con
     if (!glfwVulkanSupported())
         throw std::runtime_error("Vulkan not supported");
 
-    glfwSetFramebufferSizeCallback(window, VkRenderer::FramebufferResizeCallback);
+    if (glfwRawMouseMotionSupported())
+        glfwSetInputMode(window, GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
+
+    glfwSetInputMode(window, GLFW_STICKY_MOUSE_BUTTONS, GLFW_TRUE);
+    glfwSetWindowUserPointer(window, this);
+    glfwSetFramebufferSizeCallback(window, FramebufferResizeCallback);
+    glfwSetMouseButtonCallback(window, MouseButtonCallback);
+    glfwSetKeyCallback(window, KeyboardCallback);
+    // glfwSetMouseButtonCallback(window, [](GLFWwindow *window, int button, int action, int mods) {
+    //     ImGui_ImplGlfw_MouseButtonCallback(window, button, action, mods);
+    // });
 
     // VkRenderer initialization
-    renderer = std::make_unique<VkRenderer>(window, dynamicRendering, asyncCompute);
+    renderer = std::make_unique<VkRenderer>(window, &camera, dynamicRendering, asyncCompute);
 
     const auto instance = renderer->vk_instance();
     const auto physicalDevice = renderer->physical_device();
@@ -82,6 +93,12 @@ void VkGui::Loop() {
             continue;
         }
 
+        if (mouseHeldDown) {
+            double xpos, ypos;
+            glfwGetCursorPos(window, &xpos, &ypos);
+            camera.ProcessMouseInput(xpos, ypos);
+        }
+
         auto start = std::chrono::high_resolution_clock::now();
 
         ImGui_ImplVulkan_NewFrame();
@@ -108,7 +125,7 @@ void VkGui::Loop() {
 
         auto end = std::chrono::high_resolution_clock::now();
         const auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
-        stats.frameTime = static_cast<float>(elapsed) / 1000.f;
+        stats.frameTime = deltaTime = static_cast<float>(elapsed) / 1000.f;
     }
 }
 
@@ -133,6 +150,34 @@ void VkGui::errorCallback(const int error, const char *description) {
     fprintf(stderr, "Error %d: %s\n", error, description);
 }
 
+void VkGui::FramebufferResizeCallback(GLFWwindow *window, int, int) {
+    const auto gui = static_cast<VkGui *>(glfwGetWindowUserPointer(window));
+    gui->renderer->FramebufferNeedsResizing();
+}
+
+void VkGui::MouseButtonCallback(GLFWwindow *window, int button, int action, int mods) {
+    const auto gui = static_cast<VkGui *>(glfwGetWindowUserPointer(window));
+
+    if (button == GLFW_MOUSE_BUTTON_LEFT) {
+        if (action == GLFW_PRESS) {
+            gui->mouseHeldDown = true;
+        } else if (action == GLFW_RELEASE) {
+            gui->mouseHeldDown = false;
+        }
+    }
+}
+
+void VkGui::KeyboardCallback(GLFWwindow *window, int key, int scancode, int action, int mods) {
+    const auto gui = static_cast<VkGui *>(glfwGetWindowUserPointer(window));
+    if (action == GLFW_PRESS) {
+        if (key == GLFW_KEY_ESCAPE) {
+            glfwSetWindowShouldClose(window, GLFW_TRUE);
+        }
+    }
+
+    gui->camera.ProcessKeyboardInput(key, action, gui->deltaTime);
+}
+
 void VkGui::CreateImGuiDescriptorPool() {
     std::array<VkDescriptorPoolSize, 1> poolSizes{
         {
@@ -144,7 +189,7 @@ void VkGui::CreateImGuiDescriptorPool() {
         VK_NULL_HANDLE,
         VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT,
         1,
-        static_cast<uint32_t>(poolSizes.size()),
+        poolSizes.size(),
         poolSizes.data()
     };
 

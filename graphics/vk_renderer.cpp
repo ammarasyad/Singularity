@@ -13,13 +13,14 @@
 #include "file.h"
 #include "vk/vk_gui.h"
 
-VkRenderer::VkRenderer(GLFWwindow *window, const bool dynamicRendering, const bool asyncCompute)
+VkRenderer::VkRenderer(GLFWwindow *window, Camera *camera, const bool dynamicRendering, const bool asyncCompute)
     : dynamicRendering(dynamicRendering),
       asyncCompute(asyncCompute),
 #ifndef _NDEBUG
       debugMessenger(VK_NULL_HANDLE),
 #endif
       glfwWindow(window),
+      camera(camera),
       viewport(),
       scissor(),
       instance(VK_NULL_HANDLE),
@@ -52,7 +53,7 @@ VkRenderer::VkRenderer(GLFWwindow *window, const bool dynamicRendering, const bo
     frames[0].frameCallbacks.reserve(MAX_FRAMES_IN_FLIGHT);
     frames[1].frameCallbacks.reserve(MAX_FRAMES_IN_FLIGHT);
 
-    glfwSetWindowUserPointer(window, this);
+    // glfwSetWindowUserPointer(window, this);
     InitializeInstance();
 
 #ifndef _NDEBUG
@@ -73,6 +74,7 @@ VkRenderer::VkRenderer(GLFWwindow *window, const bool dynamicRendering, const bo
 
     PickPhysicalDevice();
     CreateLogicalDevice();
+    CreateCommandPool();
     // CreateQueryPool();
 
     memoryManager = std::make_shared<VkMemoryManager>(instance, physicalDevice, device);
@@ -120,8 +122,6 @@ VkRenderer::VkRenderer(GLFWwindow *window, const bool dynamicRendering, const bo
     if (!dynamicRendering)
         CreateFramebuffers();
 
-    CreateCommandPool();
-
     meshAssets = LoadGltfMeshes(this, "../assets/basicmesh.glb").value();
 
     CreateCommandBuffers();
@@ -136,9 +136,13 @@ VkRenderer::~VkRenderer() {
     Shutdown();
 }
 
-void VkRenderer::FramebufferResizeCallback(GLFWwindow *window, int, int) {
-    const auto app = static_cast<VkRenderer *>(glfwGetWindowUserPointer(window));
-    app->framebufferResized = true;
+// void VkRenderer::FramebufferResizeCallback(GLFWwindow *window, int, int) {
+//     const auto app = static_cast<VkRenderer *>(glfwGetWindowUserPointer(window));
+//     app->framebufferResized = true;
+// }
+
+void VkRenderer::FramebufferNeedsResizing() {
+    framebufferResized = true;
 }
 
 void VkRenderer::InitializeInstance() {
@@ -381,15 +385,18 @@ void VkRenderer::Draw(const VkCommandBuffer &commandBuffer, uint32_t imageIndex,
 
         vkCmdBeginRendering(commandBuffer, &renderingInfo);
     } else {
-        VkClearValue clearValue = {0.2f, 0.2f, 0.6f, 1.0f};
+        // VkClearValue clearValue = {0.2f, 0.2f, 0.6f, 1.0f};
+        std::array<VkClearValue, 2> clearValues{};
+        clearValues[0].color = {0.0f, 0.0f, 0.0f, 1.0f};
+        clearValues[1].depthStencil = {1.0f, 0};
         VkRenderPassBeginInfo renderPassInfo{
             VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
             VK_NULL_HANDLE,
             renderPass,
             swapChainFramebuffers[imageIndex],
             {{0, 0}, swapChainExtent},
-            1,
-            &clearValue
+            clearValues.size(),
+            clearValues.data()
         };
 
         vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
@@ -670,6 +677,10 @@ void VkRenderer::RecreateSwapChain() {
         CreateSwapChain();
         CreateFramebuffers();
 
+        viewport.width = static_cast<float>(swapChainExtent.width);
+        viewport.height = static_cast<float>(swapChainExtent.height);
+        scissor.extent = swapChainExtent;
+
         framebufferResized = false;
     }
 }
@@ -826,6 +837,7 @@ void VkRenderer::PickPhysicalDevice() {
     };
 
     vkGetPhysicalDeviceProperties2(physicalDevice, &deviceProperties2);
+    vkGetPhysicalDeviceMemoryProperties(physicalDevice, &memoryProperties);
     raytracingCapable = raytracingProperties.shaderGroupHandleSize > 0;
 }
 
@@ -1010,7 +1022,7 @@ void VkRenderer::CreateSwapChain() {
         VK_NULL_HANDLE
     };
 
-    uint32_t qfi[] = {queueFamilyIndices.graphicsFamily.value(), queueFamilyIndices.presentFamily.value()};
+    const uint32_t qfi[] = {queueFamilyIndices.graphicsFamily.value(), queueFamilyIndices.presentFamily.value()};
 
     if (queueFamilyIndices.graphicsFamily != queueFamilyIndices.presentFamily) {
         createInfo.imageSharingMode = VK_SHARING_MODE_CONCURRENT;
@@ -1051,8 +1063,6 @@ void VkRenderer::CreateSwapChain() {
     auto imageCreateInfo = CreateImageCreateInfo(VK_FORMAT_R16G16B16A16_SFLOAT, {swapChainExtent.width, swapChainExtent.height, 1}, usage, VK_IMAGE_TILING_OPTIMAL,
                                                  VK_IMAGE_LAYOUT_UNDEFINED, {});
 
-    vkGetPhysicalDeviceMemoryProperties(physicalDevice, &memoryProperties);
-
     VmaAllocationCreateInfo allocationCreateInfo{
         {},
         VMA_MEMORY_USAGE_AUTO
@@ -1067,13 +1077,18 @@ void VkRenderer::CreateSwapChain() {
     drawImage = memoryManager->createManagedImage(&imageCreateInfo, &allocationCreateInfo, &viewCreateInfo);
 
     // Depth Image
-    // usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
-    // imageCreateInfo = CreateImageCreateInfo(VK_FORMAT_D32_SFLOAT, {swapChainExtent.width, swapChainExtent.height, 1}, usage, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_LAYOUT_UNDEFINED, {});
-    //
-    // viewCreateInfo.format = VK_FORMAT_D32_SFLOAT;
-    // viewCreateInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
-    //
-    // depthImage = memoryManager->createManagedImage(&imageCreateInfo, &allocationCreateInfo, &viewCreateInfo);
+    viewCreateInfo.format = VK_FORMAT_D32_SFLOAT;
+    viewCreateInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+
+    // auto imageCreateInfo = CreateImageCreateInfo(VK_FORMAT_D32_SFLOAT, {swapChainExtent.width, swapChainExtent.height, 1}, usage, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_LAYOUT_UNDEFINED, {});
+    imageCreateInfo.format = VK_FORMAT_D32_SFLOAT;
+    imageCreateInfo.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+
+    depthImage = memoryManager->createManagedImage(&imageCreateInfo, &allocationCreateInfo, &viewCreateInfo);
+
+    ImmediateSubmit([&](auto &cmd) {
+        TransitionImage(cmd, depthImage.image, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_NONE, VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT, VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+    });
 }
 
 void VkRenderer::CreateRenderPass() {
@@ -1089,9 +1104,26 @@ void VkRenderer::CreateRenderPass() {
         VK_IMAGE_LAYOUT_PRESENT_SRC_KHR
     };
 
+    VkAttachmentDescription depthImageDescription{
+        0,
+        VK_FORMAT_D32_SFLOAT,
+        msaaSamples,
+        VK_ATTACHMENT_LOAD_OP_CLEAR,
+        VK_ATTACHMENT_STORE_OP_DONT_CARE,
+        VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+        VK_ATTACHMENT_STORE_OP_DONT_CARE,
+        VK_IMAGE_LAYOUT_UNDEFINED,
+        VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
+    };
+
     VkAttachmentReference colorAttachmentRef{
         0,
         VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
+    };
+
+    VkAttachmentReference depthAttachmentRef{
+        1,
+        VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
     };
 
     VkSubpassDescription graphicsSubpass{
@@ -1102,7 +1134,7 @@ void VkRenderer::CreateRenderPass() {
         1,
         &colorAttachmentRef,
         VK_NULL_HANDLE,
-        VK_NULL_HANDLE,
+        &depthAttachmentRef,
         0,
         VK_NULL_HANDLE
     };
@@ -1110,18 +1142,19 @@ void VkRenderer::CreateRenderPass() {
     VkSubpassDependency dependency{
         VK_SUBPASS_EXTERNAL,
         0,
-        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,
+        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,
         VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
-        VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT
+        VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
     };
 
+    std::array attachments = {swapChainImageDescription, depthImageDescription};
     const VkRenderPassCreateInfo renderPassInfo{
         VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
         VK_NULL_HANDLE,
         0,
-        1,
-        &swapChainImageDescription,
+        attachments.size(),
+        attachments.data(),
         1,
         &graphicsSubpass,
         1,
@@ -1386,18 +1419,18 @@ void VkRenderer::CreateComputePipeline() {
 void VkRenderer::CreateFramebuffers() {
     swapChainFramebuffers.resize(swapChainImageViews.size());
     for (size_t i = 0; i < swapChainImageViews.size(); i++) {
+        std::array attachments = {swapChainImageViews[i], depthImage.imageView};
         VkFramebufferCreateInfo framebufferInfo{
             VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
             VK_NULL_HANDLE,
             0,
             renderPass,
-            1,
-            &swapChainImageViews[i],
+            attachments.size(),
+            attachments.data(),
             swapChainExtent.width,
             swapChainExtent.height,
             1
         };
-
         VK_CHECK(vkCreateFramebuffer(device, &framebufferInfo, VK_NULL_HANDLE, &swapChainFramebuffers[i]));
     }
 }
@@ -1655,6 +1688,7 @@ VkPresentModeKHR VkRenderer::ChooseSwapPresentMode(const std::vector<VkPresentMo
 
 VkExtent2D VkRenderer::ChooseSwapExtent(const VkSurfaceCapabilitiesKHR &capabilities) const {
     if (capabilities.currentExtent.width != UINT32_MAX) {
+        std::cout << "Actual extent: " << capabilities.currentExtent.width << " " << capabilities.currentExtent.height << std::endl;
         return capabilities.currentExtent;
     }
 
@@ -1665,6 +1699,8 @@ VkExtent2D VkRenderer::ChooseSwapExtent(const VkSurfaceCapabilitiesKHR &capabili
         static_cast<uint32_t>(w),
         static_cast<uint32_t>(h)
     };
+
+    std::cout << "Actual extent: " << actualExtent.width << " " << actualExtent.height << std::endl;
 
     return {
         std::clamp(actualExtent.width, capabilities.minImageExtent.width, capabilities.maxImageExtent.width),
@@ -1718,15 +1754,15 @@ VkImageCreateInfo VkRenderer::CreateImageCreateInfo(VkFormat format, VkExtent3D 
     };
 }
 
-void VkRenderer::UpdatePushConstants(MeshPushConstants &meshPushConstants) const {
-    const glm::mat4 view = lookAt(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f), glm::vec3(0.0f, 0.0f, 0.0f));
-    glm::mat4 proj = glm::perspective(glm::radians(fov),
-                                      static_cast<float>(swapChainExtent.width) / static_cast<float>(swapChainExtent.
-                                          height), 0.1f, 10000.f);
-    proj[1][1] *= -1;
-
-    meshPushConstants.worldMatrix = proj * view;
-}
+// void VkRenderer::UpdatePushConstants(MeshPushConstants &meshPushConstants) const {
+//     const glm::mat4 view = lookAt(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f), glm::vec3(0.0f, 0.0f, 0.0f));
+//     glm::mat4 proj = glm::perspective(glm::radians(fov),
+//                                       static_cast<float>(swapChainExtent.width) / static_cast<float>(swapChainExtent.
+//                                           height), 0.1f, 10000.f);
+//     proj[1][1] *= -1;
+//
+//     meshPushConstants.worldMatrix = proj * view;
+// }
 
 void VkRenderer::SavePipelineCache() const {
     size_t size;
@@ -1740,6 +1776,8 @@ void VkRenderer::SavePipelineCache() const {
 }
 
 void VkRenderer::UpdateScene() {
+    camera->UpdateVectors();
+
     mainDrawContext.opaqueSurfaces.clear();
 
     // loadedNodes["Suzanne"]->Draw(glm::mat4{1.f}, mainDrawContext);
@@ -1754,10 +1792,11 @@ void VkRenderer::UpdateScene() {
         loadedNodes["Cube"]->Draw(translation * scale, mainDrawContext);
     }
 
-    sceneData.view = lookAt(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
-    sceneData.projection = glm::perspective(glm::radians(fov), static_cast<float>(swapChainExtent.width) / static_cast<float>(swapChainExtent.height), 0.1f, 10000.f);
-    sceneData.projection[1][1] *= -1;
-    sceneData.vp = sceneData.projection * sceneData.view;
+    // sceneData.view = lookAt(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+    const auto view = camera->ViewMatrix();
+    auto projection = glm::perspective(glm::radians(fov), static_cast<float>(swapChainExtent.width) / static_cast<float>(swapChainExtent.height), 0.1f, 10000.f);
+    projection[1][1] *= -1;
+    sceneData.worldMatrix = projection * view;
 }
 
 #ifndef _NDEBUG

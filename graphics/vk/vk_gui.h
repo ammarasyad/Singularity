@@ -2,9 +2,9 @@
 #define D3D12_STUFF_VK_GUI_H
 
 #include <memory>
-#include <../../third_party/glfw-3.4/include/glfw/glfw3.h>
+#include <glfw/glfw3.h>
 
-#include "file.h"
+#include "camera.h"
 
 class VkRenderer;
 typedef struct VkDescriptorPool_T * VkDescriptorPool;
@@ -25,9 +25,17 @@ public:
     void Shutdown() const;
 private:
     static void errorCallback(int error, const char *description);
+    static void FramebufferResizeCallback(GLFWwindow *window, int width, int height);
+    static void MouseButtonCallback(GLFWwindow *window, int button, int action, int mods);
+    static void KeyboardCallback(GLFWwindow *window, int key, int scancode, int action, int mods);
     void CreateImGuiDescriptorPool();
 
+    bool mouseHeldDown = false;
+
+    float deltaTime = 0;
+
     GLFWwindow *window;
+    Camera camera;
 
     VkDescriptorPool imguiDescriptorPool;
     EngineStats stats{};

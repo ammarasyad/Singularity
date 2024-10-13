@@ -9,6 +9,7 @@
 #include <optional>
 #include <vector>
 
+#include "camera.h"
 #include "objects/material.h"
 #include "objects/render_object.h"
 #include "vk/memory/vk_memory.h"
@@ -33,9 +34,7 @@ struct FrameData {
 };
 
 struct SceneData {
-    glm::mat4 view;
-    glm::mat4 projection;
-    glm::mat4 vp;
+    glm::mat4 worldMatrix;
     glm::vec4 ambientColor;
     glm::vec4 sunlightDirection;
     glm::vec4 sunlightColor;
@@ -55,7 +54,7 @@ class VkRenderer {
 public:
     float fov = 45.0f;
 
-    explicit VkRenderer(GLFWwindow *window, bool dynamicRendering = true, bool asyncCompute = true);
+    explicit VkRenderer(GLFWwindow *window, Camera *camera, bool dynamicRendering = true, bool asyncCompute = true);
     ~VkRenderer();
 
     void Render(EngineStats &stats);
@@ -197,7 +196,8 @@ public:
         vkFreeCommandBuffers(device, immediateCommandPool, 1, &commandBuffer);
     }
 
-    static void FramebufferResizeCallback(GLFWwindow *window, int width, int height);
+    // static void FramebufferResizeCallback(GLFWwindow *window, int width, int height);
+    void FramebufferNeedsResizing();
 private:
     uint32_t currentFrame = 0;
 
@@ -266,12 +266,13 @@ private:
     inline static VkBufferCreateInfo CreateBufferCreateInfo(VkDeviceSize size, VkBufferUsageFlags usage, VkSharingMode sharingMode);
     inline static VkImageCreateInfo CreateImageCreateInfo(VkFormat format, VkExtent3D extent, VkImageUsageFlags usage, VkImageTiling tiling, VkImageLayout layout, VkImageCreateFlags flags);
 
-    inline void UpdatePushConstants(MeshPushConstants &meshPushConstants) const;
+    // inline void UpdatePushConstants(MeshPushConstants &meshPushConstants) const;
     inline void SavePipelineCache() const;
 
     inline void UpdateScene();
 
     GLFWwindow *glfwWindow;
+    Camera *camera;
 
     VkViewport viewport;
     VkRect2D scissor;
@@ -313,6 +314,7 @@ private:
     std::vector<std::shared_ptr<MeshAsset>> meshAssets;
 
     VulkanImage drawImage{};
+    VulkanImage depthImage{};
     VulkanImage defaultImage{};
 
     VkSampler textureSamplerLinear;
