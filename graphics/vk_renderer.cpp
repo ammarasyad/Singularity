@@ -1778,14 +1778,11 @@ void VkRenderer::SavePipelineCache() const {
 void VkRenderer::UpdateScene() {
     mainDrawContext.opaqueSurfaces.clear();
 
-    // loadedNodes["Suzanne"]->Draw(glm::mat4{1.f}, mainDrawContext);
-    for (const auto &node : std::ranges::views::values(loadedNodes)) {
-        node->Draw(glm::mat4{1.f}, mainDrawContext);
-    }
+    loadedNodes["Suzanne"]->Draw(glm::mat4{1.}, mainDrawContext);
 
     for (int i = -3; i < 3; i++) {
         glm::mat4 scale = glm::scale(glm::vec3{0.2});
-        glm::mat4 translation = glm::translate(glm::vec3{i, 1, 0});
+        glm::mat4 translation = glm::translate(glm::vec3{i, 3, 0});
 
         loadedNodes["Cube"]->Draw(translation * scale, mainDrawContext);
     }
