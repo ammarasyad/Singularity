@@ -28,6 +28,11 @@ struct VulkanImage {
     VkFormat format;
 };
 
+struct VulkanBuffer {
+    VkBuffer buffer;
+    VmaAllocation allocation;
+};
+
 struct VkVertex {
     alignas(16) glm::vec3 pos;
     alignas(16) glm::vec3 normal;

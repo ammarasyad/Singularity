@@ -8,11 +8,6 @@
 
 class VkRenderer;
 
-struct VulkanBuffer {
-    VkBuffer buffer;
-    VmaAllocation allocation;
-};
-
 struct ImageViewCreateInfo {
     VkImageViewCreateFlags flags;
     VkImageViewType viewType;
