@@ -1776,8 +1776,6 @@ void VkRenderer::SavePipelineCache() const {
 }
 
 void VkRenderer::UpdateScene() {
-    camera->UpdateVectors();
-
     mainDrawContext.opaqueSurfaces.clear();
 
     // loadedNodes["Suzanne"]->Draw(glm::mat4{1.f}, mainDrawContext);
