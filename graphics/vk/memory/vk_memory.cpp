@@ -217,15 +217,15 @@ VulkanImage VkMemoryManager::createTexture(VkExtent3D size, VkFormat format, VkI
 
 void generateMipmaps(const VkCommandBuffer &commandBuffer, VkImage &image, VkExtent2D size) {
     // TODO: Generate this with a compute shader later
-    auto mipLevels = static_cast<uint32_t>(std::floor(std::log2(std::max(size.width, size.height)))) + 1;
+    auto mipLevels = static_cast<uint32_t>(std::floor(std::log2(std::max(size.width, size.height))));
     for (int mip = 0; mip < mipLevels; mip++) {
         VkExtent2D halfSize = {std::max(1u, size.width >> 1), std::max(1u, size.height >> 1)};
 
         VkImageMemoryBarrier2 imageBarrier{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
-        imageBarrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
-        imageBarrier.srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT;
-        imageBarrier.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
-        imageBarrier.dstAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT | VK_ACCESS_2_MEMORY_READ_BIT;
+        imageBarrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT;
+        imageBarrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+        imageBarrier.dstStageMask = VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT;
+        imageBarrier.dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
 
         imageBarrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
         imageBarrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
@@ -233,6 +233,7 @@ void generateMipmaps(const VkCommandBuffer &commandBuffer, VkImage &image, VkExt
         imageBarrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
         imageBarrier.subresourceRange.baseMipLevel = mip;
         imageBarrier.subresourceRange.levelCount = 1;
+        imageBarrier.subresourceRange.layerCount = 1;
         imageBarrier.image = image;
 
         VkDependencyInfo dependencyInfo{VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
@@ -262,6 +263,19 @@ void generateMipmaps(const VkCommandBuffer &commandBuffer, VkImage &image, VkExt
             imageBlit.dstSubresource.baseArrayLayer = 0;
             imageBlit.dstSubresource.layerCount = 1;
 
+            // Is this really needed?
+            imageBarrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+            imageBarrier.srcAccessMask = VK_ACCESS_2_NONE;
+            imageBarrier.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+            imageBarrier.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+
+            imageBarrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+            imageBarrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+
+            imageBarrier.subresourceRange.baseMipLevel = mip + 1;
+
+            vkCmdPipelineBarrier2(commandBuffer, &dependencyInfo);
+
             VkBlitImageInfo2 blitInfo{VK_STRUCTURE_TYPE_BLIT_IMAGE_INFO_2};
             blitInfo.srcImage = image;
             blitInfo.srcImageLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
@@ -277,7 +291,7 @@ void generateMipmaps(const VkCommandBuffer &commandBuffer, VkImage &image, VkExt
         }
     }
 
-    TransitionImage(commandBuffer, image, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_MEMORY_WRITE_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_MEMORY_READ_BIT, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    TransitionImage(commandBuffer, image, VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_2_MEMORY_READ_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 }
 
 VulkanImage VkMemoryManager::createTexture(void *data, VkRenderer *renderer, VkExtent3D size, VkFormat format, VkImageUsageFlags usage, bool mipmapped) {
