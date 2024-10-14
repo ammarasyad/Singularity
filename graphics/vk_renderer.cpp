@@ -291,7 +291,7 @@ void VkRenderer::Render(EngineStats &stats) {
 }
 
 bool isObjectVisible(const VkRenderObject &obj, const glm::mat4 &viewProjection) {
-    std::array<glm::vec3, 8> corners{
+    static constexpr std::array<glm::vec3, 8> corners{
             glm::vec3 {1, 1, 1},
             glm::vec3 {1, 1, -1},
             glm::vec3 {1, -1, 1},
