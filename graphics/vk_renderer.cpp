@@ -852,9 +852,6 @@ void VkRenderer::PickPhysicalDevice() {
     raytracingCapable = raytracingProperties.shaderGroupHandleSize > 0;
 }
 
-// TODO: Maybe not use this and fix the issue with the compiler optimizing away structs down the (conditional) pNext chain?
-#pragma GCC push_options
-#pragma GCC optimize("O0")
 void VkRenderer::CreateLogicalDevice() {
     FindQueueFamilies(physicalDevice);
 
@@ -909,6 +906,28 @@ void VkRenderer::CreateLogicalDevice() {
     deviceExtensions.push_back(VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME);
     deviceExtensions.push_back(VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME);
 
+    VkPhysicalDeviceRayQueryFeaturesKHR rayQueryFeatures{
+            VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR,
+            VK_NULL_HANDLE,
+            VK_TRUE
+    };
+
+    VkPhysicalDeviceAccelerationStructureFeaturesKHR accelerationStructureFeatures{
+            VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR,
+            &rayQueryFeatures,
+            VK_TRUE
+    };
+
+    VkPhysicalDeviceRayTracingPipelineFeaturesKHR rayTracingPipelineFeatures{
+            VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR,
+            &accelerationStructureFeatures,
+            VK_TRUE,
+            VK_FALSE,
+            VK_FALSE,
+            VK_TRUE,
+            VK_TRUE,
+    };
+
     if (raytracingCapable) {
         deviceExtensions.push_back(VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME);
         deviceExtensions.push_back(VK_KHR_RAY_QUERY_EXTENSION_NAME);
@@ -919,28 +938,6 @@ void VkRenderer::CreateLogicalDevice() {
         deviceExtensions.push_back(VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME);
 
         vulkan12Features.descriptorIndexing = VK_TRUE;
-
-        VkPhysicalDeviceRayQueryFeaturesKHR rayQueryFeatures{
-            VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR,
-            VK_NULL_HANDLE,
-            VK_TRUE
-        };
-
-        VkPhysicalDeviceAccelerationStructureFeaturesKHR accelerationStructureFeatures{
-            VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR,
-            &rayQueryFeatures,
-            VK_TRUE
-        };
-
-        VkPhysicalDeviceRayTracingPipelineFeaturesKHR rayTracingPipelineFeatures{
-            VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR,
-            &accelerationStructureFeatures,
-            VK_TRUE,
-            VK_FALSE,
-            VK_FALSE,
-            VK_TRUE,
-            VK_TRUE,
-        };
 
         vulkan12Features.pNext = &rayTracingPipelineFeatures;
     }
@@ -974,7 +971,6 @@ void VkRenderer::CreateLogicalDevice() {
 
     delete[] queuePriorities;
 }
-#pragma GCC pop_options
 
 void VkRenderer::CreateQueryPool() {
     const VkQueryPoolCreateInfo createInfo{
