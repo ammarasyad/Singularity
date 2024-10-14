@@ -318,11 +318,7 @@ bool isObjectVisible(const VkRenderObject &obj, const glm::mat4 &viewProjection)
     return min.z < 1.f && max.z > 0.f && min.x < 1.f && max.x > -1.f && min.y < 1.f && max.y > -1.f;
 }
 
-void DrawObject(const VkCommandBuffer &commandBuffer, const VkRenderObject &draw, const VkDescriptorSet &sceneDescriptorSet) {
-    static VkMaterialPipeline *lastPipeline = nullptr;
-    static VkMaterialInstance *lastMaterialInstance = nullptr;
-    static VkBuffer lastIndexBuffer = VK_NULL_HANDLE;
-    
+void DrawObject(const VkCommandBuffer &commandBuffer, const VkRenderObject &draw, const VkDescriptorSet &sceneDescriptorSet, VkMaterialPipeline *lastPipeline, VkMaterialInstance *lastMaterialInstance, VkBuffer &lastIndexBuffer) {
     if (draw.materialInstance != lastMaterialInstance) {
         lastMaterialInstance = draw.materialInstance;
 
@@ -520,15 +516,19 @@ void VkRenderer::Draw(const VkCommandBuffer &commandBuffer, uint32_t imageIndex,
     vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
     vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
 
+    VkMaterialPipeline *lastPipeline = nullptr;
+    VkMaterialInstance *lastMaterialInstance = nullptr;
+    VkBuffer lastIndexBuffer = VK_NULL_HANDLE;
+
     for (const auto &i : drawIndices) {
         const VkRenderObject &draw = mainDrawContext.opaqueSurfaces[i];
-        DrawObject(commandBuffer, draw, sceneDescriptorSet);
+        DrawObject(commandBuffer, draw, sceneDescriptorSet, lastPipeline, lastMaterialInstance, lastIndexBuffer);
         stats.drawCallCount++;
         stats.triangleCount += draw.indexCount / 3;
     }
 
     for (const auto &r : mainDrawContext.transparentSurfaces) {
-        DrawObject(commandBuffer, r, sceneDescriptorSet);
+        DrawObject(commandBuffer, r, sceneDescriptorSet, lastPipeline, lastMaterialInstance, lastIndexBuffer);
         stats.drawCallCount++;
         stats.triangleCount += r.indexCount / 3;
     }
