@@ -7,15 +7,15 @@
 void MeshNode::Draw(const glm::mat4 &topMatrix, VkDrawContext &ctx) {
     const glm::mat4 nodeMatrix = topMatrix * worldTransform;
 
-    for (auto &[startIndex, indexCount, bounds, material] : mesh->surfaces) {
+    for (auto &[startIndex, indexCount, bounds, material] : meshAsset.surfaces) {
         VkRenderObject renderObject;
         renderObject.indexCount = indexCount;
         renderObject.firstIndex = startIndex;
-        renderObject.indexBuffer = mesh->mesh.indexBuffer;
+        renderObject.indexBuffer = meshAsset.mesh.indexBuffer;
         renderObject.materialInstance = &material.data;
         renderObject.bounds = bounds;
         renderObject.transform = nodeMatrix;
-        renderObject.vertexBufferAddress = mesh->mesh.vertexBufferDeviceAddress;
+        renderObject.vertexBufferAddress = meshAsset.mesh.vertexBufferDeviceAddress;
 
 //        ctx.opaqueSurfaces.emplace_back(renderObject);
         if (material.data.pass == MaterialPass::MainColor) {

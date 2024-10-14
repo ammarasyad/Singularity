@@ -11,6 +11,7 @@ set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 
 option(FASTGLTF_COMPILE_AS_CPP20 ON)
+option(COMPILE_AVX2 "Compile with AVX2" ON)
 
 add_subdirectory(third_party/glfw-3.4)
 add_subdirectory(third_party/D3D12MemoryAllocator)
@@ -84,6 +85,10 @@ foreach (FILE ${SHADER_FILES})
             VERBATIM
     )
 endforeach ()
+
+if (COMPILE_AVX2)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mavx2")
+endif ()
 
 add_dependencies(Singularity shaders)
 target_include_directories(Singularity PRIVATE imgui third_party/glm third_party/fastgltf/include)

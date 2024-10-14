@@ -158,6 +158,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> LoadGLTF(VkRenderer *renderer, const 
 
     scene->descriptorAllocator.InitPool(renderer->logical_device(), gltf.materials.size(), sizes);
 
+    scene->samplers.reserve(gltf.samplers.size());
     for (const auto &[magFilter, minFilter, wrapS, wrapT, name] : gltf.samplers) {
         VkSamplerCreateInfo samplerCreateInfo{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
         samplerCreateInfo.magFilter = extractFilter(magFilter.value_or(fastgltf::Filter::Nearest));
@@ -177,7 +178,8 @@ std::optional<std::shared_ptr<LoadedGLTF>> LoadGLTF(VkRenderer *renderer, const 
         scene->samplers.push_back(newSampler);
     }
 
-    std::vector<std::shared_ptr<MeshAsset>> meshes;
+//    std::vector<std::shared_ptr<MeshAsset>> meshes;
+    std::vector<MeshAsset> meshes;
     meshes.reserve(gltf.meshes.size());
     std::vector<std::shared_ptr<Node>> nodes;
     nodes.reserve(gltf.nodes.size());
@@ -234,7 +236,6 @@ std::optional<std::shared_ptr<LoadedGLTF>> LoadGLTF(VkRenderer *renderer, const 
 
         auto passType = material.alphaMode == fastgltf::AlphaMode::Blend ? MaterialPass::Transparent : MaterialPass::MainColor;
 
-        // TODO: Fill this later
         VkGLTFMetallic_Roughness::MaterialResources materialResources{};
         materialResources.colorImage = renderer->default_image();
         materialResources.colorSampler = renderer->default_sampler_linear();
@@ -265,8 +266,9 @@ std::optional<std::shared_ptr<LoadedGLTF>> LoadGLTF(VkRenderer *renderer, const 
     std::vector<VkVertex> vertices;
 
     for (auto &[primitives, weights, name] : gltf.meshes) {
-        auto meshAsset = std::make_shared<MeshAsset>();
-        meshAsset->name = name;
+//        auto meshAsset = std::make_shared<MeshAsset>();
+        MeshAsset meshAsset{};
+        meshAsset.name = name;
 
         indices.clear();
         vertices.clear();
@@ -349,10 +351,10 @@ std::optional<std::shared_ptr<LoadedGLTF>> LoadGLTF(VkRenderer *renderer, const 
             geoSurface.bounds.extents = (maxPos - minPos) * 0.5f;
             geoSurface.bounds.sphereRadius = glm::length(geoSurface.bounds.extents);
 
-            meshAsset->surfaces.push_back(geoSurface);
+            meshAsset.surfaces.push_back(geoSurface);
         }
 
-        meshAsset->mesh = renderer->CreateMesh(vertices, indices);
+        meshAsset.mesh = renderer->CreateMesh(vertices, indices);
         scene->meshes[name.c_str()] = meshAsset;
         meshes.push_back(std::move(meshAsset));
     }
@@ -362,7 +364,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> LoadGLTF(VkRenderer *renderer, const 
 
         if (node.meshIndex.has_value()) {
             newNode = std::make_shared<MeshNode>();
-            std::dynamic_pointer_cast<MeshNode>(newNode)->mesh = meshes[node.meshIndex.value()];
+            std::dynamic_pointer_cast<MeshNode>(newNode)->meshAsset = meshes[node.meshIndex.value()];
         } else {
             newNode = std::make_shared<Node>();
         }

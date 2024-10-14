@@ -76,7 +76,8 @@ struct Node : IRenderable {
 };
 
 struct MeshNode final : Node {
-    std::shared_ptr<MeshAsset> mesh;
+//    std::shared_ptr<MeshAsset> mesh;
+    MeshAsset meshAsset;
 
     void Draw(const glm::mat4 &topMatrix, VkDrawContext &ctx) override;
 };

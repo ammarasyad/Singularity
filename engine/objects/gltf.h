@@ -12,7 +12,8 @@ struct LoadedGLTF : IRenderable {
     ~LoadedGLTF() override { clear(); }
     void Draw(const glm::mat4 &topMatrix, VkDrawContext &ctx) override;
 
-    std::unordered_map<std::string, std::shared_ptr<MeshAsset>> meshes;
+//    std::unordered_map<std::string, std::shared_ptr<MeshAsset>> meshes;
+    std::unordered_map<std::string, MeshAsset> meshes;
     std::unordered_map<std::string, std::shared_ptr<Node>> nodes;
     std::unordered_map<std::string, VulkanImage> images;
 //    std::unordered_map<std::string, std::shared_ptr<GLTFMaterial>> materials;
