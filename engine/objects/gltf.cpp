@@ -120,33 +120,13 @@ std::optional<std::shared_ptr<LoadedGLTF>> LoadGLTF(VkRenderer *renderer, const 
         return std::nullopt;
     }
 
-    fastgltf::Asset gltf;
-
-    switch (determineGltfFileType(data.get())) {
-        case fastgltf::GltfType::glTF: {
-            auto load = parser.loadGltf(data.get(), path.parent_path(), gltfOptions);
-            if (load.error() != fastgltf::Error::None) {
-                fprintf(stderr, "Failed to load gltf: %llu\n", to_underlying(load.error()));
-                return std::nullopt;
-            }
-
-            gltf = std::move(load.get());
-            break;
-        }
-        case fastgltf::GltfType::GLB: {
-            auto load = parser.loadGltfBinary(data.get(), path.parent_path(), gltfOptions);
-            if (load.error() != fastgltf::Error::None) {
-                fprintf(stderr, "Failed to load gltf: %llu\n", to_underlying(load.error()));
-                return std::nullopt;
-            }
-
-            gltf = std::move(load.get());
-            break;
-        }
-        case fastgltf::GltfType::Invalid:
-            std::cerr << "Unknown gltf file type" << std::endl;
-            return std::nullopt;
+    auto load = parser.loadGltf(data.get(), path.parent_path(), gltfOptions);
+    if (load.error() != fastgltf::Error::None) {
+        fprintf(stderr, "Failed to load gltf: %llu\n", to_underlying(load.error()));
+        return std::nullopt;
     }
+
+    fastgltf::Asset gltf = std::move(load.get());
 
     std::array<DescriptorAllocator::PoolSizeRatio, 3> sizes = {
         {
