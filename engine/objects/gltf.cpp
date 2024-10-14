@@ -242,7 +242,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> LoadGLTF(VkRenderer *renderer, const 
 
     renderer->memory_manager()->unmapBuffer(&scene->materialDataBuffer.buffer);
 
-    std::vector<uint16_t> indices;
+    std::vector<uint32_t> indices;
     std::vector<VkVertex> vertices;
 
     for (auto &[primitives, weights, name] : gltf.meshes) {
@@ -266,8 +266,8 @@ std::optional<std::shared_ptr<LoadedGLTF>> LoadGLTF(VkRenderer *renderer, const 
                 auto &indexAccessor = gltf.accessors[primitive.indicesAccessor.value()];
                 indices.reserve(indices.size() + indexAccessor.count);
 
-                fastgltf::iterateAccessor<uint16_t>(gltf, indexAccessor, [&](auto value) {
-                    indices.push_back(static_cast<uint16_t>(initialVerticesSize + value));
+                fastgltf::iterateAccessor<uint32_t>(gltf, indexAccessor, [&](auto value) {
+                    indices.push_back(static_cast<uint32_t>(initialVerticesSize + value));
                 });
             }
 

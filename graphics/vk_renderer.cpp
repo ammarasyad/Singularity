@@ -318,7 +318,7 @@ bool isObjectVisible(const VkRenderObject &obj, const glm::mat4 &viewProjection)
     return min.z < 1.f && max.z > 0.f && min.x < 1.f && max.x > -1.f && min.y < 1.f && max.y > -1.f;
 }
 
-void DrawObject(const VkCommandBuffer &commandBuffer, const VkRenderObject &draw, const VkDescriptorSet &sceneDescriptorSet, VkMaterialPipeline *lastPipeline, VkMaterialInstance *lastMaterialInstance, VkBuffer &lastIndexBuffer) {
+void DrawObject(const VkCommandBuffer &commandBuffer, const VkRenderObject &draw, const VkDescriptorSet &sceneDescriptorSet, VkMaterialPipeline *&lastPipeline, VkMaterialInstance *&lastMaterialInstance, VkBuffer &lastIndexBuffer) {
     if (draw.materialInstance != lastMaterialInstance) {
         lastMaterialInstance = draw.materialInstance;
 
@@ -333,7 +333,7 @@ void DrawObject(const VkCommandBuffer &commandBuffer, const VkRenderObject &draw
 
     if (draw.indexBuffer != lastIndexBuffer) {
         lastIndexBuffer = draw.indexBuffer;
-        vkCmdBindIndexBuffer(commandBuffer, draw.indexBuffer, 0, VK_INDEX_TYPE_UINT16);
+        vkCmdBindIndexBuffer(commandBuffer, draw.indexBuffer, 0, VK_INDEX_TYPE_UINT32);
     }
 
     MeshPushConstants pushConstants{
@@ -696,7 +696,7 @@ void VkRenderer::RecreateSwapChain() {
     }
 }
 
-Mesh VkRenderer::CreateMesh(const std::span<VkVertex> &vertices, const std::span<uint16_t> &indices) {
+Mesh VkRenderer::CreateMesh(const std::span<VkVertex> &vertices, const std::span<uint32_t> &indices) {
     Mesh mesh{};
 
     VkBufferCreateInfo bufferCreateInfo{

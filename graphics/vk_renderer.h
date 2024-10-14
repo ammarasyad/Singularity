@@ -63,7 +63,7 @@ public:
     void Shutdown();
     void RecreateSwapChain();
 
-    Mesh CreateMesh(const std::span<VkVertex> &vertices, const std::span<uint16_t> &indices);
+    Mesh CreateMesh(const std::span<VkVertex> &vertices, const std::span<uint32_t> &indices);
 
     static void BlitImage(const VkCommandBuffer &commandBuffer, const VulkanImage &srcImage, const VulkanImage &dstImage, VkImageLayout srcLayout, VkImageLayout dstLayout, VkImageAspectFlags aspectFlags);
 
