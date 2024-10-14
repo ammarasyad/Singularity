@@ -8,6 +8,18 @@
 #include "vk/vk_pipeline_builder.h"
 
 void VkGLTFMetallic_Roughness::buildPipelines(const VkRenderer *renderer) {
+//    if (!materialPipelineCache) {
+//        VkPipelineCacheCreateInfo cacheCreateInfo{
+//            VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO,
+//            VK_NULL_HANDLE,
+//            0,
+//            0,
+//            VK_NULL_HANDLE
+//        };
+//
+//        VK_CHECK(vkCreatePipelineCache(renderer->logical_device(), &cacheCreateInfo, VK_NULL_HANDLE, &materialPipelineCache));
+//    }
+
     const auto device = renderer->logical_device();
     VkPushConstantRange pushConstantRange{
         VK_SHADER_STAGE_VERTEX_BIT,
@@ -73,7 +85,7 @@ void VkGLTFMetallic_Roughness::clearResources(const VkDevice &device) const {
 VkMaterialInstance VkGLTFMetallic_Roughness::writeMaterial(VkDevice &device, MaterialPass pass, const MaterialResources &resources, DescriptorAllocator &allocator) {
     VkDescriptorSetLayout setLayouts[] = {materialLayout};
     VkMaterialInstance matData{
-        .pipeline = pass == MaterialPass::Transparent ? &transparentPipeline : &opaquePipeline,
+        .pipeline = pass == MaterialPass::Transparent ? transparentPipeline : opaquePipeline,
         .descriptorSet = allocator.Allocate(device, setLayouts),
         .pass = pass
     };

@@ -14,6 +14,7 @@
 #include "objects/render_object.h"
 #include "vk/memory/vk_memory.h"
 #include "vk/vk_descriptor_layout.h"
+#include "objects/gltf.h"
 
 struct EngineStats;
 struct MeshAsset;
@@ -134,6 +135,22 @@ public:
         return msaaSamples;
     }
 
+    [[nodiscard]] VkMemoryManager *memory_manager() const {
+        return memoryManager.get();
+    }
+
+    [[nodiscard]] VulkanImage default_image() const {
+        return defaultImage;
+    }
+
+    [[nodiscard]] VkSampler default_sampler_linear() const  {
+        return textureSamplerLinear;
+    }
+
+    [[nodiscard]] VkGLTFMetallic_Roughness metal_rough_material() const {
+        return metalRoughMaterial;
+    }
+
     [[nodiscard]] const VkPhysicalDeviceProperties & device_properties() const {
         return deviceProperties;
     }
@@ -220,14 +237,14 @@ private:
         glm::vec4 color2;
     };
 
-#ifndef _NDEBUG
-    const std::array<const char *, 1> validationLayers = {
-            "VK_LAYER_KHRONOS_validation"
-    };
-
     std::vector<const char *> deviceExtensions = {
             13,
             VK_KHR_SWAPCHAIN_EXTENSION_NAME
+    };
+
+#ifndef NDEBUG
+    const std::array<const char *, 1> validationLayers = {
+            "VK_LAYER_KHRONOS_validation"
     };
 
     VkDebugUtilsMessengerEXT debugMessenger;
@@ -311,7 +328,7 @@ private:
     VkPhysicalDeviceProperties deviceProperties;
     VkPhysicalDeviceMemoryProperties memoryProperties;
 
-    std::vector<std::shared_ptr<MeshAsset>> meshAssets;
+//    std::vector<std::shared_ptr<MeshAsset>> meshAssets;
 
     VulkanImage drawImage{};
     VulkanImage depthImage{};
@@ -326,7 +343,8 @@ private:
     VkGLTFMetallic_Roughness metalRoughMaterial;
 
     VkDrawContext mainDrawContext;
-    std::unordered_map<std::string, std::shared_ptr<Node>> loadedNodes;
+//    std::unordered_map<std::string, std::shared_ptr<Node>> loadedNodes;
+    std::unordered_map<std::string, std::shared_ptr<LoadedGLTF>> loadedScenes;
     SceneData sceneData{};
 
     std::shared_ptr<VkMemoryManager> memoryManager;

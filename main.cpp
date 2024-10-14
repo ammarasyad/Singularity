@@ -22,7 +22,7 @@ enum class RendererType {
 
 static constexpr auto rendererType = RendererType::VK;
 
-#ifndef _NDEBUG
+#ifndef NDEBUG
 static void RedirectIOOutput() {
     AllocConsole();
     FILE *stream;
@@ -32,7 +32,7 @@ static void RedirectIOOutput() {
 #endif
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow) {
-#ifndef _NDEBUG
+#ifndef NDEBUG
     RedirectIOOutput();
 #endif
 

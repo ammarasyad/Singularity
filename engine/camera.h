@@ -7,7 +7,7 @@
 class Camera {
 public:
     Camera();
-    // Camera(float posX, float posY, float posZ, float upX, float upY, float upZ, float pitch, float yaw);
+     Camera(float posX, float posY, float posZ);
 
     // glm::vec3 velocity;
     glm::vec3 position;
@@ -17,7 +17,7 @@ public:
     glm::vec3 up;
 
     double pitch{0.};
-    double yaw{0.};
+    double yaw{90.};
 
     [[nodiscard]] glm::mat4 ViewMatrix() const;
     // [[nodiscard]] glm::mat4 RotationMatrix() const;

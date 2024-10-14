@@ -23,6 +23,7 @@ struct RenderObject {
     uint32_t indexCount{};
     uint32_t firstIndex{};
 
+    Bounds bounds{};
     glm::mat4 transform{};
 };
 
@@ -35,6 +36,7 @@ struct VkRenderObject final : RenderObject {
 
 struct VkDrawContext {
     std::vector<VkRenderObject> opaqueSurfaces;
+    std::vector<VkRenderObject> transparentSurfaces;
 };
 
 // struct D3D12RenderObject final : RenderObject {

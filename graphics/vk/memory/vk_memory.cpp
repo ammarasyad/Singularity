@@ -215,6 +215,71 @@ VulkanImage VkMemoryManager::createTexture(VkExtent3D size, VkFormat format, VkI
     return createManagedImage(&imageCreateInfo, &allocationCreateInfo, &imageViewCreateInfo);
 }
 
+void generateMipmaps(const VkCommandBuffer &commandBuffer, VkImage &image, VkExtent2D size) {
+    // TODO: Generate this with a compute shader later
+    auto mipLevels = static_cast<uint32_t>(std::floor(std::log2(std::max(size.width, size.height)))) + 1;
+    for (int mip = 0; mip < mipLevels; mip++) {
+        VkExtent2D halfSize = {std::max(1u, size.width >> 1), std::max(1u, size.height >> 1)};
+
+        VkImageMemoryBarrier2 imageBarrier{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
+        imageBarrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+        imageBarrier.srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT;
+        imageBarrier.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+        imageBarrier.dstAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT | VK_ACCESS_2_MEMORY_READ_BIT;
+
+        imageBarrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        imageBarrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+
+        imageBarrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        imageBarrier.subresourceRange.baseMipLevel = mip;
+        imageBarrier.subresourceRange.levelCount = 1;
+        imageBarrier.image = image;
+
+        VkDependencyInfo dependencyInfo{VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+        dependencyInfo.imageMemoryBarrierCount = 1;
+        dependencyInfo.pImageMemoryBarriers = &imageBarrier;
+
+        vkCmdPipelineBarrier2(commandBuffer, &dependencyInfo);
+
+        if (mip < mipLevels - 1) {
+            VkImageBlit2 imageBlit{VK_STRUCTURE_TYPE_IMAGE_BLIT_2};
+
+            imageBlit.srcOffsets[1].x = static_cast<int32_t>(size.width);
+            imageBlit.srcOffsets[1].y = static_cast<int32_t>(size.height);
+            imageBlit.srcOffsets[1].z = 1;
+
+            imageBlit.dstOffsets[1].x = static_cast<int32_t>(halfSize.width);
+            imageBlit.dstOffsets[1].y = static_cast<int32_t>(halfSize.height);
+            imageBlit.dstOffsets[1].z = 1;
+
+            imageBlit.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            imageBlit.srcSubresource.mipLevel = mip;
+            imageBlit.srcSubresource.baseArrayLayer = 0;
+            imageBlit.srcSubresource.layerCount = 1;
+
+            imageBlit.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            imageBlit.dstSubresource.mipLevel = mip + 1;
+            imageBlit.dstSubresource.baseArrayLayer = 0;
+            imageBlit.dstSubresource.layerCount = 1;
+
+            VkBlitImageInfo2 blitInfo{VK_STRUCTURE_TYPE_BLIT_IMAGE_INFO_2};
+            blitInfo.srcImage = image;
+            blitInfo.srcImageLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+            blitInfo.dstImage = image;
+            blitInfo.dstImageLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+            blitInfo.regionCount = 1;
+            blitInfo.pRegions = &imageBlit;
+            blitInfo.filter = VK_FILTER_LINEAR;
+
+            vkCmdBlitImage2(commandBuffer, &blitInfo);
+
+            size = halfSize;
+        }
+    }
+
+    TransitionImage(commandBuffer, image, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_MEMORY_WRITE_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_MEMORY_READ_BIT, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+}
+
 VulkanImage VkMemoryManager::createTexture(void *data, VkRenderer *renderer, VkExtent3D size, VkFormat format, VkImageUsageFlags usage, bool mipmapped) {
     VulkanImage newTexture{};
 
@@ -239,7 +304,11 @@ VulkanImage VkMemoryManager::createTexture(void *data, VkRenderer *renderer, VkE
 
             vkCmdCopyBufferToImage(commandBuffer, buffer, newTexture.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copyRegion);
 
-            TransitionImage(commandBuffer, newTexture.image, VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            if (mipmapped) {
+                generateMipmaps(commandBuffer, newTexture.image, {size.width, size.height});
+            }else {
+                TransitionImage(commandBuffer, newTexture.image, VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            }
         });
     };
 

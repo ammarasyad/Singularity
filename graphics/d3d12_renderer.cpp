@@ -35,7 +35,7 @@ void D3D12Renderer::Shutdown() {
 
 void D3D12Renderer::LoadPipeline(const HWND &hwnd) {
     UINT dxgiFactoryFlags = 0;
-#ifdef _NDEBUG
+#ifdef NDEBUG
     {
         ComPtr<ID3D12Debug> debugController;
         if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&debugController)))) {
@@ -142,7 +142,7 @@ void D3D12Renderer::LoadAssets(const WCHAR *vertexShaderSourceFile, const WCHAR 
     }
 
     {
-#ifdef _NDEBUG
+#ifdef NDEBUG
         UINT compileFlags = D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION;
 #else
         UINT compileFlags = 0;

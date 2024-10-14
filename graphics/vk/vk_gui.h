@@ -35,7 +35,7 @@ private:
     float deltaTime = 0;
 
     GLFWwindow *window;
-    Camera camera;
+    Camera camera{30., 0., -85.};
 
     VkDescriptorPool imguiDescriptorPool;
     EngineStats stats{};

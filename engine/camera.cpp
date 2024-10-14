@@ -1,17 +1,13 @@
 #include "camera.h"
 #include <ext/matrix_transform.hpp>
-#define GLM_ENABLE_EXPERIMENTAL
-#include <gtx/quaternion.hpp>
 
 Camera::Camera() : position(-5, 0, 0), worldUp(0, 1, 0), front(0, 0, -1), right(1, 0, 0), up(0, 1, 0) {
     UpdateVectors();
 }
 
-// Camera::Camera(const float posX, const float posY, const float posZ, const float upX, const float upY, const float upZ,
-//                const float pitch, const float yaw) : position(posX, posY, posZ), worldUp(upX, upY, upZ),
-//                                                      front(0.f, 0.f, -1.0f), pitch(pitch), yaw(yaw) {
-//     UpdateVectors();
-// }
+ Camera::Camera(const float posX, const float posY, const float posZ) : position(posX, posY, posZ), worldUp(0, 1, 0),front(0.f, 0.f, -1.0f), right(1, 0, 0), up(0, 1, 0) {
+     UpdateVectors();
+ }
 
 glm::mat4 Camera::ViewMatrix() const {
     return lookAt(position, position + front, up);
@@ -56,17 +52,17 @@ void Camera::ProcessKeyboardInput(const int key, const int action, const float d
 }
 
 void Camera::ProcessMouseInput(double xpos, double ypos) {
-    static constexpr float SENSITIVITY = 0.005f;
-
-    yaw += xpos * SENSITIVITY;
-    pitch += ypos * SENSITIVITY;
-
-    if (pitch > 89.0f)
-        pitch = 89.0f;
-    else if (pitch < -89.0f)
-        pitch = -89.0f;
-
-    UpdateVectors();
+//    static constexpr float SENSITIVITY = 0.005f;
+//
+//    yaw += xpos * SENSITIVITY;
+//    pitch += ypos * SENSITIVITY;
+//
+//    if (pitch > 89.0f)
+//        pitch = 89.0f;
+//    else if (pitch < -89.0f)
+//        pitch = -89.0f;
+//
+//    UpdateVectors();
 }
 
 void Camera::UpdateVectors() {

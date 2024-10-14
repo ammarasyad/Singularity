@@ -1,9 +1,9 @@
 cmake_minimum_required(VERSION 3.29)
 project(Singularity)
 
-if(CMAKE_CXX_COMPILER MATCHES "GNU")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -flto=full")
-endif()
+#if(CMAKE_CXX_COMPILER MATCHES "GNU")
+#    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -flto=full")
+#endif()
 
 set(CMAKE_CXX_STANDARD 23)
 set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
@@ -54,6 +54,8 @@ add_executable(Singularity WIN32 main.cpp
         engine/objects/material.h
         graphics/vk/vk_pipeline_builder.h
         graphics/vk/vk_pipeline_builder.cpp
+        engine/objects/gltf.cpp
+        engine/objects/gltf.h
         common/stbi_image.cpp
         #        graphics/vk/vk_pipeline_builder.h
 #        graphics/common/stats/stats_common.h
@@ -85,4 +87,5 @@ endforeach ()
 
 add_dependencies(Singularity shaders)
 target_include_directories(Singularity PRIVATE imgui third_party/glm third_party/fastgltf/include)
+target_link_options(Singularity PRIVATE -static-libstdc++)
 target_link_libraries(Singularity PRIVATE d3d12.lib dxgi.lib d3dcompiler.lib glfw fastgltf imgui D3D12MemoryAllocator Vulkan::Vulkan GPUOpen::VulkanMemoryAllocator)

@@ -25,7 +25,7 @@ struct VkMaterialPipeline {
 };
 
 struct VkMaterialInstance {
-    VkMaterialPipeline *pipeline;
+    VkMaterialPipeline pipeline;
     VkDescriptorSet descriptorSet;
     MaterialPass pass;
 };
@@ -45,7 +45,7 @@ struct VkGLTFMetallic_Roughness {
     struct MaterialConstants {
         glm::vec4 colorFactors;
         glm::vec4 metalRoughFactors;
-        const glm::vec4 padding[14];
+        glm::vec4 padding[14];
     };
 
     struct MaterialResources {
@@ -61,6 +61,8 @@ struct VkGLTFMetallic_Roughness {
     VkMaterialPipeline transparentPipeline{VK_NULL_HANDLE};
     VkDescriptorSetLayout materialLayout{VK_NULL_HANDLE};
     DescriptorWriter descriptorWriter{};
+
+    VkPipelineCache materialPipelineCache{VK_NULL_HANDLE};
 
     void buildPipelines(const VkRenderer *renderer);
     void clearResources(const VkDevice &device) const;

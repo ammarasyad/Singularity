@@ -13,10 +13,18 @@ struct GLTFMaterial {
     VkMaterialInstance data;
 };
 
+struct Bounds {
+    glm::vec3 origin;
+    float sphereRadius;
+    glm::vec3 extents;
+};
+
 struct GeoSurface {
     uint32_t startIndex;
     uint32_t indexCount;
-    std::shared_ptr<GLTFMaterial> material;
+    Bounds bounds;
+//    std::shared_ptr<GLTFMaterial> material;
+    GLTFMaterial material;
 };
 
 struct MeshAsset {
