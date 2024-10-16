@@ -8,6 +8,21 @@
 
 static constexpr uint32_t MIN_IMAGE_COUNT = 2;
 
+// ImGui helper function
+namespace ImGui {
+    template<typename Getter, typename Setter>
+    void SliderFloat(const char *label, Getter getter, Setter setter, float min, float max, const char *format = "%.3f", ImGuiSliderFlags flags = 0) {
+        float temp = getter();
+        float newValue = temp;
+
+        ImGui::SliderFloat(label, &newValue, min, max, format, flags);
+
+        if (newValue != temp) {
+            setter(newValue);
+        }
+    }
+}
+
 VkGui::VkGui(const int width, const int height, const bool dynamicRendering, const bool asyncCompute) : imguiDescriptorPool(VK_NULL_HANDLE) {
     // GLFW initialization
     glfwSetErrorCallback(errorCallback);
@@ -114,8 +129,11 @@ void VkGui::Loop() {
             ImGui::Text("Draw call count: %d", stats.drawCallCount);
             ImGui::Text("Triangle count: %d", stats.triangleCount);
 
-            ImGui::SliderFloat("FOV", &renderer->fov, 30.f, 120.f);
+            const auto position = camera.Position();
+            ImGui::Text("Camera Position: %.2f, %.2f, %.2f", position.x, position.y, position.z);
+            ImGui::Text("Camera Pitch: %.2f, Yaw: %.2f", camera.pitch, camera.yaw);
 
+            ImGui::SliderFloat("FOV", [&](){ return camera.Fov(); }, [&](float &newValue){ camera.setFov(newValue); }, 30.f, 120.f, "%.1f", ImGuiSliderFlags_AlwaysClamp);
             ImGui::End();
         }
 

@@ -1,7 +1,3 @@
-//
-// Created by Ammar on 12/10/2024.
-//
-
 #ifndef RENDEROBJECT_H
 #define RENDEROBJECT_H
 #include <cstdint>
@@ -18,8 +14,6 @@ class D3D12Renderer;
 struct VkDrawContext;
 
 struct RenderObject {
-    virtual ~RenderObject() = default;
-
     uint32_t indexCount{};
     uint32_t firstIndex{};
 
@@ -76,10 +70,30 @@ struct Node : IRenderable {
 };
 
 struct MeshNode final : Node {
-//    std::shared_ptr<MeshAsset> mesh;
     MeshAsset meshAsset;
 
-    void Draw(const glm::mat4 &topMatrix, VkDrawContext &ctx) override;
+    void Draw(const glm::mat4 &topMatrix, VkDrawContext &ctx) override {
+        const glm::mat4 nodeMatrix = topMatrix * worldTransform;
+
+        for (auto &[startIndex, indexCount, bounds, material] : meshAsset.surfaces) {
+            VkRenderObject renderObject;
+            renderObject.indexCount = indexCount;
+            renderObject.firstIndex = startIndex;
+            renderObject.indexBuffer = meshAsset.mesh.indexBuffer;
+            renderObject.materialInstance = &material.data;
+            renderObject.bounds = bounds;
+            renderObject.transform = nodeMatrix;
+            renderObject.vertexBufferAddress = meshAsset.mesh.vertexBufferDeviceAddress;
+
+            if (material.data.pass == MaterialPass::MainColor) {
+                ctx.opaqueSurfaces.emplace_back(renderObject);
+            } else if (material.data.pass == MaterialPass::Transparent) {
+                ctx.transparentSurfaces.emplace_back(renderObject);
+            }
+        }
+
+        Node::Draw(topMatrix, ctx);
+    }
 };
 
 #endif //RENDEROBJECT_H

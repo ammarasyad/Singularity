@@ -23,13 +23,11 @@ struct GeoSurface {
     uint32_t startIndex;
     uint32_t indexCount;
     Bounds bounds;
-//    std::shared_ptr<GLTFMaterial> material;
     GLTFMaterial material;
 };
 
 struct MeshAsset {
     std::string name;
-
     std::vector<GeoSurface> surfaces;
     Mesh mesh;
 };

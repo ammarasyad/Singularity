@@ -1,8 +1,5 @@
 layout(set = 0, binding = 0) uniform SceneData{
     mat4 worldMatrix;
-    vec4 ambientColor;
-    vec4 sunlightDirection;
-    vec4 sunlightColor;
 } sceneData;
 
 layout(set = 1, binding = 0) uniform GLTFMaterialData{

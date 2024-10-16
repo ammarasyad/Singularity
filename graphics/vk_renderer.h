@@ -4,6 +4,8 @@
 #define GLFW_INCLUDE_VULKAN
 #define GLM_FORCE_RADIANS
 
+#define MAX_LIGHTS 1024
+
 #include <glfw/glfw3.h>
 #include <memory>
 #include <optional>
@@ -36,9 +38,35 @@ struct FrameData {
 
 struct SceneData {
     glm::mat4 worldMatrix;
-    glm::vec4 ambientColor;
-    glm::vec4 sunlightDirection;
-    glm::vec4 sunlightColor;
+};
+
+struct Light {
+    uint32_t lightCount;
+    struct {
+        glm::vec4 position;
+        glm::vec4 color;
+    } lights[4];
+};
+
+struct LightVisibility {
+    uint32_t visibleLightCount;
+    uint32_t indices[1024];
+};
+
+struct MainPushConstants {
+    alignas(16) glm::vec3 normal;
+    alignas(16) glm::vec3 color;
+    alignas(16) glm::vec2 uv;
+};
+
+//struct FragmentPushConstants {
+//};
+
+struct ComputePushConstants {
+//    glm::mat4 view;
+    alignas(16) glm::mat4 viewProjection;
+    alignas(16) glm::vec3 cameraPosition;
+    alignas(16) glm::ivec2 viewportSize;
 };
 
 // TODO: Replace error handling with a dialog box
@@ -53,13 +81,15 @@ class VkRenderer {
         }
     } queueFamilyIndices;
 public:
-    float fov = 45.0f;
-
     explicit VkRenderer(GLFWwindow *window, Camera *camera, bool dynamicRendering = true, bool asyncCompute = true);
     ~VkRenderer();
+    VkRenderer(const VkRenderer &) = delete;
+    VkRenderer &operator=(const VkRenderer &) = delete;
+    VkRenderer &operator=(VkRenderer &&) = delete;
 
     void Render(EngineStats &stats);
     void Draw(const VkCommandBuffer &commandBuffer, uint32_t imageIndex, EngineStats &stats);
+    void DrawIndirect(const VkCommandBuffer &commandBuffer, uint32_t imageIndex, EngineStats &stats);
     void Shutdown();
     void RecreateSwapChain();
 
@@ -71,16 +101,8 @@ public:
         return queueFamilyIndices;
     }
 
-    [[nodiscard]] GLFWwindow * window() const {
-        return glfwWindow;
-    }
-
     [[nodiscard]] VkInstance vk_instance() const {
         return instance;
-    }
-
-    [[nodiscard]] VkSurfaceKHR vk_surface() const {
-        return surface;
     }
 
     [[nodiscard]] VkPhysicalDevice physical_device() const {
@@ -103,10 +125,6 @@ public:
         return graphicsQueue;
     }
 
-    [[nodiscard]] VkSwapchainKHR swap_chain() const {
-        return swapChain;
-    }
-
     [[nodiscard]] VkSurfaceFormatKHR surface_format() const {
         return surfaceFormat;
     }
@@ -117,18 +135,6 @@ public:
 
     [[nodiscard]] VkDescriptorSetLayout scene_descriptor_set_layout() const {
         return sceneDescriptorSetLayout;
-    }
-
-    [[nodiscard]] VkPipelineLayout pipeline_layout() const {
-        return pipelineLayout;
-    }
-
-    [[nodiscard]] VkPipeline graphics_pipeline() const {
-        return graphicsPipeline;
-    }
-
-    [[nodiscard]] VkPresentModeKHR present_mode() const {
-        return presentMode;
     }
 
     [[nodiscard]] VkSampleCountFlagBits msaa_samples() const {
@@ -151,26 +157,8 @@ public:
         return metalRoughMaterial;
     }
 
-    [[nodiscard]] const VkPhysicalDeviceProperties & device_properties() const {
-        return deviceProperties;
-    }
-
-    [[nodiscard]] const VkPhysicalDeviceMemoryProperties & memory_properties() const {
-        return memoryProperties;
-    }
-
     [[nodiscard]] bool is_integrated_gpu() const {
         return isIntegratedGPU;
-    }
-
-    [[nodiscard]] bool is_dynamic_rendering() const {
-        return dynamicRendering;
-    }
-
-    [[nodiscard]] bool isDeviceExtensionAvailable(const char * extension) {
-        return std::ranges::any_of(deviceExtensions, [extension](const char *ext) {
-            return strcmp(ext, extension) == 0;
-        });
     }
 
     [[nodiscard]] bool needs_resizing() const {
@@ -213,7 +201,6 @@ public:
         vkFreeCommandBuffers(device, immediateCommandPool, 1, &commandBuffer);
     }
 
-    // static void FramebufferResizeCallback(GLFWwindow *window, int width, int height);
     void FramebufferNeedsResizing();
 private:
     uint32_t currentFrame = 0;
@@ -230,11 +217,6 @@ private:
         VkSurfaceCapabilitiesKHR capabilities;
         std::vector<VkSurfaceFormatKHR> formats;
         std::vector<VkPresentModeKHR> presentModes;
-    };
-
-    struct ComputePushConstants {
-        glm::vec4 color1;
-        glm::vec4 color2;
     };
 
     std::vector<const char *> deviceExtensions = {
@@ -263,16 +245,19 @@ private:
     inline void CreatePipelineCache();
     inline void CreateSwapChain();
     inline void CreateRenderPass();
+    inline void CreateDepthRenderPass();
     inline void CreatePipelineLayout();
     inline void CreateGraphicsPipeline();
     inline void CreateComputePipeline();
     inline void CreateFramebuffers();
+    inline void CreateDepthFramebuffers();
     inline void CreateCommandPool();
     inline void CreateCommandBuffers();
     inline void CreateDefaultTexture();
     inline void CreateSyncObjects();
     inline void CreateDescriptors();
     inline void InitDefaultData();
+    inline void CreateRandomLights();
 
     inline void FindQueueFamilies(const VkPhysicalDevice &gpu);
     [[nodiscard]] inline SwapChainSupportDetails QuerySwapChainSupport(const VkPhysicalDevice &gpu) const;
@@ -287,6 +272,8 @@ private:
     inline void SavePipelineCache() const;
 
     inline void UpdateScene();
+
+    inline void DrawObject(const VkCommandBuffer &commandBuffer, const VkRenderObject &draw, const VkDescriptorSet &sceneDescriptorSet, VkMaterialPipeline &lastPipeline, VkMaterialInstance &lastMaterialInstance, VkBuffer &lastIndexBuffer);
 
     GLFWwindow *glfwWindow;
     Camera *camera;
@@ -307,13 +294,26 @@ private:
     VkSurfaceFormatKHR surfaceFormat;
     VkRenderPass renderPass;
 
+    VkRenderPass depthRenderPass;
+    VkFramebuffer depthFramebuffer;
+    VulkanImage depthImage{};
+    VkSampler depthSampler;
+
     DescriptorAllocator mainDescriptorAllocator;
     VkDescriptorSet mainDescriptorSet;
     VkDescriptorSetLayout mainDescriptorSetLayout;
+    VkDescriptorSetLayout sceneDescriptorSetLayout;
+    VkDescriptorSetLayout lightDescriptorSetLayout;
+    VkDescriptorSet lightDescriptorSet;
 
-    VkPipelineLayout pipelineLayout;
+    VkPipelineLayout graphicsPipelineLayout;
+    VkPipelineLayout computePipelineLayout;
     VkPipeline graphicsPipeline;
     VkPipeline computePipeline;
+
+    VkSemaphore computeFinishedSemaphore;
+
+//    VkCommandBuffer depthCommandBuffer;
 
     std::array<FrameData, MAX_FRAMES_IN_FLIGHT> frames;
     VkCommandPool immediateCommandPool;
@@ -330,24 +330,25 @@ private:
 
 //    std::vector<std::shared_ptr<MeshAsset>> meshAssets;
 
-    VulkanImage drawImage{};
-    VulkanImage depthImage{};
     VulkanImage defaultImage{};
+
+    VulkanBuffer lightUniformBuffer{};
+    VulkanBuffer visibleLightBuffer{};
 
     VkSampler textureSamplerLinear;
     VkSampler textureSamplerNearest;
 
-    VkDescriptorSetLayout sceneDescriptorSetLayout;
-
-    VkMaterialInstance defaultMaterialInstance;
     VkGLTFMetallic_Roughness metalRoughMaterial;
 
     VkDrawContext mainDrawContext;
-//    std::unordered_map<std::string, std::shared_ptr<Node>> loadedNodes;
     std::unordered_map<std::string, std::shared_ptr<LoadedGLTF>> loadedScenes;
     SceneData sceneData{};
 
     std::shared_ptr<VkMemoryManager> memoryManager;
+
+//    std::unique_ptr<Light> totalLights = std::make_unique<Light>();
+    Light totalLights{};
+    LightVisibility lightVisibility{};
 };
 
 

@@ -215,7 +215,7 @@ VulkanImage VkMemoryManager::createTexture(VkExtent3D size, VkFormat format, VkI
     return createManagedImage(&imageCreateInfo, &allocationCreateInfo, &imageViewCreateInfo);
 }
 
-void generateMipmaps(const VkCommandBuffer &commandBuffer, VkImage &image, VkExtent2D size) {
+void generateMipmaps(const VkCommandBuffer &commandBuffer, VulkanImage &image, VkExtent2D size) {
     // TODO: Generate this with a compute shader later
     auto mipLevels = static_cast<uint32_t>(std::floor(std::log2(std::max(size.width, size.height))));
     for (int mip = 0; mip < mipLevels; mip++) {
@@ -234,7 +234,7 @@ void generateMipmaps(const VkCommandBuffer &commandBuffer, VkImage &image, VkExt
         imageBarrier.subresourceRange.baseMipLevel = mip;
         imageBarrier.subresourceRange.levelCount = 1;
         imageBarrier.subresourceRange.layerCount = 1;
-        imageBarrier.image = image;
+        imageBarrier.image = image.image;
 
         VkDependencyInfo dependencyInfo{VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
         dependencyInfo.imageMemoryBarrierCount = 1;
@@ -277,9 +277,9 @@ void generateMipmaps(const VkCommandBuffer &commandBuffer, VkImage &image, VkExt
             vkCmdPipelineBarrier2(commandBuffer, &dependencyInfo);
 
             VkBlitImageInfo2 blitInfo{VK_STRUCTURE_TYPE_BLIT_IMAGE_INFO_2};
-            blitInfo.srcImage = image;
+            blitInfo.srcImage = image.image;
             blitInfo.srcImageLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-            blitInfo.dstImage = image;
+            blitInfo.dstImage = image.image;
             blitInfo.dstImageLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
             blitInfo.regionCount = 1;
             blitInfo.pRegions = &imageBlit;
@@ -305,7 +305,7 @@ VulkanImage VkMemoryManager::createTexture(void *data, VkRenderer *renderer, VkE
 
         renderer->ImmediateSubmit([&](auto &commandBuffer) {
             // TODO: Find the right pipeline stages
-            TransitionImage(commandBuffer, newTexture.image, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, 0, VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+            TransitionImage(commandBuffer, newTexture, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, 0, VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 
             VkBufferImageCopy copyRegion{
                 0,
@@ -319,9 +319,9 @@ VulkanImage VkMemoryManager::createTexture(void *data, VkRenderer *renderer, VkE
             vkCmdCopyBufferToImage(commandBuffer, buffer, newTexture.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copyRegion);
 
             if (mipmapped) {
-                generateMipmaps(commandBuffer, newTexture.image, {size.width, size.height});
+                generateMipmaps(commandBuffer, newTexture, {size.width, size.height});
             }else {
-                TransitionImage(commandBuffer, newTexture.image, VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                TransitionImage(commandBuffer, newTexture, VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
             }
         });
     };

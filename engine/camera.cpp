@@ -1,45 +1,77 @@
 #include "camera.h"
+#include "ext/matrix_clip_space.hpp"
 #include <ext/matrix_transform.hpp>
 
 Camera::Camera() : position(-5, 0, 0), worldUp(0, 1, 0), front(0, 0, -1), right(1, 0, 0), up(0, 1, 0) {
     UpdateVectors();
 }
 
- Camera::Camera(const float posX, const float posY, const float posZ) : position(posX, posY, posZ), worldUp(0, 1, 0),front(0.f, 0.f, -1.0f), right(1, 0, 0), up(0, 1, 0) {
-     UpdateVectors();
- }
+Camera::Camera(const float posX, const float posY, const float posZ) : position(posX, posY, posZ), worldUp(0, 1, 0),front(0.f, 0.f, -1.0f), right(1, 0, 0), up(0, 1, 0) {
+    UpdateVectors();
+}
 
 glm::mat4 Camera::ViewMatrix() const {
     return lookAt(position, position + front, up);
     // return inverse(translate(glm::mat4{1.f}, position) * RotationMatrix());
 }
 
-// glm::mat4 Camera::RotationMatrix() const {
-//     const glm::quat pitchRotation = angleAxis(glm::radians(static_cast<float>(pitch)), glm::vec3(1.f, 0.f, 0.f));
-//     const glm::quat yawRotation = angleAxis(glm::radians(static_cast<float>(yaw)), glm::vec3(0.f, 1.f, 0.f));
-//
-//     return toMat4(pitchRotation * yawRotation);
-// }
+glm::vec3 Camera::Position() const {
+    return position;
+}
+
+glm::mat4 Camera::ProjectionMatrix() {
+    if (needsUpdate) {
+        projectionMatrix = glm::perspective(glm::radians(fov), aspectRatio, nearPlane, farPlane);
+        projectionMatrix[1][1] *= -1;
+        needsUpdate = false;
+    }
+
+    return projectionMatrix;
+}
 
 void Camera::ProcessKeyboardInput(const int key, const int action, const float deltaTime) {
     if (action == GLFW_PRESS) {
         if (key == GLFW_KEY_W)
-            position += front * 0.1f * deltaTime;
+            position += front /** 0.1f * deltaTime*/;
 
         if (key == GLFW_KEY_S)
-            position -= front * 0.1f * deltaTime;
+            position -= front /** 0.1f * deltaTime*/;
 
         if (key == GLFW_KEY_A)
-            position -= right * 0.1f * deltaTime;
+            position -= right /** 0.1f * deltaTime*/;
 
         if (key == GLFW_KEY_D)
-            position += right * 0.1f * deltaTime;
+            position += right /** 0.1f * deltaTime*/;
 
         if (key == GLFW_KEY_SPACE)
-            position += up * 0.1f * deltaTime;
+            position += up /** 0.1f * deltaTime*/;
 
         if (key == GLFW_KEY_LEFT_CONTROL)
-            position -= up * 0.1f * deltaTime;
+            position -= up /** 0.1f * deltaTime*/;
+
+        if (key == GLFW_KEY_RIGHT) {
+            yaw += 15.0f;
+            if (yaw >= 360.0f)
+                yaw -= 360.0f;
+            UpdateVectors();
+        }
+
+        if (key == GLFW_KEY_LEFT) {
+            yaw -= 15.0f;
+            if (yaw < 0.0f)
+                yaw += 360.0f;
+            UpdateVectors();
+        }
+
+        if (key == GLFW_KEY_UP) {
+            pitch += 15.0f;
+            UpdateVectors();
+        }
+
+        if (key == GLFW_KEY_DOWN) {
+            pitch -= 15.0f;
+            UpdateVectors();
+        }
     }
 
     // if (action == GLFW_RELEASE) {
@@ -71,6 +103,11 @@ void Camera::UpdateVectors() {
 
     right = normalize(cross(front, worldUp));
     up = normalize(cross(right, front));
+}
+
+void Camera::UpdateAspectRatio(float newWidth, float newHeight) {
+    aspectRatio = newWidth / newHeight;
+    needsUpdate = true;
 }
 
 

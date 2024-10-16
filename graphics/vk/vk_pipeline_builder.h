@@ -8,11 +8,13 @@
 #include "vk/vk_common.h"
 
 struct VkGraphicsPipelineBuilder {
-    VkPipeline Build(bool dynamicRendering, const VkDevice &device, const VkPipelineCache &pipelineCache, const VkRenderPass *renderPass = nullptr);
+    VkPipeline Build(bool dynamicRendering, const VkDevice &device, const VkPipelineCache &pipelineCache, const VkRenderPass &renderPass = VK_NULL_HANDLE);
     void Clear();
 
     void CreateShaderModules(const VkDevice &device, const std::string &vertexShaderFilePath, const std::string &fragmentShaderFilePath);
     void DestroyShaderModules(const VkDevice &device);
+    void AddBindingDescription(uint32_t binding, uint32_t stride, VkVertexInputRate inputRate);
+    void AddAttributeDescription(uint32_t location, uint32_t binding, VkFormat format, uint32_t offset);
     void SetPipelineLayout(VkPipelineLayout pipelineLayout);
     void SetTopology(VkPrimitiveTopology topology);
     void SetPolygonMode(VkPolygonMode polygonMode);
@@ -36,6 +38,9 @@ struct VkGraphicsPipelineBuilder {
     VkPipelineRenderingCreateInfo renderingCreateInfo{VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
 
     VkFormat colorAttachmentFormat{VK_FORMAT_UNDEFINED};
+
+    std::vector<VkVertexInputBindingDescription> vertexInputBindingDescriptions{};
+    std::vector<VkVertexInputAttributeDescription> vertexInputAttributeDescriptions{};
 };
 
 #endif //VK_PIPELINE_BUILDER_H

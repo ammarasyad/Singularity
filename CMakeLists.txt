@@ -49,7 +49,6 @@ add_executable(Singularity WIN32 main.cpp
         graphics/vk/memory/vk_mesh_assets.cpp
         graphics/vk/memory/vk_mesh_assets.h
         graphics/vk/vk_descriptor_layout.cpp
-        engine/objects/render_object.cpp
         engine/objects/render_object.h
         engine/objects/material.cpp
         engine/objects/material.h
@@ -73,7 +72,14 @@ add_executable(Singularity WIN32 main.cpp
 
 add_custom_target(shaders)
 
-file(GLOB SHADER_FILES graphics/vk/shaders/*.vert graphics/vk/shaders/*.frag graphics/vk/shaders/*.comp)
+#file(GLOB SHADER_FILES graphics/vk/shaders/*.vert graphics/vk/shaders/*.frag graphics/vk/shaders/*.comp)
+set(VK_SHADER_FOLDER graphics/vk/shaders)
+set(SHADER_FILES
+        ${VK_SHADER_FOLDER}/light_culling.comp
+        ${VK_SHADER_FOLDER}/lighting.frag
+        ${VK_SHADER_FOLDER}/mesh.frag
+        ${VK_SHADER_FOLDER}/mesh.vert
+)
 
 foreach (FILE ${SHADER_FILES})
     get_filename_component(FILE_NAME ${FILE} NAME)

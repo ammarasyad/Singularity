@@ -20,6 +20,11 @@ struct MeshPushConstants {
     VkDeviceAddress vertexBufferDeviceAddress;
 };
 
+struct FragmentPushConstants {
+    glm::mat4 worldMatrix;
+    glm::vec3 cameraPosition;
+};
+
 struct VulkanImage {
     VkImage image;
     VkImageView imageView;
@@ -67,8 +72,9 @@ struct VkVertex {
     }
 };
 
-inline void TransitionImage(VkCommandBuffer commandBuffer, VkImage image, VkPipelineStageFlags srcStageMask, VkPipelineStageFlags srcAccessMask, VkPipelineStageFlags dstStageMask, VkPipelineStageFlags dstAccessMask, VkImageLayout oldLayout, VkImageLayout newLayout) {
-    const auto aspectMask = newLayout == VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL || newLayout == VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
+inline void TransitionImage(VkCommandBuffer commandBuffer, VulkanImage image, VkPipelineStageFlags srcStageMask, VkPipelineStageFlags srcAccessMask, VkPipelineStageFlags dstStageMask, VkPipelineStageFlags dstAccessMask, VkImageLayout oldLayout, VkImageLayout newLayout) {
+    const auto aspectMask = image.format == VK_FORMAT_D32_SFLOAT ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
+
     VkImageMemoryBarrier2 imageBarrier{
         VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
         VK_NULL_HANDLE,
@@ -80,7 +86,7 @@ inline void TransitionImage(VkCommandBuffer commandBuffer, VkImage image, VkPipe
         newLayout,
         VK_QUEUE_FAMILY_IGNORED,
         VK_QUEUE_FAMILY_IGNORED,
-        image,
+        image.image,
         {
             static_cast<VkImageAspectFlags>(aspectMask),
             0,

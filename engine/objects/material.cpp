@@ -27,6 +27,12 @@ void VkGLTFMetallic_Roughness::buildPipelines(const VkRenderer *renderer) {
         sizeof(MeshPushConstants)
     };
 
+    VkPushConstantRange fragmentPushConstantRange{
+        VK_SHADER_STAGE_FRAGMENT_BIT,
+        sizeof(MeshPushConstants) + 8,
+        sizeof(FragmentPushConstants)
+    };
+
     DescriptorLayoutBuilder layoutBuilder;
 
     layoutBuilder.AddBinding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT);
@@ -35,15 +41,16 @@ void VkGLTFMetallic_Roughness::buildPipelines(const VkRenderer *renderer) {
 
     materialLayout = layoutBuilder.Build(device);
 
-    VkDescriptorSetLayout setLayouts[] = {renderer->scene_descriptor_set_layout(), materialLayout};
+    std::array setLayouts = {renderer->scene_descriptor_set_layout(), materialLayout, renderer->main_descriptor_set_layout()};
+    std::array pushConstantRanges = {pushConstantRange, fragmentPushConstantRange};
     const VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo{
         VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
         VK_NULL_HANDLE,
         0,
-        2,
-        setLayouts,
-        1,
-        &pushConstantRange,
+        setLayouts.size(),
+        setLayouts.data(),
+        pushConstantRanges.size(),
+        pushConstantRanges.data(),
     };
 
     VkPipelineLayout pipelineLayout;
@@ -52,10 +59,9 @@ void VkGLTFMetallic_Roughness::buildPipelines(const VkRenderer *renderer) {
     opaquePipeline.layout = pipelineLayout;
     transparentPipeline.layout = pipelineLayout;
 
-    // TODO: Make a generic pipeline builder
     VkGraphicsPipelineBuilder builder;
     builder.SetPipelineLayout(pipelineLayout);
-    builder.CreateShaderModules(device, "shaders/shader.vert.spv", "shaders/shader.frag.spv");
+    builder.CreateShaderModules(device, "shaders/mesh.vert.spv", "shaders/lighting.frag.spv");
     builder.SetTopology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
     builder.SetPolygonMode(VK_POLYGON_MODE_FILL);
     builder.SetCullingMode(VK_CULL_MODE_BACK_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE);
@@ -64,12 +70,11 @@ void VkGLTFMetallic_Roughness::buildPipelines(const VkRenderer *renderer) {
     // if (renderer->is_dynamic_rendering()) {
     //     builder.SetColorAttachmentFormat(renderer->draw_image().format);
     // }
-    const auto renderPass = renderer->render_pass();
-    opaquePipeline.pipeline = builder.Build(false, device, renderer->pipeline_cache(), &renderPass);
+    opaquePipeline.pipeline = builder.Build(false, device, renderer->pipeline_cache(), renderer->render_pass());
 
     builder.EnableBlendingAdditive();
     builder.EnableDepthTest(false, VK_COMPARE_OP_LESS);
-    transparentPipeline.pipeline = builder.Build(false, device, renderer->pipeline_cache(), &renderPass);
+    transparentPipeline.pipeline = builder.Build(false, device, renderer->pipeline_cache(), renderer->render_pass());
 
     builder.DestroyShaderModules(device);
 }

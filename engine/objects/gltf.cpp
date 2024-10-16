@@ -28,7 +28,7 @@ inline std::optional<VulkanImage> loadImage(VkRenderer *renderer, fastgltf::Asse
                 assert(filePath.fileByteOffset == 0);
                 assert(filePath.uri.isLocalPath());
 
-                const std::string path(filePath.uri.path().begin(), filePath.uri.path().end());
+                const std::string path = "../assets/Sponza/" + std::string(filePath.uri.path().begin(), filePath.uri.path().end());
                 uint8_t *data = stbi_load(path.c_str(), &width, &height, &channels, STBI_rgb_alpha);
                 if (data) {
                     VkExtent3D size{static_cast<uint32_t>(width), static_cast<uint32_t>(height), 1};

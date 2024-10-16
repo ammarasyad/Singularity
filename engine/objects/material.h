@@ -22,12 +22,20 @@ enum class MaterialPass : uint8_t {
 struct VkMaterialPipeline {
     VkPipeline pipeline;
     VkPipelineLayout layout;
+
+    bool operator==(const VkMaterialPipeline &other) const {
+        return pipeline == other.pipeline && layout == other.layout;
+    }
 };
 
 struct VkMaterialInstance {
     VkMaterialPipeline pipeline;
     VkDescriptorSet descriptorSet;
     MaterialPass pass;
+
+    bool operator==(const VkMaterialInstance &other) const {
+        return pipeline == other.pipeline && descriptorSet == other.descriptorSet && pass == other.pass;
+    }
 };
 
 struct D3D12MaterialPipeline {

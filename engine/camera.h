@@ -7,7 +7,7 @@
 class Camera {
 public:
     Camera();
-     Camera(float posX, float posY, float posZ);
+    Camera(float posX, float posY, float posZ);
 
     // glm::vec3 velocity;
     glm::vec3 position;
@@ -20,11 +20,27 @@ public:
     double yaw{90.};
 
     [[nodiscard]] glm::mat4 ViewMatrix() const;
-    // [[nodiscard]] glm::mat4 RotationMatrix() const;
+    [[nodiscard]] glm::vec3 Position() const;
+    [[nodiscard]] glm::mat4 ProjectionMatrix();
+    [[nodiscard]] float Fov() const { return fov; }
 
     void ProcessKeyboardInput(int key, int action, float deltaTime);
     void ProcessMouseInput(double xpos, double ypos);
     void UpdateVectors();
+
+    void UpdateAspectRatio(float newWidth, float newHeight);
+    void setFov(float newFov) {
+        fov = newFov;
+        needsUpdate = true;
+    }
+
+private:
+    float fov{90.f};
+    float aspectRatio{16.f / 9.f};
+    float nearPlane{0.1f};
+    float farPlane{10000.f};
+    bool needsUpdate{true};
+    glm::mat4 projectionMatrix;
 };
 
 

@@ -2,7 +2,7 @@
 
 #include "file.h"
 
-VkPipeline VkGraphicsPipelineBuilder::Build(const bool dynamicRendering, const VkDevice &device, const VkPipelineCache &pipelineCache, const VkRenderPass *renderPass) {
+VkPipeline VkGraphicsPipelineBuilder::Build(const bool dynamicRendering, const VkDevice &device, const VkPipelineCache &pipelineCache, const VkRenderPass &renderPass) {
     if (!dynamicRendering && !renderPass)
         throw std::runtime_error("Render pass must be provided if not using dynamic rendering.");
 
@@ -26,9 +26,15 @@ VkPipeline VkGraphicsPipelineBuilder::Build(const bool dynamicRendering, const V
 
     VkPipelineShaderStageCreateInfo shaderStages[] = {vertexShaderStageInfo, fragmentShaderStageInfo};
 
-    // Vertex Input Attribute and Binding?
-
-    VkPipelineVertexInputStateCreateInfo vertexInputInfo{VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
+    VkPipelineVertexInputStateCreateInfo vertexInputInfo{
+        VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
+        VK_NULL_HANDLE,
+        0,
+        static_cast<uint32_t>(vertexInputBindingDescriptions.size()),
+        vertexInputBindingDescriptions.data(),
+        static_cast<uint32_t>(vertexInputAttributeDescriptions.size()),
+        vertexInputAttributeDescriptions.data()
+    };
 
     VkPipelineViewportStateCreateInfo viewportState{
         VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
@@ -90,7 +96,7 @@ VkPipeline VkGraphicsPipelineBuilder::Build(const bool dynamicRendering, const V
         &colorBlending,
         &dynamicState,
         pipelineLayout,
-        dynamicRendering ? VK_NULL_HANDLE : *renderPass,
+        dynamicRendering ? VK_NULL_HANDLE : renderPass
     };
 
     VkPipeline pipeline;
@@ -135,6 +141,14 @@ void VkGraphicsPipelineBuilder::CreateShaderModules(const VkDevice &device, cons
 void VkGraphicsPipelineBuilder::DestroyShaderModules(const VkDevice &device) {
     vkDestroyShaderModule(device, vertexShaderModule, VK_NULL_HANDLE);
     vkDestroyShaderModule(device, fragmentShaderModule, VK_NULL_HANDLE);
+}
+
+void VkGraphicsPipelineBuilder::AddBindingDescription(uint32_t binding, uint32_t stride, VkVertexInputRate inputRate) {
+    vertexInputBindingDescriptions.emplace_back(binding, stride, inputRate);
+}
+
+void VkGraphicsPipelineBuilder::AddAttributeDescription(uint32_t location, uint32_t binding, VkFormat format, uint32_t offset) {
+    vertexInputAttributeDescriptions.emplace_back(location, binding, format, offset);
 }
 
 void VkGraphicsPipelineBuilder::SetPipelineLayout(VkPipelineLayout pipelineLayout) {

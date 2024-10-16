@@ -25,12 +25,14 @@ layout(push_constant) uniform PushConstants {
 layout(location = 0) out vec3 fragNormal;
 layout(location = 1) out vec3 fragColor;
 layout(location = 2) out vec2 fragUV;
+layout(location = 3) out vec3 fragPos;
 
 void main() {
     Vertex v = pushConstants.vertexBuffer.vertices[gl_VertexIndex];
 
     gl_Position = sceneData.worldMatrix * pushConstants.worldMatrix * vec4(v.position, 1.0);
 
+    fragPos = (pushConstants.worldMatrix * vec4(v.position, 1.0)).xyz;
     fragNormal = (pushConstants.worldMatrix * vec4(v.normal, 0.0)).xyz;
     fragColor = v.color * materialData.colorFactors.xyz;
     fragUV.x = v.uv_X;
