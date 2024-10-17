@@ -1,7 +1,3 @@
-//
-// Created by Ammar on 13/10/2024.
-//
-
 #include "gltf.h"
 
 #include <iostream>

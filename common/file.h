@@ -1,7 +1,3 @@
-//
-// Created by Ammar on 07/10/2024.
-//
-
 #ifndef D3D12_STUFF_FILE_H
 #define D3D12_STUFF_FILE_H
 

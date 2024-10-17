@@ -1,7 +1,3 @@
-//
-// Created by Ammar on 13/10/2024.
-//
-
 #include "material.h"
 #include "file.h"
 #include "vk_renderer.h"

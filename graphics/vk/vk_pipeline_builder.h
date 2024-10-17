@@ -1,7 +1,3 @@
-//
-// Created by Ammar on 13/10/2024.
-//
-
 #ifndef VK_PIPELINE_BUILDER_H
 #define VK_PIPELINE_BUILDER_H
 

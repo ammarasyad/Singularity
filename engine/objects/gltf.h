@@ -1,7 +1,3 @@
-//
-// Created by Ammar on 13/10/2024.
-//
-
 #ifndef GLTF_H
 #define GLTF_H
 #include <unordered_map>
