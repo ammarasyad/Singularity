@@ -42,7 +42,7 @@ struct SceneData {
 
 struct Light {
     uint32_t lightCount;
-    struct {
+    alignas(16) struct {
         glm::vec4 position;
         glm::vec4 color;
     } lights[4];
@@ -51,12 +51,6 @@ struct Light {
 struct LightVisibility {
     uint32_t visibleLightCount;
     uint32_t indices[1024];
-};
-
-struct MainPushConstants {
-    alignas(16) glm::vec3 normal;
-    alignas(16) glm::vec3 color;
-    alignas(16) glm::vec2 uv;
 };
 
 //struct FragmentPushConstants {
@@ -245,18 +239,15 @@ private:
     inline void CreatePipelineCache();
     inline void CreateSwapChain();
     inline void CreateRenderPass();
-    inline void CreateDepthRenderPass();
     inline void CreatePipelineLayout();
     inline void CreateGraphicsPipeline();
     inline void CreateComputePipeline();
     inline void CreateFramebuffers();
-    inline void CreateDepthFramebuffers();
     inline void CreateCommandPool();
     inline void CreateCommandBuffers();
     inline void CreateDefaultTexture();
     inline void CreateSyncObjects();
     inline void CreateDescriptors();
-    inline void InitDefaultData();
     inline void CreateRandomLights();
 
     inline void FindQueueFamilies(const VkPhysicalDevice &gpu);
@@ -274,6 +265,7 @@ private:
     inline void UpdateScene();
 
     inline void DrawObject(const VkCommandBuffer &commandBuffer, const VkRenderObject &draw, const VkDescriptorSet &sceneDescriptorSet, VkMaterialPipeline &lastPipeline, VkMaterialInstance &lastMaterialInstance, VkBuffer &lastIndexBuffer);
+    inline void DrawDepthPrepass(const std::vector<size_t> &drawIndices);
 
     GLFWwindow *glfwWindow;
     Camera *camera;
@@ -294,8 +286,6 @@ private:
     VkSurfaceFormatKHR surfaceFormat;
     VkRenderPass renderPass;
 
-    VkRenderPass depthRenderPass;
-    VkFramebuffer depthFramebuffer;
     VulkanImage depthImage{};
     VkSampler depthSampler;
 
@@ -306,9 +296,16 @@ private:
     VkDescriptorSetLayout lightDescriptorSetLayout;
     VkDescriptorSet lightDescriptorSet;
 
-    VkPipelineLayout graphicsPipelineLayout;
+    VkPipelineLayout depthPrepassPipelineLayout;
     VkPipelineLayout computePipelineLayout;
-    VkPipeline graphicsPipeline;
+
+    VkPipeline depthPrepassPipeline;
+    VkDescriptorSet depthPrepassDescriptorSet;
+    VkRenderPass depthPrepassRenderPass;
+    VkFramebuffer depthPrepassFramebuffer;
+    VkSemaphore depthPrepassSemaphore;
+    VkCommandBuffer depthPrepassCommandBuffer;
+
     VkPipeline computePipeline;
 
     VkSemaphore computeFinishedSemaphore;

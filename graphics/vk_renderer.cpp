@@ -37,8 +37,8 @@ VkRenderer::VkRenderer(GLFWwindow *window, Camera *camera, const bool dynamicRen
       swapChain(VK_NULL_HANDLE),
       renderPass(VK_NULL_HANDLE),
       mainDescriptorSetLayout(VK_NULL_HANDLE),
-      graphicsPipelineLayout(VK_NULL_HANDLE),
-      graphicsPipeline(VK_NULL_HANDLE),
+      depthPrepassPipelineLayout(VK_NULL_HANDLE),
+      depthPrepassPipeline(VK_NULL_HANDLE),
       computePipeline(VK_NULL_HANDLE),
       frames(),
       immediateCommandPool(VK_NULL_HANDLE),
@@ -53,7 +53,6 @@ VkRenderer::VkRenderer(GLFWwindow *window, Camera *camera, const bool dynamicRen
     frames[0].frameCallbacks.reserve(MAX_FRAMES_IN_FLIGHT);
     frames[1].frameCallbacks.reserve(MAX_FRAMES_IN_FLIGHT);
 
-    // glfwSetWindowUserPointer(window, this);
     InitializeInstance();
 
 #ifndef NDEBUG
@@ -113,7 +112,6 @@ VkRenderer::VkRenderer(GLFWwindow *window, Camera *camera, const bool dynamicRen
 
     if (!dynamicRendering) {
         CreateRenderPass();
-//        CreateDepthRenderPass();
     }
 
     CreateDescriptors();
@@ -122,7 +120,6 @@ VkRenderer::VkRenderer(GLFWwindow *window, Camera *camera, const bool dynamicRen
     CreateComputePipeline();
 
     if (!dynamicRendering) {
-//        CreateDepthFramebuffers();
         CreateFramebuffers();
     }
 
@@ -131,7 +128,6 @@ VkRenderer::VkRenderer(GLFWwindow *window, Camera *camera, const bool dynamicRen
     CreateCommandBuffers();
     CreateDefaultTexture();
     CreateSyncObjects();
-//    InitDefaultData();
 
     auto structureFile = LoadGLTF(this, "../assets/Sponza/Sponza.gltf");
 
@@ -147,11 +143,6 @@ VkRenderer::VkRenderer(GLFWwindow *window, Camera *camera, const bool dynamicRen
 VkRenderer::~VkRenderer() {
     Shutdown();
 }
-
-// void VkRenderer::FramebufferResizeCallback(GLFWwindow *window, int, int) {
-//     const auto app = static_cast<VkRenderer *>(glfwGetWindowUserPointer(window));
-//     app->framebufferResized = true;
-// }
 
 void VkRenderer::FramebufferNeedsResizing() {
     framebufferResized = true;
@@ -249,7 +240,9 @@ void VkRenderer::Render(EngineStats &stats) {
     }
 
     vkResetFences(device, 1, &frames[currentFrame].inFlightFence);
+    vkQueueWaitIdle(graphicsQueue);
     vkResetCommandBuffer(frames[currentFrame].commandBuffer, VK_COMMAND_BUFFER_RESET_RELEASE_RESOURCES_BIT);
+    vkResetCommandBuffer(depthPrepassCommandBuffer, VK_COMMAND_BUFFER_RESET_RELEASE_RESOURCES_BIT);
 
     const auto start = std::chrono::high_resolution_clock::now();
 
@@ -259,12 +252,13 @@ void VkRenderer::Render(EngineStats &stats) {
     const auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
     stats.meshDrawTime = static_cast<float>(elapsed) / 1000.f;
 
-    VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
+    VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT};
+    std::array waitSemaphores = {frames[currentFrame].imageAvailableSemaphore, depthPrepassSemaphore};
     VkSubmitInfo submitInfo{
         VK_STRUCTURE_TYPE_SUBMIT_INFO,
         VK_NULL_HANDLE,
-        1,
-        &frames[currentFrame].imageAvailableSemaphore,
+        static_cast<uint32_t>(waitSemaphores.size()),
+        waitSemaphores.data(),
         waitStages,
         1,
         &frames[currentFrame].commandBuffer,
@@ -359,6 +353,88 @@ void VkRenderer::DrawObject(const VkCommandBuffer &commandBuffer, const VkRender
     vkCmdDrawIndexed(commandBuffer, draw.indexCount, 1, draw.firstIndex, 0, 0);
 }
 
+void VkRenderer::DrawDepthPrepass(const std::vector<size_t> &drawIndices) {
+    VkCommandBufferBeginInfo beginInfo{
+        VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+        VK_NULL_HANDLE,
+        0,
+        VK_NULL_HANDLE
+    };
+
+    VK_CHECK(vkBeginCommandBuffer(depthPrepassCommandBuffer, &beginInfo));
+
+    VkClearValue depthPrepassClearValue{
+        .depthStencil = {1.0f, 0}
+    };
+
+    VkRenderPassBeginInfo renderPassInfo{
+        VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
+        VK_NULL_HANDLE,
+        depthPrepassRenderPass,
+        depthPrepassFramebuffer,
+        {{0, 0}, swapChainExtent},
+        1,
+        &depthPrepassClearValue
+    };
+
+    vkCmdBeginRenderPass(depthPrepassCommandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+
+    vkCmdBindPipeline(depthPrepassCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, depthPrepassPipeline);
+    vkCmdSetViewport(depthPrepassCommandBuffer, 0, 1, &viewport);
+    vkCmdSetScissor(depthPrepassCommandBuffer, 0, 1, &scissor);
+    vkCmdBindDescriptorSets(depthPrepassCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, depthPrepassPipelineLayout, 0, 1, &depthPrepassDescriptorSet, 0, VK_NULL_HANDLE);
+
+    VkBuffer lastIndexBuffer = VK_NULL_HANDLE;
+
+    for (const auto &i : drawIndices) {
+        const VkRenderObject &draw = mainDrawContext.opaqueSurfaces[i];
+        if (draw.indexBuffer != lastIndexBuffer) {
+            lastIndexBuffer = draw.indexBuffer;
+            vkCmdBindIndexBuffer(depthPrepassCommandBuffer, draw.indexBuffer, 0, VK_INDEX_TYPE_UINT32);
+        }
+
+        MeshPushConstants pushConstants{
+                draw.transform,
+                draw.vertexBufferAddress
+        };
+
+        vkCmdPushConstants(depthPrepassCommandBuffer, draw.materialInstance->pipeline.layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(MeshPushConstants), &pushConstants);
+        vkCmdDrawIndexed(depthPrepassCommandBuffer, draw.indexCount, 1, draw.firstIndex, 0, 0);
+    }
+
+//    for (const auto &r : mainDrawContext.transparentSurfaces) {
+//        if (r.indexBuffer != lastIndexBuffer) {
+//            lastIndexBuffer = r.indexBuffer;
+//            vkCmdBindIndexBuffer(depthPrepassCommandBuffer, r.indexBuffer, 0, VK_INDEX_TYPE_UINT32);
+//        }
+//
+//        MeshPushConstants pushConstants{
+//                r.transform,
+//                r.vertexBufferAddress
+//        };
+//
+//        vkCmdPushConstants(depthPrepassCommandBuffer, r.materialInstance->pipeline.layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(MeshPushConstants), &pushConstants);
+//        vkCmdDrawIndexed(depthPrepassCommandBuffer, r.indexCount, 1, r.firstIndex, 0, 0);
+//    }
+
+    vkCmdEndRenderPass(depthPrepassCommandBuffer);
+    VK_CHECK(vkEndCommandBuffer(depthPrepassCommandBuffer));
+
+    VkSubmitInfo submitInfo{
+            VK_STRUCTURE_TYPE_SUBMIT_INFO,
+            VK_NULL_HANDLE,
+            0,
+            VK_NULL_HANDLE,
+            VK_NULL_HANDLE,
+            1,
+            &depthPrepassCommandBuffer,
+            1,
+            &depthPrepassSemaphore
+    };
+
+    VK_CHECK(vkQueueSubmit(graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE));
+}
+
 void VkRenderer::Draw(const VkCommandBuffer &commandBuffer, uint32_t imageIndex, EngineStats &stats) {
     static std::vector<size_t> drawIndices;
     static bool sorted = false;
@@ -378,30 +454,39 @@ void VkRenderer::Draw(const VkCommandBuffer &commandBuffer, uint32_t imageIndex,
         }
     });
 
-//    ImmediateSubmit([&](auto &commandBuffer){
-//        TransitionImage(commandBuffer, depthImage, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT,
-//                        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-//                        VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL);
-//
-//        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, computePipeline);
-//        vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, computePipelineLayout, 0, 1, &lightDescriptorSet,
-//                                0, VK_NULL_HANDLE);
-//
-//        auto view = camera->ViewMatrix();
-//        auto proj = glm::perspective(glm::radians(fov), static_cast<float>(swapChainExtent.width) /
-//                                                        static_cast<float>(swapChainExtent.height), 0.1f, 10000.f);
-//        proj[1][1] *= -1;
-//
-//        ComputePushConstants pushConstants{
-//                view * proj,
-//                camera->Position(),
-//                {viewport.width, viewport.height}
-//        };
-//
-//        vkCmdPushConstants(commandBuffer, computePipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pushConstants),
-//                           &pushConstants);
-//        vkCmdDispatch(commandBuffer, 16, 16, 1);
-//    });
+    VkBufferCreateInfo bufferCreateInfo{
+            VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+            VK_NULL_HANDLE,
+            0,
+            sizeof(SceneData),
+            VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+            VK_SHARING_MODE_EXCLUSIVE
+    };
+
+    VmaAllocationCreateInfo allocationCreateInfo{
+            VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
+            VMA_MEMORY_USAGE_AUTO
+    };
+
+    auto [buffer, alloc] = memoryManager->createUnmanagedBuffer(&bufferCreateInfo, &allocationCreateInfo);
+    frames[currentFrame].frameCallbacks.emplace_back([&, buffer, alloc] { memoryManager->destroyBuffer(&buffer, &alloc); });
+
+    SceneData *data;
+    memoryManager->mapBuffer(&buffer, reinterpret_cast<void **>(&data), &alloc);
+    memcpy(data, &sceneData, sizeof(SceneData));
+    memoryManager->unmapBuffer(&buffer, &alloc);
+
+    static std::array layouts = {sceneDescriptorSetLayout};
+    auto sceneDescriptorSet = frames[currentFrame].frameDescriptors.Allocate(device, layouts);
+
+    {
+        DescriptorWriter writer;
+        writer.WriteBuffer(0, buffer, 0, sizeof(SceneData), VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
+        writer.UpdateSet(device, sceneDescriptorSet);
+        writer.UpdateSet(device, depthPrepassDescriptorSet);
+    }
+
+    DrawDepthPrepass(drawIndices);
 
     VkCommandBufferBeginInfo beginInfo{
         VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
@@ -410,21 +495,14 @@ void VkRenderer::Draw(const VkCommandBuffer &commandBuffer, uint32_t imageIndex,
         VK_NULL_HANDLE
     };
 
-    vkBeginCommandBuffer(commandBuffer, &beginInfo);
-
-    TransitionImage(commandBuffer, depthImage, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT,
-                    VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-                    VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL);
+    VK_CHECK(vkBeginCommandBuffer(commandBuffer, &beginInfo));
 
     vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, computePipeline);
     vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, computePipelineLayout, 0, 1, &lightDescriptorSet,
                             0, VK_NULL_HANDLE);
 
     auto view = camera->ViewMatrix();
-//    auto proj = glm::perspective(glm::radians(fov), static_cast<float>(swapChainExtent.width) /
-//                                                    static_cast<float>(swapChainExtent.height), 0.1f, 10000.f);
     auto proj = camera->ProjectionMatrix();
-//    proj[1][1] *= -1;
 
     ComputePushConstants pushConstants{
             glm::inverse(view * proj),
@@ -471,39 +549,6 @@ void VkRenderer::Draw(const VkCommandBuffer &commandBuffer, uint32_t imageIndex,
         };
 
         vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
-    }
-
-    VkBufferCreateInfo bufferCreateInfo{
-        VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-        VK_NULL_HANDLE,
-        0,
-        sizeof(SceneData),
-        VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-        VK_SHARING_MODE_EXCLUSIVE
-    };
-
-    VmaAllocationCreateInfo allocationCreateInfo{
-        VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
-        VMA_MEMORY_USAGE_AUTO
-    };
-
-    // TODO: Maybe store this buffer in the frame data
-    auto [buffer, alloc] = memoryManager->createUnmanagedBuffer(&bufferCreateInfo, &allocationCreateInfo);
-    frames[currentFrame].frameCallbacks.emplace_back([&, buffer, alloc] { memoryManager->destroyBuffer(&buffer, &alloc); });
-
-    SceneData *data;
-    memoryManager->mapBuffer(&buffer, reinterpret_cast<void **>(&data), &alloc);
-    // *data = sceneData;
-    memcpy(data, &sceneData, sizeof(SceneData));
-    memoryManager->unmapBuffer(&buffer, &alloc);
-
-    static std::array layouts = {sceneDescriptorSetLayout};
-    auto sceneDescriptorSet = frames[currentFrame].frameDescriptors.Allocate(device, layouts);
-
-    {
-        DescriptorWriter writer;
-        writer.WriteBuffer(0, buffer, 0, sizeof(SceneData), VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
-        writer.UpdateSet(device, sceneDescriptorSet);
     }
 
     vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
@@ -591,6 +636,8 @@ void VkRenderer::Shutdown() {
     if (!asyncCompute)
         vkDestroySemaphore(device, computeFinishedSemaphore, nullptr);
 
+    vkDestroySemaphore(device, depthPrepassSemaphore, nullptr);
+
     vkDestroyCommandPool(device, immediateCommandPool, nullptr);
 
     CleanupSwapChain();
@@ -607,17 +654,19 @@ void VkRenderer::Shutdown() {
     vkDestroyDescriptorSetLayout(device, sceneDescriptorSetLayout, nullptr);
     vkDestroyDescriptorSetLayout(device, lightDescriptorSetLayout, nullptr);
 
-    vkDestroyPipeline(device, graphicsPipeline, nullptr);
+    vkDestroyPipeline(device, depthPrepassPipeline, nullptr);
     vkDestroyPipeline(device, computePipeline, nullptr);
-    vkDestroyPipelineLayout(device, graphicsPipelineLayout, nullptr);
+    vkDestroyPipelineLayout(device, depthPrepassPipelineLayout, nullptr);
     vkDestroyPipelineLayout(device, computePipelineLayout, nullptr);
 
     SavePipelineCache();
 
     vkDestroyPipelineCache(device, pipelineCache, nullptr);
 
-    if (!dynamicRendering)
+    if (!dynamicRendering) {
         vkDestroyRenderPass(device, renderPass, nullptr);
+        vkDestroyRenderPass(device, depthPrepassRenderPass, nullptr);
+    }
 
     metalRoughMaterial.clearResources(device);
 
@@ -1082,16 +1131,16 @@ void VkRenderer::CreateRenderPass() {
         VK_IMAGE_LAYOUT_PRESENT_SRC_KHR
     };
 
-    VkAttachmentDescription depthImageDescription{
+    VkAttachmentDescription mainDepthImageDescription{
         0,
         VK_FORMAT_D32_SFLOAT,
         msaaSamples,
-        VK_ATTACHMENT_LOAD_OP_CLEAR,
-        VK_ATTACHMENT_STORE_OP_DONT_CARE,
+        VK_ATTACHMENT_LOAD_OP_LOAD,
+        VK_ATTACHMENT_STORE_OP_NONE,
         VK_ATTACHMENT_LOAD_OP_DONT_CARE,
         VK_ATTACHMENT_STORE_OP_DONT_CARE,
-        VK_IMAGE_LAYOUT_UNDEFINED,
-        VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
+        VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
+        VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
     };
 
     VkAttachmentReference colorAttachmentRef{
@@ -1099,9 +1148,9 @@ void VkRenderer::CreateRenderPass() {
         VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
     };
 
-    VkAttachmentReference depthAttachmentRef{
+    VkAttachmentReference mainDepthAttachmentRef{
         1,
-        VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
+        VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL
     };
 
     VkSubpassDescription graphicsSubpass{
@@ -1112,19 +1161,10 @@ void VkRenderer::CreateRenderPass() {
         1,
         &colorAttachmentRef,
         VK_NULL_HANDLE,
-        &depthAttachmentRef,
+        &mainDepthAttachmentRef,
         0,
         VK_NULL_HANDLE
     };
-
-//    VkSubpassDependency graphicsDependency{
-//        VK_SUBPASS_EXTERNAL,
-//        0,
-//        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,
-//        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,
-//        VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
-//        VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
-//    };
 
     VkSubpassDependency computeDependency{
         VK_SUBPASS_EXTERNAL,
@@ -1135,7 +1175,17 @@ void VkRenderer::CreateRenderPass() {
         VK_ACCESS_SHADER_READ_BIT
     };
 
-    std::array attachments = {swapChainImageDescription, depthImageDescription};
+    VkSubpassDependency mainDepthPrepassDependency{
+            VK_SUBPASS_EXTERNAL,
+            0,
+            VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT,
+            VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+            VK_ACCESS_SHADER_READ_BIT,
+            VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+    };
+
+    std::array attachments = {swapChainImageDescription, mainDepthImageDescription};
+    std::array dependencies = {computeDependency, mainDepthPrepassDependency};
     const VkRenderPassCreateInfo renderPassInfo{
         VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
         VK_NULL_HANDLE,
@@ -1144,18 +1194,81 @@ void VkRenderer::CreateRenderPass() {
         attachments.data(),
         1,
         &graphicsSubpass,
-        1,
-        &computeDependency
+        dependencies.size(),
+        dependencies.data()
     };
 
     VK_CHECK(vkCreateRenderPass(device, &renderPassInfo, VK_NULL_HANDLE, &renderPass));
+
+    VkAttachmentDescription depthImageDescription{
+            0,
+            VK_FORMAT_D32_SFLOAT,
+            msaaSamples,
+            VK_ATTACHMENT_LOAD_OP_CLEAR,
+            VK_ATTACHMENT_STORE_OP_STORE,
+            VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+            VK_ATTACHMENT_STORE_OP_DONT_CARE,
+            VK_IMAGE_LAYOUT_UNDEFINED,
+            VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL
+    };
+
+    VkAttachmentReference depthAttachmentRef{
+            0,
+            VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
+    };
+
+    VkSubpassDescription depthPrepassSubpass{
+        0,
+        VK_PIPELINE_BIND_POINT_GRAPHICS,
+        0,
+        VK_NULL_HANDLE,
+        0,
+        VK_NULL_HANDLE,
+        VK_NULL_HANDLE,
+        &depthAttachmentRef,
+        0,
+        VK_NULL_HANDLE
+    };
+
+    VkSubpassDependency depthPrepassDependency{
+        VK_SUBPASS_EXTERNAL,
+        0,
+        VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT,
+        VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,
+        VK_ACCESS_SHADER_READ_BIT,
+        VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT
+    };
+
+    VkSubpassDependency depthPrepassPostDependency{
+            0,
+            VK_SUBPASS_EXTERNAL,
+            VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
+            VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT,
+            VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+            VK_ACCESS_SHADER_READ_BIT
+    };
+
+    dependencies = {depthPrepassDependency, depthPrepassPostDependency};
+    VkRenderPassCreateInfo depthPrepassRenderPassInfo{
+        VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
+        VK_NULL_HANDLE,
+        0,
+        1,
+        &depthImageDescription,
+        1,
+        &depthPrepassSubpass,
+        dependencies.size(),
+        dependencies.data()
+    };
+
+    VK_CHECK(vkCreateRenderPass(device, &depthPrepassRenderPassInfo, VK_NULL_HANDLE, &depthPrepassRenderPass));
 }
 
 void VkRenderer::CreatePipelineLayout() {
     VkPushConstantRange mainPushConstantRange{
         VK_SHADER_STAGE_VERTEX_BIT,
         0,
-        sizeof(MainPushConstants)
+        sizeof(MeshPushConstants)
     };
 
     VkPushConstantRange computePushConstantRange{
@@ -1169,12 +1282,12 @@ void VkRenderer::CreatePipelineLayout() {
         VK_NULL_HANDLE,
         0,
         1,
-        &mainDescriptorSetLayout,
+        &sceneDescriptorSetLayout, // it has the same layout
         1,
         &mainPushConstantRange
     };
 
-    VK_CHECK(vkCreatePipelineLayout(device, &pipelineLayoutInfo, VK_NULL_HANDLE, &graphicsPipelineLayout));
+    VK_CHECK(vkCreatePipelineLayout(device, &pipelineLayoutInfo, VK_NULL_HANDLE, &depthPrepassPipelineLayout));
 
     pipelineLayoutInfo.pSetLayouts = &lightDescriptorSetLayout;
     pipelineLayoutInfo.pPushConstantRanges = &computePushConstantRange;
@@ -1185,21 +1298,17 @@ void VkRenderer::CreatePipelineLayout() {
 void VkRenderer::CreateGraphicsPipeline() {
     metalRoughMaterial.buildPipelines(this);
 
-//    VkGraphicsPipelineBuilder builder;
-//    builder.SetPipelineLayout(graphicsPipelineLayout);
-//    // vec3 (12) + vec3 (12) + vec2 (8) -> stride = 32
-////    builder.AddBindingDescription(0, 32, VK_VERTEX_INPUT_RATE_VERTEX);
-////    builder.AddAttributeDescription(0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0);
-////    builder.AddAttributeDescription(1, 0, VK_FORMAT_R32G32B32_SFLOAT, 12);
-////    builder.AddAttributeDescription(2, 0, VK_FORMAT_R32G32_SFLOAT, 24);
-//    builder.CreateShaderModules(device, "shaders/lighting.vert.spv", "shaders/lighting.frag.spv");
-//    builder.SetTopology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
-//    builder.SetPolygonMode(VK_POLYGON_MODE_FILL);
-//    builder.SetCullingMode(VK_CULL_MODE_BACK_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE);
-//
-//    graphicsPipeline = builder.Build(false, device, pipelineCache, renderPass);
-//
-//    builder.DestroyShaderModules(device);
+    VkGraphicsPipelineBuilder builder;
+    builder.SetPipelineLayout(depthPrepassPipelineLayout);
+    builder.CreateShaderModules(device, "shaders/depth_prepass.vert.spv", "");
+    builder.SetTopology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
+    builder.SetPolygonMode(VK_POLYGON_MODE_FILL);
+    builder.SetCullingMode(VK_CULL_MODE_BACK_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE);
+    builder.EnableDepthTest(true, VK_COMPARE_OP_LESS);
+
+    depthPrepassPipeline = builder.Build(false, device, pipelineCache, depthPrepassRenderPass);
+
+    builder.DestroyShaderModules(device);
 }
 
 void VkRenderer::CreateComputePipeline() {
@@ -1259,6 +1368,20 @@ void VkRenderer::CreateFramebuffers() {
         };
         VK_CHECK(vkCreateFramebuffer(device, &framebufferInfo, VK_NULL_HANDLE, &swapChainFramebuffers[i]));
     }
+
+    VkFramebufferCreateInfo depthPrepassFramebufferInfo{
+        VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
+        VK_NULL_HANDLE,
+        0,
+        depthPrepassRenderPass,
+        1,
+        &depthImage.imageView,
+        swapChainExtent.width,
+        swapChainExtent.height,
+        1
+    };
+
+    VK_CHECK(vkCreateFramebuffer(device, &depthPrepassFramebufferInfo, VK_NULL_HANDLE, &depthPrepassFramebuffer));
 }
 
 void VkRenderer::CreateCommandPool() {
@@ -1285,7 +1408,7 @@ void VkRenderer::CreateCommandBuffers() {
             1
     };
 
-//    VK_CHECK(vkAllocateCommandBuffers(device, &allocInfo, &depthCommandBuffer));
+    VK_CHECK(vkAllocateCommandBuffers(device, &allocInfo, &depthPrepassCommandBuffer));
 
     for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
         allocInfo.commandPool = frames[i].commandPool;
@@ -1339,6 +1462,8 @@ void VkRenderer::CreateSyncObjects() {
         VK_CHECK(vkCreateSemaphore(device, &semaphoreInfo, VK_NULL_HANDLE, &frames[i].renderFinishedSemaphore));
         VK_CHECK(vkCreateFence(device, &fenceInfo, VK_NULL_HANDLE, &frames[i].inFlightFence));
     }
+
+    VK_CHECK(vkCreateSemaphore(device, &semaphoreInfo, VK_NULL_HANDLE, &depthPrepassSemaphore));
 }
 
 void VkRenderer::CreateDescriptors() {
@@ -1351,34 +1476,30 @@ void VkRenderer::CreateDescriptors() {
 
     mainDescriptorAllocator.InitPool(device, 10, sizes);
 
-    {
-        DescriptorLayoutBuilder builder;
-        builder.AddBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT);
-        builder.AddBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_FRAGMENT_BIT);
-        builder.AddBinding(2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_FRAGMENT_BIT);
-        mainDescriptorSetLayout = builder.Build(device);
-    }
+    DescriptorLayoutBuilder builder;
+    builder.AddBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT);
+    builder.AddBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_FRAGMENT_BIT);
+    builder.AddBinding(2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_FRAGMENT_BIT);
+    mainDescriptorSetLayout = builder.Build(device);
 
-    {
-        DescriptorLayoutBuilder builder;
-        builder.AddBinding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT);
-        sceneDescriptorSetLayout = builder.Build(device);
-    }
+    builder.Clear();
+    builder.AddBinding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT);
+    sceneDescriptorSetLayout = builder.Build(device);
 
-    {
-        DescriptorLayoutBuilder builder;
-        builder.AddBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT);
-        builder.AddBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT);
-        builder.AddBinding(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT);
-//        builder.AddBinding(3, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT);
-        lightDescriptorSetLayout = builder.Build(device);
-    }
+    builder.Clear();
+    builder.AddBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT);
+    builder.AddBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT);
+    builder.AddBinding(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT);
+    lightDescriptorSetLayout = builder.Build(device);
 
     std::array layouts = {mainDescriptorSetLayout};
     mainDescriptorSet = mainDescriptorAllocator.Allocate(device, layouts);
 
     layouts = {lightDescriptorSetLayout};
     lightDescriptorSet = mainDescriptorAllocator.Allocate(device, layouts);
+
+    layouts = {sceneDescriptorSetLayout};
+    depthPrepassDescriptorSet = mainDescriptorAllocator.Allocate(device, layouts);
 
     for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
         std::array<DescriptorAllocator::PoolSizeRatio, 4> frameSizes = {
@@ -1393,57 +1514,6 @@ void VkRenderer::CreateDescriptors() {
         frames[i].frameDescriptors = DescriptorAllocator{};
         frames[i].frameDescriptors.InitPool(device, 1000, frameSizes);
     }
-}
-
-void VkRenderer::InitDefaultData() {
-//    VkGLTFMetallic_Roughness::MaterialResources materialResources{};
-//    materialResources.colorImage = defaultImage;
-//    materialResources.colorSampler = textureSamplerLinear;
-//    materialResources.metalRoughImage = defaultImage;
-//    materialResources.metalRoughSampler = textureSamplerLinear;
-//
-//    VkBufferCreateInfo bufferCreateInfo{
-//        VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-//        VK_NULL_HANDLE,
-//        0,
-//        sizeof(VkGLTFMetallic_Roughness::MaterialConstants),
-//        VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-//        VK_SHARING_MODE_EXCLUSIVE
-//    };
-//
-//    VmaAllocationCreateInfo allocationCreateInfo{
-//        VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
-//        VMA_MEMORY_USAGE_AUTO_PREFER_HOST
-//    };
-//
-//    auto [buffer, allocation] = memoryManager->createManagedBuffer(&bufferCreateInfo, &allocationCreateInfo);
-//
-//    VkGLTFMetallic_Roughness::MaterialConstants *sceneUniformData;
-//    memoryManager->mapBuffer(&buffer, reinterpret_cast<void **>(&sceneUniformData), &allocation);
-//    sceneUniformData->colorFactors = glm::vec4(1.0f);
-//    sceneUniformData->metalRoughFactors = glm::vec4(1.0f, 0.5f, 0.f, 0.f);
-//    memoryManager->unmapBuffer(&buffer, &allocation);
-//
-//    materialResources.dataBuffer = buffer;
-//
-//    defaultMaterialInstance = metalRoughMaterial.writeMaterial(device, MaterialPass::MainColor, materialResources, mainDescriptorAllocator);
-//
-//    for (const auto &m : meshAssets) {
-//        auto newNode = std::make_shared<MeshNode>();
-//        newNode->mesh = m;
-//        newNode->localTransform = glm::mat4{1.f};
-//        newNode->worldTransform = glm::mat4{1.f};
-//
-//        for (auto &[startIndex, indexCount, material] : newNode->mesh->surfaces) {
-//            material = std::make_shared<GLTFMaterial>(defaultMaterialInstance);
-//        }
-//
-//        loadedNodes[m->name] = std::move(newNode);
-//    }
-//
-//    sceneData.ambientColor = glm::vec4(0.1f, 0.1f, 0.1f, 1.0f);
-//    sceneData.sunlightColor = glm::vec4(1.0f, 1.0f, 1.0f, 1.0f);
-//    sceneData.sunlightDirection = glm::vec4(0.f, 1.0f, 0.5f, 1.0f);
 }
 
 void VkRenderer::FindQueueFamilies(const VkPhysicalDevice &gpu) {
@@ -1554,6 +1624,8 @@ void VkRenderer::CleanupSwapChain() {
         vkDestroyFramebuffer(device, f, nullptr);
     }
 
+    vkDestroyFramebuffer(device, depthPrepassFramebuffer, nullptr);
+
     for (const auto &imageView: swapChainImageViews) {
         vkDestroyImageView(device, imageView, nullptr);
     }
@@ -1594,16 +1666,6 @@ VkImageCreateInfo VkRenderer::CreateImageCreateInfo(VkFormat format, VkExtent3D 
         layout,
     };
 }
-
-// void VkRenderer::UpdatePushConstants(MeshPushConstants &meshPushConstants) const {
-//     const glm::mat4 view = lookAt(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f), glm::vec3(0.0f, 0.0f, 0.0f));
-//     glm::mat4 proj = glm::perspective(glm::radians(fov),
-//                                       static_cast<float>(swapChainExtent.width) / static_cast<float>(swapChainExtent.
-//                                           height), 0.1f, 10000.f);
-//     proj[1][1] *= -1;
-//
-//     meshPushConstants.worldMatrix = proj * view;
-// }
 
 void VkRenderer::SavePipelineCache() const {
     size_t size;
@@ -1652,161 +1714,16 @@ void VkRenderer::DestroyDebugUtilsMessengerEXT(VkInstance instance, VkDebugUtils
     }
 }
 
-void VkRenderer::CreateDepthRenderPass() {
-    VkAttachmentDescription depthAttachment{
-        0,
-        VK_FORMAT_D32_SFLOAT,
-        msaaSamples,
-        VK_ATTACHMENT_LOAD_OP_CLEAR,
-        VK_ATTACHMENT_STORE_OP_STORE,
-        VK_ATTACHMENT_LOAD_OP_DONT_CARE,
-        VK_ATTACHMENT_STORE_OP_DONT_CARE,
-        VK_IMAGE_LAYOUT_UNDEFINED,
-        VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
-    };
-
-    VkAttachmentReference depthAttachmentRef{
-        0,
-        VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
-    };
-
-    VkSubpassDescription depthSubpass{
-        0,
-        VK_PIPELINE_BIND_POINT_GRAPHICS,
-        0,
-        VK_NULL_HANDLE,
-        0,
-        VK_NULL_HANDLE,
-        VK_NULL_HANDLE,
-        &depthAttachmentRef,
-        0,
-        VK_NULL_HANDLE
-    };
-
-    VkSubpassDependency depthDependency{
-        VK_SUBPASS_EXTERNAL,
-        0,
-        VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
-        VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,
-        VK_ACCESS_MEMORY_READ_BIT,
-        VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
-        VK_DEPENDENCY_BY_REGION_BIT
-    };
-
-    VkSubpassDependency depthDependency2{
-        0,
-        VK_SUBPASS_EXTERNAL,
-        VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
-        VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
-        VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
-        VK_ACCESS_MEMORY_READ_BIT,
-        VK_DEPENDENCY_BY_REGION_BIT
-    };
-
-    const std::array dependencies = {depthDependency, depthDependency2};
-
-    VkRenderPassCreateInfo depthRenderPassInfo{
-        VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
-        VK_NULL_HANDLE,
-        0,
-        1,
-        &depthAttachment,
-        1,
-        &depthSubpass,
-        dependencies.size(),
-        dependencies.data()
-    };
-
-    VK_CHECK(vkCreateRenderPass(device, &depthRenderPassInfo, VK_NULL_HANDLE, &depthRenderPass));
-}
-
-void VkRenderer::CreateDepthFramebuffers() {
-    auto imageCreateInfo = CreateImageCreateInfo(VK_FORMAT_D32_SFLOAT, {swapChainExtent.width, swapChainExtent.height, 1}, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_TILING_OPTIMAL,
-                                                 VK_IMAGE_LAYOUT_UNDEFINED, {});
-
-    VmaAllocationCreateInfo allocationCreateInfo{
-            {},
-            VMA_MEMORY_USAGE_AUTO
-    };
-
-    ImageViewCreateInfo viewCreateInfo{
-            .viewType = VK_IMAGE_VIEW_TYPE_2D,
-            .format = VK_FORMAT_D32_SFLOAT,
-            .subresourceRange = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1}
-    };
-
-    depthImage = memoryManager->createManagedImage(&imageCreateInfo, &allocationCreateInfo, &viewCreateInfo);
-
-    ImmediateSubmit([&](auto &cmd) {
-        TransitionImage(cmd, depthImage, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_NONE, VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT, VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
-    });
-
-    VkSamplerCreateInfo samplerInfo{
-        VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
-        VK_NULL_HANDLE,
-        0,
-        VK_FILTER_LINEAR,
-        VK_FILTER_LINEAR,
-        VK_SAMPLER_MIPMAP_MODE_LINEAR,
-        VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
-        VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
-        VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
-        0.0f,
-        VK_FALSE,
-        1.0f,
-        VK_FALSE,
-        VK_COMPARE_OP_NEVER,
-        0.0f,
-        0.0f,
-        VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE,
-        VK_FALSE
-    };
-
-    VK_CHECK(vkCreateSampler(device, &samplerInfo, VK_NULL_HANDLE, &depthSampler));
-
-    VkFramebufferCreateInfo framebufferInfo{
-        VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
-        VK_NULL_HANDLE,
-        0,
-        depthRenderPass,
-        1,
-        &depthImage.imageView,
-        swapChainExtent.width,
-        swapChainExtent.height,
-        1
-    };
-
-    VK_CHECK(vkCreateFramebuffer(device, &framebufferInfo, VK_NULL_HANDLE, &depthFramebuffer));
-}
-
 void VkRenderer::CreateRandomLights() {
-//    std::random_device rd;
-//    std::mt19937 gen(rd());
-//    std::uniform_real_distribution<float> dis(-10.f, 10.f);
-
-//    for (auto &[position, color] : totalLights.lights) {
-//        position = glm::vec4(dis(gen), dis(gen), dis(gen), 20.f);
-//        color = glm::vec4(dis(gen), dis(gen), dis(gen), 20.f);
-//    }
-
-//    for (auto &[position, color] : totalLights->lights) {
-//        position = glm::vec4(0.f, 0.f, 0.f, 2000.f);
-//        color = glm::vec4(1.f, 1.f, 1.f, 20.f);
-//    }
-
-//    for (size_t i = 0; i < totalLights.lightCount; i++) {
-//        totalLights.lights[i].position = glm::vec4(0, 4, i, 20.f);
-//        totalLights.lights[i].color = glm::vec4(1.f, 1.f, 1.f, 20.f);
-//    }
-
-    for (auto & light : totalLights.lights) {
-        light.color = glm::vec4(1.f, 0.4f, 0.2f, 1.f);
-    }
-
     totalLights.lights[0].position = glm::vec4(-9.5f, 1.4f, 3.4f, 200.f);
     totalLights.lights[1].position = glm::vec4(-9.5f, 1.4f, -3.6f, 200.f);
     totalLights.lights[2].position = glm::vec4(8.5f, 1.4f, 3.4f, 200.f);
     totalLights.lights[3].position = glm::vec4(8.5f, 1.4f, -3.6f, 200.f);
+
+    totalLights.lights[0].color = glm::vec4(1.f, 0.4f, 0.2f, 1.f);
+    totalLights.lights[1].color = glm::vec4(0.2f, 0.4f, 1.f, 1.f);
+    totalLights.lights[2].color = glm::vec4(1.f, 0.4f, 0.2f, 1.f);
+    totalLights.lights[3].color = glm::vec4(0.2f, 0.4f, 1.f, 1.f);
 
     totalLights.lightCount = 4;
 
@@ -1852,7 +1769,7 @@ void VkRenderer::CreateRandomLights() {
     });
 
     DescriptorWriter writer;
-    writer.WriteImage(0, depthImage.imageView, depthSampler, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+    writer.WriteImage(0, depthImage.imageView, depthSampler, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
     writer.WriteBuffer(1, lightUniformBuffer.buffer, 0, sizeof(Light), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
     writer.WriteBuffer(2, visibleLightBuffer.buffer, 0, sizeof(lightVisibility), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
     writer.UpdateSet(device, mainDescriptorSet);

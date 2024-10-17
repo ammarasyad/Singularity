@@ -24,7 +24,11 @@ VkPipeline VkGraphicsPipelineBuilder::Build(const bool dynamicRendering, const V
         "main"
     };
 
-    VkPipelineShaderStageCreateInfo shaderStages[] = {vertexShaderStageInfo, fragmentShaderStageInfo};
+//    VkPipelineShaderStageCreateInfo shaderStages[] = {vertexShaderStageInfo, fragmentShaderStageInfo};
+    std::vector<VkPipelineShaderStageCreateInfo> shaderStages{vertexShaderStageInfo};
+
+    if (fragmentShaderModule != VK_NULL_HANDLE)
+        shaderStages.emplace_back(fragmentShaderStageInfo);
 
     VkPipelineVertexInputStateCreateInfo vertexInputInfo{
         VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
@@ -84,8 +88,8 @@ VkPipeline VkGraphicsPipelineBuilder::Build(const bool dynamicRendering, const V
         VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
         dynamicRendering ? &renderingCreateInfo : VK_NULL_HANDLE,
         0,
-        2,
-        shaderStages,
+        static_cast<uint32_t>(shaderStages.size()),
+        shaderStages.data(),
         &vertexInputInfo,
         &inputAssemblyCreateInfo,
         VK_NULL_HANDLE,
@@ -116,7 +120,10 @@ void VkGraphicsPipelineBuilder::Clear() {
 
 void VkGraphicsPipelineBuilder::CreateShaderModules(const VkDevice &device, const std::string &vertexShaderFilePath, const std::string &fragmentShaderFilePath) {
     const auto vertexShaderCode = ReadFile<char>(vertexShaderFilePath);
-    const auto fragmentShaderCode = ReadFile<char>(fragmentShaderFilePath);
+
+    std::vector<char> fragmentShaderCode{};
+    if (!fragmentShaderFilePath.empty())
+        fragmentShaderCode = ReadFile<char>(fragmentShaderFilePath);
 
     const VkShaderModuleCreateInfo vertShaderModuleCreateInfo{
         VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
@@ -135,12 +142,16 @@ void VkGraphicsPipelineBuilder::CreateShaderModules(const VkDevice &device, cons
     };
 
     VK_CHECK(vkCreateShaderModule(device, &vertShaderModuleCreateInfo, VK_NULL_HANDLE, &vertexShaderModule));
-    VK_CHECK(vkCreateShaderModule(device, &fragShaderModuleCreateInfo, VK_NULL_HANDLE, &fragmentShaderModule));
+
+    if (!fragmentShaderFilePath.empty())
+        VK_CHECK(vkCreateShaderModule(device, &fragShaderModuleCreateInfo, VK_NULL_HANDLE, &fragmentShaderModule));
 }
 
 void VkGraphicsPipelineBuilder::DestroyShaderModules(const VkDevice &device) {
     vkDestroyShaderModule(device, vertexShaderModule, VK_NULL_HANDLE);
-    vkDestroyShaderModule(device, fragmentShaderModule, VK_NULL_HANDLE);
+
+    if (fragmentShaderModule != VK_NULL_HANDLE)
+        vkDestroyShaderModule(device, fragmentShaderModule, VK_NULL_HANDLE);
 }
 
 void VkGraphicsPipelineBuilder::AddBindingDescription(uint32_t binding, uint32_t stride, VkVertexInputRate inputRate) {

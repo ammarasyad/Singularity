@@ -75,6 +75,7 @@ add_custom_target(shaders)
 #file(GLOB SHADER_FILES graphics/vk/shaders/*.vert graphics/vk/shaders/*.frag graphics/vk/shaders/*.comp)
 set(VK_SHADER_FOLDER graphics/vk/shaders)
 set(SHADER_FILES
+        ${VK_SHADER_FOLDER}/depth_prepass.vert
         ${VK_SHADER_FOLDER}/light_culling.comp
         ${VK_SHADER_FOLDER}/lighting.frag
         ${VK_SHADER_FOLDER}/mesh.frag

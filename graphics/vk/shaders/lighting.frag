@@ -44,11 +44,6 @@ void main() {
 
     vec3 viewDir = normalize(pushConstants.cameraPosition - fragPos);
 
-    if (numLightsInTile == 0) {
-        outColor = texture(depthSampler, fragUV);
-        return;
-    }
-
     for (int i = 0; i < numLightsInTile; i++) {
         uint lightIndex = visibilities[tileIndex].indices[i];
 
@@ -68,9 +63,9 @@ void main() {
     }
 
 //    debugPrintfEXT("Illumination: %f, %f, %f\n", illumination.x, illumination.y, illumination.z);
-//    outColor = vec4(illumination, 1.0f);
-    float intensity = float(numLightsInTile) / 32.f;
-    outColor = vec4(vec3(intensity, intensity * 0.5f, intensity * 0.5f) + illumination, 1.0f);
+    outColor = vec4(illumination, 1.0f);
+//    float intensity = float(numLightsInTile) / 32.f;
+//    outColor = vec4(vec3(intensity, intensity * 0.5f, intensity * 0.5f) + illumination, 1.0f);
 }
 
 //void main() {
