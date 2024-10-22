@@ -10,6 +10,7 @@
 #include <memory>
 #include <optional>
 #include <vector>
+#include <detail/type_half.hpp>
 
 #include "camera.h"
 #include "objects/material.h"
@@ -23,6 +24,7 @@ struct MeshAsset;
 static bool isVkRunning = false;
 
 constexpr uint32_t MAX_FRAMES_IN_FLIGHT = 2;
+using hvec4 = glm::vec<4, glm::detail::hdata>;
 
 struct FrameData {
     VkSemaphore imageAvailableSemaphore;
@@ -42,9 +44,9 @@ struct SceneData {
 
 struct Light {
     uint32_t lightCount;
-    alignas(16) struct {
-        glm::vec4 position;
-        glm::vec4 color;
+    alignas(8) struct {
+        hvec4 position;
+        hvec4 color;
     } lights[2];
 };
 

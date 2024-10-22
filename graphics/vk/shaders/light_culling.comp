@@ -1,6 +1,8 @@
 #version 460
 #extension GL_GOOGLE_include_directive : require
 #extension GL_EXT_debug_printf : enable
+#extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
+#extension GL_EXT_shader_16bit_storage : require
 
 #include "tiled_shading.glsl"
 
@@ -43,13 +45,13 @@ void main() {
     // TODO: Implement 2.5D light culling
     for (uint i = gl_LocalInvocationIndex; i < lightCount; i += gl_WorkGroupSize.x) {
         Light light = lights[i];
-        vec3 lightPos = light.position.xyz;
-        float lightRadius = light.position.w;
+        f16vec3 lightPos = light.position.xyz;
+        float16_t lightRadius = light.position.w;
 
         bool visible = true;
         for (int j = 0; j < 6; j++) {
-            vec4 plane = frustum.planes[j];
-            float distance = dot(plane.xyz, lightPos) + plane.w;
+            f16vec4 plane = f16vec4(frustum.planes[j]);
+            float16_t distance = dot(plane.xyz, lightPos) + plane.w;
             if (distance < -lightRadius) {
                 visible = false;
                 break;

@@ -854,11 +854,17 @@ void VkRenderer::CreateLogicalDevice() {
                                       queuePriorities);
     }
 
+    VkPhysicalDeviceVulkan11Features vulkan11Features{
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES,
+        .storageBuffer16BitAccess = VK_TRUE,
+        .uniformAndStorageBuffer16BitAccess = VK_TRUE,
+    };
+
     VkPhysicalDeviceVulkan12Features vulkan12Features{
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
-        .pNext = VK_NULL_HANDLE,
-        //            .descriptorIndexing = VK_TRUE,
-        .bufferDeviceAddress = VK_TRUE
+        .pNext = &vulkan11Features,
+        .shaderFloat16 = VK_TRUE,
+        .bufferDeviceAddress = VK_TRUE,
     };
 
     VkPhysicalDeviceVulkan13Features vulkan13Features{
@@ -922,7 +928,7 @@ void VkRenderer::CreateLogicalDevice() {
 
         vulkan12Features.descriptorIndexing = VK_TRUE;
 
-        vulkan12Features.pNext = &rayTracingPipelineFeatures;
+        vulkan11Features.pNext = &rayTracingPipelineFeatures;
     }
 
     VkDeviceCreateInfo createInfo{
@@ -1681,8 +1687,8 @@ void VkRenderer::UpdateScene() {
 
     sceneData.worldMatrix = proj * view;
 
-    totalLights.lights[0].position = glm::vec4(-9.5f + 0.01f * static_cast<float>(lightSceneTime), 1.4f, 3.4f, 200.f);
-    totalLights.lights[1].position = glm::vec4(8.5f, 1.4f, -3.6f + 0.01f * static_cast<float>(lightSceneTime), 200.f);
+    totalLights.lights[0].position = hvec4(glm::detail::toFloat16(-9.5f + 0.01f * static_cast<float>(lightSceneTime)), glm::detail::toFloat16(1.4f), glm::detail::toFloat16(3.4f), glm::detail::toFloat16(200.f));
+    totalLights.lights[1].position = hvec4(glm::detail::toFloat16(8.5f), glm::detail::toFloat16(1.4f), glm::detail::toFloat16(-3.6f + 0.01f * static_cast<float>(lightSceneTime)), glm::detail::toFloat16(200.f));
 
     void *data;
     memoryManager->mapBuffer(lightUniformBuffer, &data);
@@ -1720,14 +1726,14 @@ void VkRenderer::DestroyDebugUtilsMessengerEXT(VkInstance instance, VkDebugUtils
 }
 
 void VkRenderer::CreateRandomLights() {
-    totalLights.lights[0].position = glm::vec4(-9.5f, 1.4f, 3.4f, 200.f);
-    totalLights.lights[1].position = glm::vec4(8.5f, 1.4f, -3.6f, 200.f);
+    totalLights.lights[0].position = hvec4(glm::detail::toFloat16(-9.5f), glm::detail::toFloat16(1.4f),  glm::detail::toFloat16(3.4f), glm::detail::toFloat16(200.f));
+    totalLights.lights[1].position = hvec4(glm::detail::toFloat16(8.5f), glm::detail::toFloat16(1.4f), glm::detail::toFloat16(-3.6f), glm::detail::toFloat16(200.f));
 //    totalLights.lights[1].position = glm::vec4(-9.5f, 1.4f, -3.6f, 200.f);
 //    totalLights.lights[2].position = glm::vec4(8.5f, 1.4f, 3.4f, 200.f);
 //    totalLights.lights[3].position = glm::vec4(8.5f, 1.4f, -3.6f, 200.f);
 
-    totalLights.lights[0].color = glm::vec4(1.f, 0.0f, 0.0f, 1.f);
-    totalLights.lights[1].color = glm::vec4(0.0f, 0.0f, 1.f, 1.f);
+    totalLights.lights[0].color = hvec4(glm::detail::toFloat16(1.f), glm::detail::toFloat16(0.0f), glm::detail::toFloat16(0.0f), glm::detail::toFloat16(1.f));
+    totalLights.lights[1].color = hvec4(glm::detail::toFloat16(0.0f), glm::detail::toFloat16(0.0f), glm::detail::toFloat16(1.f), glm::detail::toFloat16(1.f));
 //    totalLights.lights[2].color = glm::vec4(1.f, 0.4f, 0.2f, 1.f);
 //    totalLights.lights[3].color = glm::vec4(0.2f, 0.4f, 1.f, 1.f);
 

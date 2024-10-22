@@ -1,9 +1,12 @@
 #define TILE_SIZE 16
 #define MAX_LIGHTS 1024
 
+#extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
+#extension GL_EXT_shader_16bit_storage : require
+
 struct Light {
-    vec4 position; // xyz: position, w: radius
-    vec4 color; // xyz: color, w: intensity
+    f16vec4 position; // xyz: position, w: radius
+    f16vec4 color; // xyz: color, w: intensity
 };
 
 struct LightVisibility {

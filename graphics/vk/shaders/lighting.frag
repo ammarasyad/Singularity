@@ -2,6 +2,8 @@
 
 #extension GL_GOOGLE_include_directive : require
 #extension GL_EXT_debug_printf : enable
+#extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
+#extension GL_EXT_shader_16bit_storage : require
 
 #include "input_structures.glsl"
 #include "tiled_shading.glsl"
@@ -36,27 +38,27 @@ void main() {
     uint tileIndex = tile.y * 120 + tile.x;
     uint numLightsInTile = visibilities[tileIndex].count;
 
-    vec3 diffuse = texture(colorTexture, fragUV).xyz;
-    vec3 normal = normalize(fragNormal);
-    vec3 illumination = vec3(0.0f);
+    f16vec3 diffuse = f16vec3(texture(colorTexture, fragUV).xyz);
+    f16vec3 normal = f16vec3(normalize(fragNormal));
+    f16vec3 illumination = f16vec3(0.0f);
 
-    vec3 viewDir = normalize(pushConstants.cameraPosition - fragPos);
+    f16vec3 viewDir = f16vec3(normalize(pushConstants.cameraPosition - fragPos));
 
     for (uint i = 0; i < numLightsInTile; i++) {
         uint lightIndex = visibilities[tileIndex].indices[i];
 
-        vec3 lightPosition = lights[lightIndex].position.xyz;
-        float lightRadius = lights[lightIndex].position.w;
-        vec3 lightColor = lights[lightIndex].color.rgb;
-        float lightIntensity = lights[lightIndex].color.w;
+        f16vec3 lightPosition = lights[lightIndex].position.xyz;
+        float16_t lightRadius = lights[lightIndex].position.w;
+        f16vec3 lightColor = lights[lightIndex].color.rgb;
+        float16_t lightIntensity = lights[lightIndex].color.w;
 
-        vec3 lightDir = normalize(lightPosition - fragPos);
+        f16vec3 lightDir = normalize(lightPosition - f16vec3(fragPos));
 
-        float lambertian = max(dot(normal, lightDir), 0.0f);
+        float16_t lambertian = max(dot(normal, lightDir), float16_t(0.0f));
 
-        float lightDist = distance(lightPosition, fragPos);
-        float spec = pow(max(dot(normal, normalize(lightDir + viewDir)), 0.0f), 32.0f);
-        float attenuation = clamp(1.0f - (lightDist * lightDist) / (lightRadius * lightRadius), 0.0f, 1.0f);
+        float16_t lightDist = float16_t(distance(lightPosition, f16vec3(fragPos)));
+        float16_t spec = pow(max(dot(normal, normalize(lightDir + viewDir)), float16_t(0.0f)), float16_t(32.0f));
+        float16_t attenuation = float16_t(clamp(1.0f - (lightDist * lightDist) / (lightRadius * lightRadius), 0.0f, 1.0f));
         illumination += (lambertian * diffuse + spec) * lightColor * lightIntensity * attenuation;
     }
 
