@@ -31,11 +31,33 @@ struct VulkanImage {
     VmaAllocation allocation;
     VkExtent3D extent;
     VkFormat format;
+
+    bool operator==(const VulkanImage &other) const {
+        return image == other.image;
+    }
 };
 
 struct VulkanBuffer {
     VkBuffer buffer;
     VmaAllocation allocation;
+
+    bool operator==(const VulkanBuffer &other) const {
+        return buffer == other.buffer;
+    }
+};
+
+template<>
+struct std::hash<VulkanImage> {
+    std::size_t operator()(const VulkanImage &image) const {
+        return std::hash<VkImage>{}(image.image);
+    }
+};
+
+template<>
+struct std::hash<VulkanBuffer> {
+    std::size_t operator()(const VulkanBuffer &buffer) const {
+        return std::hash<VkBuffer>{}(buffer.buffer);
+    }
 };
 
 struct VkVertex {

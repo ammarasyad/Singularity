@@ -33,10 +33,8 @@ layout(early_fragment_tests) in;
 
 void main() {
     ivec2 tile = ivec2(gl_FragCoord.xy) / ivec2(1920, 1080);
-    uint tileIndex = tile.y * 64 + tile.x;
+    uint tileIndex = tile.y * 120 + tile.x;
     uint numLightsInTile = visibilities[tileIndex].count;
-
-//    debugPrintfEXT("Tile: %d, %d, %d\n", tile.x, tile.y, numLightsInTile);
 
     vec3 diffuse = texture(colorTexture, fragUV).xyz;
     vec3 normal = normalize(fragNormal);
@@ -44,7 +42,7 @@ void main() {
 
     vec3 viewDir = normalize(pushConstants.cameraPosition - fragPos);
 
-    for (int i = 0; i < numLightsInTile; i++) {
+    for (uint i = 0; i < numLightsInTile; i++) {
         uint lightIndex = visibilities[tileIndex].indices[i];
 
         vec3 lightPosition = lights[lightIndex].position.xyz;
@@ -53,30 +51,15 @@ void main() {
         float lightIntensity = lights[lightIndex].color.w;
 
         vec3 lightDir = normalize(lightPosition - fragPos);
-        float lambertian = max(dot(normal, lightDir), 0.1f);
+
+        float lambertian = max(dot(normal, lightDir), 0.0f);
 
         float lightDist = distance(lightPosition, fragPos);
         float spec = pow(max(dot(normal, normalize(lightDir + viewDir)), 0.0f), 32.0f);
-        float attenuation = clamp(1.0f - (lightDist * lightDist) / (lightRadius * lightRadius), 0.2f, 1.0f);
-
+        float attenuation = clamp(1.0f - (lightDist * lightDist) / (lightRadius * lightRadius), 0.0f, 1.0f);
         illumination += (lambertian * diffuse + spec) * lightColor * lightIntensity * attenuation;
     }
 
-//    debugPrintfEXT("Illumination: %f, %f, %f\n", illumination.x, illumination.y, illumination.z);
     outColor = vec4(illumination, 1.0f);
-//    float intensity = float(numLightsInTile) / 32.f;
-//    outColor = vec4(vec3(intensity, intensity * 0.5f, intensity * 0.5f) + illumination, 1.0f);
+//    outColor = vec4(abs(fragNormal), 1.0f);
 }
-
-//void main() {
-//    outColor = vec4(fragColor * texture(colorTexture, fragUV).xyz, 1.0f);
-//}
-
-//void main() {
-//    float lightValue = max(dot(fragNormal, sceneData.sunlightDirection.xyz), 0.1f);
-//
-//    vec3 color = fragColor * texture(colorTexture, fragUV).xyz;
-//    vec3 ambient = color * sceneData.ambientColor.xyz;
-//
-//    outColor = vec4(color * lightValue * sceneData.sunlightColor.w + ambient, 1.0f);
-//}

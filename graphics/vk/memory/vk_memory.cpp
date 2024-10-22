@@ -3,7 +3,7 @@
 
 #include "../../vk_renderer.h"
 
-VkMemoryManager::VkMemoryManager(const VkInstance &instance, const VkPhysicalDevice &physicalDevice, const VkDevice &device, const bool customPool) : allocator(), device(device), pool(VK_NULL_HANDLE) {
+VkMemoryManager::VkMemoryManager(const VkInstance &instance, const VkPhysicalDevice &physicalDevice, const VkDevice &device, const bool isIntegratedGPU, const bool customPool) : allocator(), device(device), isIntegratedGPU(isIntegratedGPU), pool(VK_NULL_HANDLE) {
     const VmaAllocatorCreateInfo vmaAllocatorCreateInfo{
         VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT,
         physicalDevice,
@@ -45,15 +45,15 @@ VkMemoryManager::VkMemoryManager(const VkInstance &instance, const VkPhysicalDev
 }
 
 VkMemoryManager::~VkMemoryManager() {
-    for (auto &[buffer, allocation] : trackedBuffers) {
-        vmaDestroyBuffer(allocator, buffer, allocation);
+    for (const auto &vkBuffer : trackedBuffers) {
+        vmaDestroyBuffer(allocator, vkBuffer.buffer, vkBuffer.allocation);
     }
 
-    for (auto &[image, imageView, allocation, extent, format] : trackedImages) {
-        vmaDestroyImage(allocator, image, allocation);
+    for (const auto &vkImage : trackedImages) {
+        vmaDestroyImage(allocator, vkImage.image, vkImage.allocation);
 
-        if (imageView)
-            vkDestroyImageView(device, imageView, nullptr);
+        if (vkImage.imageView)
+            vkDestroyImageView(device, vkImage.imageView, nullptr);
     }
 
     trackedBuffers.clear();
@@ -65,101 +65,131 @@ VkMemoryManager::~VkMemoryManager() {
     vmaDestroyAllocator(allocator);
 }
 
-void VkMemoryManager::immediateBuffer(const VkBufferCreateInfo *bufferCreateInfo, VmaAllocationCreateInfo *allocationCreateInfo, const std::function<void(VkBuffer &, void *)> &mappedMemoryTask, const std::function<void(VkBuffer &)> &unmappedMemoryTask) const {
-    VkBuffer buffer;
+void VkMemoryManager::stagingBuffer(VkDeviceSize bufferSize, const std::function<void(VkBuffer &, void *)> &mappedMemoryTask, const std::function<void(VkBuffer &)> &unmappedMemoryTask) const {
+    VmaAllocationCreateFlags allocationFlags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
+    if (isIntegratedGPU)
+        allocationFlags |= VMA_ALLOCATION_CREATE_MAPPED_BIT;
+
+    VkBuffer stagingBuffer;
     VmaAllocation allocation{};
     VmaAllocationInfo allocationInfo{};
 
+    VkBufferCreateInfo bufferCreateInfo{
+            VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+            VK_NULL_HANDLE,
+            0,
+            bufferSize,
+            VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+            VK_SHARING_MODE_EXCLUSIVE // maybe change this to concurrent for separate graphics and present queues
+    };
+
+    VmaAllocationCreateInfo allocationCreateInfo{
+            allocationFlags,
+            VMA_MEMORY_USAGE_AUTO_PREFER_HOST,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+    };
+
     if (pool)
-        allocationCreateInfo->pool = pool;
+        allocationCreateInfo.pool = pool;
 
-    vmaCreateBuffer(allocator, bufferCreateInfo, allocationCreateInfo, &buffer, &allocation, &allocationInfo);
+    vmaCreateBuffer(allocator, &bufferCreateInfo, &allocationCreateInfo, &stagingBuffer, &allocation, &allocationInfo);
 
-    if (allocationCreateInfo->flags & VMA_ALLOCATION_CREATE_MAPPED_BIT) {
+    if (isIntegratedGPU) {
         vmaMapMemory(allocator, allocation, &allocationInfo.pMappedData);
-        mappedMemoryTask(buffer, allocationInfo.pMappedData);
+        mappedMemoryTask(stagingBuffer, allocationInfo.pMappedData);
         vmaUnmapMemory(allocator, allocation);
     } else {
         void *data;
         vmaMapMemory(allocator, allocation, &data);
-        mappedMemoryTask(buffer, data);
+        mappedMemoryTask(stagingBuffer, data);
         vmaUnmapMemory(allocator, allocation);
     }
 
     if (unmappedMemoryTask)
-        unmappedMemoryTask(buffer);
+        unmappedMemoryTask(stagingBuffer);
 
-    vmaDestroyBuffer(allocator, buffer, allocation);
+    vmaDestroyBuffer(allocator, stagingBuffer, allocation);
 }
 
-VulkanBuffer VkMemoryManager::createManagedBuffer(const VkBufferCreateInfo *bufferCreateInfo, VmaAllocationCreateInfo *allocationCreateInfo, long minAlignment) {
-    VkBuffer buffer;
-    VmaAllocation allocation{};
-    VmaAllocationInfo allocationInfo{};
-
-    if (pool)
-        allocationCreateInfo->pool = pool;
-
-    vmaCreateBufferWithAlignment(allocator, bufferCreateInfo, allocationCreateInfo, minAlignment, &buffer, &allocation, &allocationInfo);
-
-    trackedBuffers[buffer] = allocation;
-    return {buffer, allocation};
+VulkanBuffer VkMemoryManager::createManagedBuffer(const VkDeviceSize bufferSize, const VkBufferUsageFlags bufferUsage, const VmaAllocationCreateFlags allocationFlags, const VmaMemoryUsage allocationUsage, const VkMemoryPropertyFlags requiredFlags, long minAlignment) {
+    VulkanBuffer trackedBuffer = createUnmanagedBuffer(bufferSize, bufferUsage, allocationFlags, allocationUsage, requiredFlags, minAlignment);
+    trackedBuffers.insert(trackedBuffer);
+    return trackedBuffer;
 }
 
-VulkanImage VkMemoryManager::createManagedImage(const VkImageCreateInfo *imageCreateInfo, VmaAllocationCreateInfo *allocationCreateInfo, const ImageViewCreateInfo *imageViewCreateInfo) {
-    VkImage image;
-    VmaAllocation allocation{};
-    VmaAllocationInfo allocationInfo{};
-
-    if (pool)
-        allocationCreateInfo->pool = pool;
-
-    vmaCreateImage(allocator, imageCreateInfo, allocationCreateInfo, &image, &allocation, &allocationInfo);
-    VulkanImage trackedImage{image, VK_NULL_HANDLE, allocation, imageCreateInfo->extent, imageCreateInfo->format};
-
-    if (imageViewCreateInfo) {
-        auto [flags, viewType, format, components, subresourceRange] = *imageViewCreateInfo;
-        const VkImageViewCreateInfo createInfo{
-            VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
-            VK_NULL_HANDLE,
-            flags,
-            image,
-            viewType,
-            format,
-            components,
-            subresourceRange
-        };
-        vkCreateImageView(device, &createInfo, nullptr, &trackedImage.imageView);
-    }
-
-    trackedImages.push_back(trackedImage);
+VulkanImage VkMemoryManager::createManagedImage(const VkImageCreateFlags createFlags, const VkFormat imageFormat, const VkExtent3D imageExtent, const VkImageTiling imageTiling, const VkImageUsageFlags imageUsage, VkImageLayout imageLayout, VmaAllocationCreateFlags allocationFlags, VmaMemoryUsage allocationUsage, VkMemoryPropertyFlags requiredFlags, bool mipmapped, ImageViewCreateInfo *imageViewCreateInfo) {
+    VulkanImage trackedImage = createUnmanagedImage(createFlags, imageFormat, imageExtent, imageTiling, imageUsage, imageLayout, allocationFlags, allocationUsage, requiredFlags, mipmapped, imageViewCreateInfo);
+    trackedImages.insert(trackedImage);
     return trackedImage;
 }
 
-VulkanBuffer VkMemoryManager::createUnmanagedBuffer(const VkBufferCreateInfo *bufferCreateInfo, VmaAllocationCreateInfo *allocationCreateInfo, long minAlignment) const {
+VulkanBuffer VkMemoryManager::createUnmanagedBuffer(VkDeviceSize bufferSize, VkBufferUsageFlags bufferUsage, VmaAllocationCreateFlags allocationFlags, VmaMemoryUsage allocationUsage, VkMemoryPropertyFlags requiredFlags, long minAlignment) const {
     VkBuffer buffer;
     VmaAllocation allocation{};
     VmaAllocationInfo allocationInfo{};
 
+    VkBufferCreateInfo bufferCreateInfo{
+            VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+            VK_NULL_HANDLE,
+            0,
+            bufferSize,
+            bufferUsage,
+            VK_SHARING_MODE_EXCLUSIVE // maybe change this to concurrent for separate graphics and present queues
+    };
+
+    if (isIntegratedGPU && (allocationFlags & VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT))
+        allocationFlags |= VMA_ALLOCATION_CREATE_MAPPED_BIT;
+
+    VmaAllocationCreateInfo allocationCreateInfo{
+            allocationFlags,
+            allocationUsage,
+            requiredFlags
+    };
+
     if (pool)
-        allocationCreateInfo->pool = pool;
+        allocationCreateInfo.pool = pool;
 
-    vmaCreateBufferWithAlignment(allocator, bufferCreateInfo, allocationCreateInfo, minAlignment, &buffer, &allocation, &allocationInfo);
+    vmaCreateBufferWithAlignment(allocator, &bufferCreateInfo, &allocationCreateInfo, minAlignment, &buffer, &allocation, &allocationInfo);
 
-    return {buffer, allocation};
+    VulkanBuffer trackedBuffer{buffer, allocation};
+    return trackedBuffer;
 }
 
-VulkanImage VkMemoryManager::createUnmanagedImage(const VkImageCreateInfo *imageCreateInfo, VmaAllocationCreateInfo *allocationCreateInfo, const ImageViewCreateInfo *imageViewCreateInfo) const {
+VulkanImage VkMemoryManager::createUnmanagedImage(const VkImageCreateFlags createFlags, const VkFormat imageFormat, const VkExtent3D imageExtent, const VkImageTiling imageTiling, const VkImageUsageFlags imageUsage, VkImageLayout imageLayout, VmaAllocationCreateFlags allocationFlags, VmaMemoryUsage allocationUsage, VkMemoryPropertyFlags requiredFlags, bool mipmapped, ImageViewCreateInfo *imageViewCreateInfo) const {
     VkImage image;
     VmaAllocation allocation{};
     VmaAllocationInfo allocationInfo{};
 
+    VkImageCreateInfo imageCreateInfo{
+        VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+        VK_NULL_HANDLE,
+        createFlags,
+        VK_IMAGE_TYPE_2D,
+        imageFormat,
+        imageExtent,
+        mipmapped ? static_cast<uint32_t>(std::floor(std::log2(std::max(imageExtent.width, imageExtent.height)))) : 1,
+        1,
+        VK_SAMPLE_COUNT_1_BIT, // might need to take msaaSamples from VkRenderer
+        imageTiling,
+        imageUsage,
+        VK_SHARING_MODE_EXCLUSIVE, // may change
+        0,
+        VK_NULL_HANDLE,
+        imageLayout
+    };
+
+    VmaAllocationCreateInfo allocationCreateInfo{
+        allocationFlags,
+        allocationUsage,
+        requiredFlags
+    };
+
     if (pool)
-        allocationCreateInfo->pool = pool;
+        allocationCreateInfo.pool = pool;
 
-    vmaCreateImage(allocator, imageCreateInfo, allocationCreateInfo, &image, &allocation, &allocationInfo);
+    vmaCreateImage(allocator, &imageCreateInfo, &allocationCreateInfo, &image, &allocation, &allocationInfo);
 
-    VulkanImage untrackedImage{image, VK_NULL_HANDLE, allocation, imageCreateInfo->extent, imageCreateInfo->format};
+    VulkanImage untrackedImage{image, VK_NULL_HANDLE, allocation, imageCreateInfo.extent, imageCreateInfo.format};
 
     if (imageViewCreateInfo) {
         auto [flags, viewType, format, components, subresourceRange] = *imageViewCreateInfo;
@@ -180,39 +210,18 @@ VulkanImage VkMemoryManager::createUnmanagedImage(const VkImageCreateInfo *image
 }
 
 VulkanImage VkMemoryManager::createTexture(VkExtent3D size, VkFormat format, VkImageUsageFlags usage, bool mipmapped) {
-    VkImageCreateInfo imageCreateInfo{
-        VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
-        VK_NULL_HANDLE,
-        {},
-        VK_IMAGE_TYPE_2D,
-        format,
-        size,
-        mipmapped ? static_cast<uint32_t>(std::floor(std::log2(std::max(size.width, size.height)))) : 1,
-        1,
-        VK_SAMPLE_COUNT_1_BIT,
-        VK_IMAGE_TILING_OPTIMAL,
-        usage,
-        VK_SHARING_MODE_EXCLUSIVE
-    };
-
-    VmaAllocationCreateInfo allocationCreateInfo{
-        {},
-        VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE,
-        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
-    };
-
     ImageViewCreateInfo imageViewCreateInfo{
         0,
         VK_IMAGE_VIEW_TYPE_2D,
         format,
         {VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY},
-        {VK_IMAGE_ASPECT_COLOR_BIT, 0, imageCreateInfo.mipLevels, 0, 1}
+        {VK_IMAGE_ASPECT_COLOR_BIT, 0, mipmapped ? static_cast<uint32_t>(std::floor(std::log2(std::max(size.width, size.height)))) : 1, 0, 1}
     };
 
     if (format == VK_FORMAT_D32_SFLOAT)
         imageViewCreateInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
 
-    return createManagedImage(&imageCreateInfo, &allocationCreateInfo, &imageViewCreateInfo);
+    return createManagedImage(0, format, size, VK_IMAGE_TILING_OPTIMAL, usage, VK_IMAGE_LAYOUT_UNDEFINED, 0, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, mipmapped, &imageViewCreateInfo);
 }
 
 void generateMipmaps(const VkCommandBuffer &commandBuffer, VulkanImage &image, VkExtent2D size) {
@@ -326,15 +335,6 @@ VulkanImage VkMemoryManager::createTexture(void *data, VkRenderer *renderer, VkE
         });
     };
 
-    VkBufferCreateInfo bufferCreateInfo{
-        VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-        VK_NULL_HANDLE,
-        {},
-        dataSize,
-        VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-        VK_SHARING_MODE_EXCLUSIVE
-    };
-
     VmaAllocationCreateFlags allocationFlags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
     if (renderer->is_integrated_gpu()) {
         allocationFlags |= VMA_ALLOCATION_CREATE_MAPPED_BIT;
@@ -346,39 +346,28 @@ VulkanImage VkMemoryManager::createTexture(void *data, VkRenderer *renderer, VkE
         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
     };
 
-    immediateBuffer(&bufferCreateInfo, &allocationCreateInfo, textureCreation);
+    stagingBuffer(dataSize, textureCreation);
     return newTexture;
 }
 
-void VkMemoryManager::mapBuffer(const VkBuffer *buffer, void **data, const VmaAllocation *allocation) {
-    if (!allocation) {
-        allocation = &trackedBuffers[*buffer];
-        if (!allocation) {
-            throw std::runtime_error("Buffer not found in tracked buffers. You have to pass the allocation manually for unmanaged buffers.");
-        }
-    }
-
-    VK_CHECK(vmaMapMemory(allocator, *allocation, data));
+void VkMemoryManager::mapBuffer(const VulkanBuffer &buffer, void **data) {
+    VK_CHECK(vmaMapMemory(allocator, buffer.allocation, data));
 }
 
-void VkMemoryManager::unmapBuffer(const VkBuffer *buffer, const VmaAllocation *allocation) {
-    if (!allocation) {
-        allocation = &trackedBuffers[*buffer];
-        if (!allocation) {
-            throw std::runtime_error("Buffer not found in tracked buffers. You have to pass the allocation manually for unmanaged buffers.");
-        }
-    }
-
-    vmaUnmapMemory(allocator, *allocation);
+void VkMemoryManager::unmapBuffer(const VulkanBuffer &buffer) {
+    vmaUnmapMemory(allocator, buffer.allocation);
 }
 
-void VkMemoryManager::destroyBuffer(const VkBuffer *buffer, const VmaAllocation *allocation) {
-    if (!allocation) {
-        allocation = &trackedBuffers[*buffer];
-        if (!allocation) {
-            throw std::runtime_error("Buffer not found in tracked buffers. You have to pass the allocation manually for unmanaged buffers.");
-        }
-    }
+void VkMemoryManager::destroyBuffer(const VulkanBuffer &buffer) {
+    vmaDestroyBuffer(allocator, buffer.buffer, buffer.allocation);
 
-    vmaDestroyBuffer(allocator, *buffer, *allocation);
+    trackedBuffers.erase(buffer);
+}
+
+void VkMemoryManager::destroyImage(const VulkanImage &image) {
+    vmaDestroyImage(allocator, image.image, image.allocation);
+    if (image.imageView)
+        vkDestroyImageView(device, image.imageView, nullptr);
+
+    trackedImages.erase(image);
 }

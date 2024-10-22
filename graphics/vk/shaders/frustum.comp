@@ -1,0 +1,43 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+
+#include "tiled_shading.glsl"
+
+layout(local_size_x = 16, local_size_y = 16) in;
+
+layout(set = 0, binding = 0) buffer writeonly frustumBuffer {
+    ViewFrustum frustum;
+};
+
+layout(push_constant) uniform PushConstants {
+    mat4 inverseVp;
+    vec3 cameraPosition;
+    ivec2 viewportSize;
+} pushConstants;
+
+vec4 ScreenSpaceToViewSpace(vec4 screenSpace) {
+    vec2 ndc = screenSpace.xy / pushConstants.viewportSize;
+    vec4 clipSpace = vec4(2.0 * vec2(ndc.x, 1.0f - ndc.y) - 1.0, screenSpace.z, screenSpace.w);
+
+    return (pushConstants.inverseVp * clipSpace) / clipSpace.w;
+}
+
+void main() {
+    uint index = gl_GlobalInvocationID.y * pushConstants.viewportSize.x + gl_GlobalInvocationID.x;
+
+    vec4 screen[4];
+    screen[0] = vec4(gl_GlobalInvocationID.xy, -1.0f, 1.0f);
+    screen[1] = vec4((gl_GlobalInvocationID.x + 1) * TILE_SIZE, gl_GlobalInvocationID.y * TILE_SIZE, -1.0f, 1.0f);
+    screen[2] = vec4(gl_GlobalInvocationID.x * TILE_SIZE, (gl_GlobalInvocationID.y + 1) * TILE_SIZE, -1.0f, 1.0f);
+    screen[3] = vec4((gl_GlobalInvocationID.x + 1) * TILE_SIZE, (gl_GlobalInvocationID.y + 1) * TILE_SIZE, -1.0f, 1.0f);
+
+    vec3 view[4];
+    for (int i = 0; i < 4; i++) {
+        view[i] = ScreenSpaceToViewSpace(screen[i]).xyz;
+    }
+
+    frustum.planes[0] = vec4(normalize(cross(view[1] - view[0], view[2] - view[0])), dot(view[0], view[1]));
+    frustum.planes[1] = vec4(normalize(cross(view[2] - view[0], view[3] - view[0])), dot(view[0], view[2]));
+    frustum.planes[2] = vec4(normalize(cross(view[3] - view[0], view[1] - view[0])), dot(view[0], view[3]));
+    frustum.planes[3] = vec4(normalize(cross(view[2] - view[1], view[3] - view[1])), dot(view[1], view[2]));
+}

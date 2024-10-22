@@ -45,12 +45,16 @@ struct Light {
     alignas(16) struct {
         glm::vec4 position;
         glm::vec4 color;
-    } lights[4];
+    } lights[2];
 };
 
 struct LightVisibility {
     uint32_t visibleLightCount;
     uint32_t indices[1024];
+};
+
+struct ViewFrustum {
+    glm::vec4 planes[4];
 };
 
 //struct FragmentPushConstants {
@@ -267,6 +271,8 @@ private:
     inline void DrawObject(const VkCommandBuffer &commandBuffer, const VkRenderObject &draw, const VkDescriptorSet &sceneDescriptorSet, VkMaterialPipeline &lastPipeline, VkMaterialInstance &lastMaterialInstance, VkBuffer &lastIndexBuffer);
     inline void DrawDepthPrepass(const std::vector<size_t> &drawIndices);
 
+    inline void ComputeFrustum();
+
     GLFWwindow *glfwWindow;
     Camera *camera;
 
@@ -307,6 +313,10 @@ private:
     VkCommandBuffer depthPrepassCommandBuffer;
 
     VkPipeline computePipeline;
+    VkPipeline frustumPipeline;
+    VkPipelineLayout frustumPipelineLayout;
+
+    VkDescriptorSetLayout frustumDescriptorSetLayout;
 
     VkSemaphore computeFinishedSemaphore;
 
@@ -331,6 +341,7 @@ private:
 
     VulkanBuffer lightUniformBuffer{};
     VulkanBuffer visibleLightBuffer{};
+    VulkanBuffer frustumBuffer{};
 
     VkSampler textureSamplerLinear;
     VkSampler textureSamplerNearest;
@@ -346,6 +357,10 @@ private:
 //    std::unique_ptr<Light> totalLights = std::make_unique<Light>();
     Light totalLights{};
     LightVisibility lightVisibility{};
+
+    void CreateDepthImage();
+
+    void UpdateDepthComputeDescriptorSets();
 };
 
 

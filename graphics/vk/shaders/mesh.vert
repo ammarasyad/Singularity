@@ -33,7 +33,8 @@ void main() {
     gl_Position = sceneData.worldMatrix * pushConstants.worldMatrix * vec4(v.position, 1.0);
 
     fragPos = (pushConstants.worldMatrix * vec4(v.position, 1.0)).xyz;
-    fragNormal = (pushConstants.worldMatrix * vec4(v.normal, 0.0)).xyz;
+//    fragNormal = (pushConstants.worldMatrix * vec4(v.normal, 0.0)).xyz;
+    fragNormal = v.normal;
     fragColor = v.color * materialData.colorFactors.xyz;
     fragUV.x = v.uv_X;
     fragUV.y = v.uv_Y;

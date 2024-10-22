@@ -175,23 +175,11 @@ std::optional<std::shared_ptr<LoadedGLTF>> LoadGLTF(VkRenderer *renderer, const 
             images.push_back(renderer->default_image());
         }
     }
-    VkBufferCreateInfo bufferCreateInfo{
-        VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-        VK_NULL_HANDLE,
-        0,
-        sizeof(VkGLTFMetallic_Roughness::MaterialConstants) * gltf.materials.size(),
-        VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-    };
-
-    VmaAllocationCreateInfo allocationCreateInfo{
-        VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
-        VMA_MEMORY_USAGE_AUTO
-    };
-
-    scene->materialDataBuffer = renderer->memory_manager()->createManagedBuffer(&bufferCreateInfo, &allocationCreateInfo);
+    auto memoryManager = renderer->memory_manager();
+    scene->materialDataBuffer = memoryManager->createManagedBuffer(sizeof(VkGLTFMetallic_Roughness::MaterialConstants) * gltf.materials.size(), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT, VMA_MEMORY_USAGE_AUTO);
 
     VkGLTFMetallic_Roughness::MaterialConstants *materialConstants;
-    renderer->memory_manager()->mapBuffer(&scene->materialDataBuffer.buffer, reinterpret_cast<void **>(&materialConstants));
+    memoryManager->mapBuffer(scene->materialDataBuffer, reinterpret_cast<void **>(&materialConstants));
 
     int dataIndex = 0;
 
@@ -232,11 +220,10 @@ std::optional<std::shared_ptr<LoadedGLTF>> LoadGLTF(VkRenderer *renderer, const 
         auto device = renderer->logical_device();
         newMaterial.data = renderer->metal_rough_material().writeMaterial(device, passType, materialResources, scene->descriptorAllocator);
         dataIndex++;
-//        materials.emplace_back(newMaterial);
-        materials.push_back(newMaterial);
+        materials.emplace_back(newMaterial);
     }
 
-    renderer->memory_manager()->unmapBuffer(&scene->materialDataBuffer.buffer);
+    memoryManager->unmapBuffer(scene->materialDataBuffer);
 
     std::vector<uint32_t> indices;
     std::vector<VkVertex> vertices;

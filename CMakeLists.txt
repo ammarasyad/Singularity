@@ -76,6 +76,7 @@ add_custom_target(shaders)
 set(VK_SHADER_FOLDER graphics/vk/shaders)
 set(SHADER_FILES
         ${VK_SHADER_FOLDER}/depth_prepass.vert
+        ${VK_SHADER_FOLDER}/frustum.comp
         ${VK_SHADER_FOLDER}/light_culling.comp
         ${VK_SHADER_FOLDER}/lighting.frag
         ${VK_SHADER_FOLDER}/mesh.frag
@@ -86,7 +87,7 @@ foreach (FILE ${SHADER_FILES})
     get_filename_component(FILE_NAME ${FILE} NAME)
     add_custom_command(
             TARGET shaders
-            COMMAND third_party/shaderc/bin/glslc.exe ${FILE} -o ${CMAKE_CURRENT_BINARY_DIR}/shaders/${FILE_NAME}.spv
+            COMMAND third_party/shaderc/bin/glslc.exe ${FILE} -o ${CMAKE_CURRENT_BINARY_DIR}/shaders/${FILE_NAME}.spv -g
             MAIN_DEPENDENCY ${FILE}
             WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
             VERBATIM

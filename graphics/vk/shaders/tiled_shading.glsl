@@ -12,6 +12,7 @@ struct LightVisibility {
 };
 
 struct ViewFrustum {
-    vec4 planes[6];
-    vec3 points[8];
+    vec4 planes[4];
+//    vec4 planes[6];
+//    vec3 points[8];
 };

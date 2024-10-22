@@ -37,6 +37,7 @@ void DescriptorWriter::Clear() {
     bufferInfos.clear();
     writes.clear();
 }
+
 void DescriptorWriter::UpdateSet(VkDevice &device, VkDescriptorSet &descriptorSet) {
     for (auto &[sType, pNext, dstSet, dstBinding, dstArrayElement, descriptorCount, descriptorType, pImageInfo, pBufferInfo, pTexelBufferView] : writes) {
         dstSet = descriptorSet;

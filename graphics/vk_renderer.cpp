@@ -6,7 +6,6 @@
 
 #include <imgui_impl_vulkan.h>
 #include <ranges>
-#include <gtc/matrix_transform.hpp>
 #include "vk/memory/vk_mesh_assets.h"
 
 #include "file.h"
@@ -76,7 +75,7 @@ VkRenderer::VkRenderer(GLFWwindow *window, Camera *camera, const bool dynamicRen
     CreateCommandPool();
     // CreateQueryPool();
 
-    memoryManager = std::make_shared<VkMemoryManager>(instance, physicalDevice, device);
+    memoryManager = std::make_shared<VkMemoryManager>(instance, physicalDevice, device, isIntegratedGPU);
 
     // Reuse pipeline cache
     const auto pipelineCacheData = ReadFile<char>("pipeline_cache.bin");
@@ -95,6 +94,7 @@ VkRenderer::VkRenderer(GLFWwindow *window, Camera *camera, const bool dynamicRen
     }
 
     CreateSwapChain();
+    CreateDepthImage();
 
     viewport = {
         0.0f,
@@ -123,11 +123,11 @@ VkRenderer::VkRenderer(GLFWwindow *window, Camera *camera, const bool dynamicRen
         CreateFramebuffers();
     }
 
-//    meshAssets = LoadGltfMeshes(this, "../assets/basicmesh.glb").value();
-
     CreateCommandBuffers();
     CreateDefaultTexture();
     CreateSyncObjects();
+
+    ComputeFrustum();
 
     auto structureFile = LoadGLTF(this, "../assets/Sponza/Sponza.gltf");
 
@@ -136,6 +136,7 @@ VkRenderer::VkRenderer(GLFWwindow *window, Camera *camera, const bool dynamicRen
     loadedScenes["structure"] = structureFile.value();
 
     CreateRandomLights();
+    UpdateDepthComputeDescriptorSets();
 
     isVkRunning = true;
 }
@@ -212,9 +213,15 @@ void VkRenderer::InitializeInstance() {
     glfwCreateWindowSurface(instance, glfwWindow, nullptr, &surface);
 }
 
+int lightSceneTime = 0.f;
+
 void VkRenderer::Render(EngineStats &stats) {
     stats.drawCallCount = 0;
     stats.triangleCount = 0;
+
+    if (lightSceneTime++ > 2000) {
+        lightSceneTime = 0;
+    }
 
     UpdateScene();
 
@@ -251,6 +258,10 @@ void VkRenderer::Render(EngineStats &stats) {
     const auto end = std::chrono::high_resolution_clock::now();
     const auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
     stats.meshDrawTime = static_cast<float>(elapsed) / 1000.f;
+
+//    if (asyncCompute) {
+//        AsyncComputeDispatch(frames[currentFrame].commandBuffer, imageIndex);
+//    }
 
     VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT};
     std::array waitSemaphores = {frames[currentFrame].imageAvailableSemaphore, depthPrepassSemaphore};
@@ -454,34 +465,20 @@ void VkRenderer::Draw(const VkCommandBuffer &commandBuffer, uint32_t imageIndex,
         }
     });
 
-    VkBufferCreateInfo bufferCreateInfo{
-            VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-            VK_NULL_HANDLE,
-            0,
-            sizeof(SceneData),
-            VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-            VK_SHARING_MODE_EXCLUSIVE
-    };
-
-    VmaAllocationCreateInfo allocationCreateInfo{
-            VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
-            VMA_MEMORY_USAGE_AUTO
-    };
-
-    auto [buffer, alloc] = memoryManager->createUnmanagedBuffer(&bufferCreateInfo, &allocationCreateInfo);
-    frames[currentFrame].frameCallbacks.emplace_back([&, buffer, alloc] { memoryManager->destroyBuffer(&buffer, &alloc); });
+    auto buffer = memoryManager->createUnmanagedBuffer(sizeof(SceneData), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT, VMA_MEMORY_USAGE_AUTO);
+    frames[currentFrame].frameCallbacks.emplace_back([&, buffer] { memoryManager->destroyBuffer(buffer); });
 
     SceneData *data;
-    memoryManager->mapBuffer(&buffer, reinterpret_cast<void **>(&data), &alloc);
+    memoryManager->mapBuffer(buffer, reinterpret_cast<void **>(&data));
     memcpy(data, &sceneData, sizeof(SceneData));
-    memoryManager->unmapBuffer(&buffer, &alloc);
+    memoryManager->unmapBuffer(buffer);
 
     static std::array layouts = {sceneDescriptorSetLayout};
     auto sceneDescriptorSet = frames[currentFrame].frameDescriptors.Allocate(device, layouts);
 
     {
         DescriptorWriter writer;
-        writer.WriteBuffer(0, buffer, 0, sizeof(SceneData), VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
+        writer.WriteBuffer(0, buffer.buffer, 0, sizeof(SceneData), VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
         writer.UpdateSet(device, sceneDescriptorSet);
         writer.UpdateSet(device, depthPrepassDescriptorSet);
     }
@@ -512,7 +509,7 @@ void VkRenderer::Draw(const VkCommandBuffer &commandBuffer, uint32_t imageIndex,
 
     vkCmdPushConstants(commandBuffer, computePipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pushConstants),
                        &pushConstants);
-    vkCmdDispatch(commandBuffer, 16, 16, 1);
+    vkCmdDispatch(commandBuffer, (swapChainExtent.width - 1) / 16 + 1, (swapChainExtent.height - 1) / 16 + 1, 1);
 
     if (dynamicRendering) {
         VkRenderingAttachmentInfo colorAttachment{
@@ -644,7 +641,6 @@ void VkRenderer::Shutdown() {
 
     vkDestroySampler(device, textureSamplerLinear, VK_NULL_HANDLE);
     vkDestroySampler(device, textureSamplerNearest, VK_NULL_HANDLE);
-    vkDestroySampler(device, depthSampler, VK_NULL_HANDLE);
 
     // All buffers and images will be destroyed by the memory manager (EXCEPT UNMANAGED BUFFERS AND IMAGES), no need for manual management
     memoryManager.reset();
@@ -653,11 +649,14 @@ void VkRenderer::Shutdown() {
     vkDestroyDescriptorSetLayout(device, mainDescriptorSetLayout, nullptr);
     vkDestroyDescriptorSetLayout(device, sceneDescriptorSetLayout, nullptr);
     vkDestroyDescriptorSetLayout(device, lightDescriptorSetLayout, nullptr);
+    vkDestroyDescriptorSetLayout(device, frustumDescriptorSetLayout, nullptr);
 
     vkDestroyPipeline(device, depthPrepassPipeline, nullptr);
     vkDestroyPipeline(device, computePipeline, nullptr);
+    vkDestroyPipeline(device, frustumPipeline, nullptr);
     vkDestroyPipelineLayout(device, depthPrepassPipelineLayout, nullptr);
     vkDestroyPipelineLayout(device, computePipelineLayout, nullptr);
+    vkDestroyPipelineLayout(device, frustumPipelineLayout, nullptr);
 
     SavePipelineCache();
 
@@ -696,7 +695,9 @@ void VkRenderer::RecreateSwapChain() {
         CleanupSwapChain();
 
         CreateSwapChain();
+        CreateDepthImage();
         CreateFramebuffers();
+        UpdateDepthComputeDescriptorSets();
 
         viewport.width = static_cast<float>(swapChainExtent.width);
         viewport.height = static_cast<float>(swapChainExtent.height);
@@ -709,49 +710,22 @@ void VkRenderer::RecreateSwapChain() {
 Mesh VkRenderer::CreateMesh(const std::span<VkVertex> &vertices, const std::span<uint32_t> &indices) {
     Mesh mesh{};
 
-    VkBufferCreateInfo bufferCreateInfo{
-        VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-        VK_NULL_HANDLE,
-        {},
-        vertices.size() * sizeof(vertices[0]) + indices.size() * sizeof(indices[0]),
-        VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-        VK_SHARING_MODE_EXCLUSIVE
-    };
-
-    VmaAllocationCreateFlags allocationFlags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
-    if (isIntegratedGPU) {
-        allocationFlags |= VMA_ALLOCATION_CREATE_MAPPED_BIT;
-    }
-
-    VmaAllocationCreateInfo allocationCreateInfo{
-        allocationFlags,
-        VMA_MEMORY_USAGE_AUTO_PREFER_HOST,
-        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
-    };
-
+    const auto verticesSize = vertices.size() * sizeof(vertices[0]);
+    const auto indicesSize = indices.size() * sizeof(indices[0]);
     const auto stagingBufferMappedTask = [&](auto &, void *mappedMemory) {
-        const auto verticesSize = vertices.size() * sizeof(vertices[0]);
-        const auto indicesSize = indices.size() * sizeof(indices[0]);
-
         memcpy(mappedMemory, vertices.data(), verticesSize);
         memcpy(static_cast<char *>(mappedMemory) + verticesSize, indices.data(), indicesSize);
     };
 
     const auto stagingBufferUnmappedTask = [&](const VkBuffer &stagingBuffer) {
-        allocationCreateInfo.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
-        bufferCreateInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
-
-        mesh.vertexBuffer = memoryManager->createManagedBuffer(&bufferCreateInfo, &allocationCreateInfo).buffer;
+        mesh.vertexBuffer = memoryManager->createManagedBuffer(verticesSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 0, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT).buffer;
         const VkBufferDeviceAddressInfo deviceAddressInfo{
             VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
             VK_NULL_HANDLE,
             mesh.vertexBuffer
         };
         mesh.vertexBufferDeviceAddress = vkGetBufferDeviceAddress(device, &deviceAddressInfo);
-
-        bufferCreateInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
-
-        mesh.indexBuffer = memoryManager->createManagedBuffer(&bufferCreateInfo, &allocationCreateInfo).buffer;
+        mesh.indexBuffer = memoryManager->createManagedBuffer(indicesSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT, 0, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT).buffer;
 
         ImmediateSubmit([&](auto &commandBuffer) {
             VkBufferCopy copyRegion{
@@ -769,8 +743,7 @@ Mesh VkRenderer::CreateMesh(const std::span<VkVertex> &vertices, const std::span
         });
     };
 
-    memoryManager->immediateBuffer(&bufferCreateInfo, &allocationCreateInfo, stagingBufferMappedTask,
-                                           stagingBufferUnmappedTask);
+    memoryManager->stagingBuffer(verticesSize + indicesSize, stagingBufferMappedTask, stagingBufferUnmappedTask);
 
     return mesh;
 }
@@ -1074,21 +1047,16 @@ void VkRenderer::CreateSwapChain() {
         imageViewCreateInfo.image = swapChainImages[i];
         VK_CHECK(vkCreateImageView(device, &imageViewCreateInfo, VK_NULL_HANDLE, &swapChainImageViews[i]));
     }
+}
 
-    auto imageCreateInfo = CreateImageCreateInfo(VK_FORMAT_D32_SFLOAT, {swapChainExtent.width, swapChainExtent.height, 1}, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, VK_IMAGE_TILING_OPTIMAL,VK_IMAGE_LAYOUT_UNDEFINED, {});
-
-    VmaAllocationCreateInfo allocationCreateInfo{
-        {},
-        VMA_MEMORY_USAGE_AUTO
-    };
-
+void VkRenderer::CreateDepthImage() {
     ImageViewCreateInfo viewCreateInfo{
         .viewType = VK_IMAGE_VIEW_TYPE_2D,
         .format = VK_FORMAT_D32_SFLOAT,
         .subresourceRange = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1}
     };
 
-    depthImage = memoryManager->createManagedImage(&imageCreateInfo, &allocationCreateInfo, &viewCreateInfo);
+    depthImage = memoryManager->createManagedImage(0, VK_FORMAT_D32_SFLOAT, {swapChainExtent.width, swapChainExtent.height, 1}, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, VK_IMAGE_LAYOUT_UNDEFINED, 0, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, false, &viewCreateInfo);
 
     ImmediateSubmit([&](auto &cmd) {
         TransitionImage(cmd, depthImage, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_NONE, VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT, VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
@@ -1293,6 +1261,9 @@ void VkRenderer::CreatePipelineLayout() {
     pipelineLayoutInfo.pPushConstantRanges = &computePushConstantRange;
 
     VK_CHECK(vkCreatePipelineLayout(device, &pipelineLayoutInfo, VK_NULL_HANDLE, &computePipelineLayout));
+
+    pipelineLayoutInfo.pSetLayouts = &frustumDescriptorSetLayout;
+    VK_CHECK(vkCreatePipelineLayout(device, &pipelineLayoutInfo, VK_NULL_HANDLE, &frustumPipelineLayout));
 }
 
 void VkRenderer::CreateGraphicsPipeline() {
@@ -1312,21 +1283,21 @@ void VkRenderer::CreateGraphicsPipeline() {
 }
 
 void VkRenderer::CreateComputePipeline() {
-    const auto computeShaderCode = ReadFile<char>("shaders/light_culling.comp.spv");
+    auto computeShaderCode = ReadFile<uint32_t>("shaders/light_culling.comp.spv");
 
-    const VkShaderModuleCreateInfo computeShaderModuleCreateInfo{
+    VkShaderModuleCreateInfo computeShaderModuleCreateInfo{
         VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
         VK_NULL_HANDLE,
         0,
         computeShaderCode.size(),
-        reinterpret_cast<const uint32_t *>(computeShaderCode.data())
+        computeShaderCode.data()
     };
 
     VkShaderModule computeShaderModule;
 
     VK_CHECK(vkCreateShaderModule(device, &computeShaderModuleCreateInfo, VK_NULL_HANDLE, &computeShaderModule));
 
-    const VkPipelineShaderStageCreateInfo computeShaderStageInfo{
+    VkPipelineShaderStageCreateInfo computeShaderStageInfo{
         VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
         VK_NULL_HANDLE,
         0,
@@ -1336,7 +1307,7 @@ void VkRenderer::CreateComputePipeline() {
         VK_NULL_HANDLE
     };
 
-    const VkComputePipelineCreateInfo pipelineInfo{
+    VkComputePipelineCreateInfo pipelineInfo{
         VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
         VK_NULL_HANDLE,
         0,
@@ -1347,6 +1318,24 @@ void VkRenderer::CreateComputePipeline() {
     };
 
     VK_CHECK(vkCreateComputePipelines(device, pipelineCache, 1, &pipelineInfo, VK_NULL_HANDLE, &computePipeline));
+
+    vkDestroyShaderModule(device, computeShaderModule, VK_NULL_HANDLE);
+
+//    VkShaderModule frustumShaderModule;
+
+    auto frustumShaderCode = ReadFile<uint32_t>("shaders/frustum.comp.spv");
+
+    computeShaderModuleCreateInfo.codeSize = frustumShaderCode.size();
+    computeShaderModuleCreateInfo.pCode = frustumShaderCode.data();
+
+    VK_CHECK(vkCreateShaderModule(device, &computeShaderModuleCreateInfo, VK_NULL_HANDLE, &computeShaderModule));
+
+    computeShaderStageInfo.module = computeShaderModule;
+
+    pipelineInfo.stage = computeShaderStageInfo;
+    pipelineInfo.layout = frustumPipelineLayout;
+
+    VK_CHECK(vkCreateComputePipelines(device, pipelineCache, 1, &pipelineInfo, VK_NULL_HANDLE, &frustumPipeline));
 
     vkDestroyShaderModule(device, computeShaderModule, VK_NULL_HANDLE);
 }
@@ -1490,7 +1479,12 @@ void VkRenderer::CreateDescriptors() {
     builder.AddBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT);
     builder.AddBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT);
     builder.AddBinding(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT);
+    builder.AddBinding(3, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT);
     lightDescriptorSetLayout = builder.Build(device);
+
+    builder.Clear();
+    builder.AddBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT);
+    frustumDescriptorSetLayout = builder.Build(device);
 
     std::array layouts = {mainDescriptorSetLayout};
     mainDescriptorSet = mainDescriptorAllocator.Allocate(device, layouts);
@@ -1630,6 +1624,9 @@ void VkRenderer::CleanupSwapChain() {
         vkDestroyImageView(device, imageView, nullptr);
     }
 
+    vkDestroySampler(device, depthSampler, nullptr);
+    memoryManager->destroyImage(depthImage);
+
     vkDestroySwapchainKHR(device, swapChain, nullptr);
 }
 
@@ -1684,6 +1681,14 @@ void VkRenderer::UpdateScene() {
 
     sceneData.worldMatrix = proj * view;
 
+    totalLights.lights[0].position = glm::vec4(-9.5f + 0.01f * static_cast<float>(lightSceneTime), 1.4f, 3.4f, 200.f);
+    totalLights.lights[1].position = glm::vec4(8.5f, 1.4f, -3.6f + 0.01f * static_cast<float>(lightSceneTime), 200.f);
+
+    void *data;
+    memoryManager->mapBuffer(lightUniformBuffer, &data);
+    memcpy(data, &totalLights, sizeof(Light));
+    memoryManager->unmapBuffer(lightUniformBuffer);
+
     loadedScenes["structure"]->Draw(glm::mat4{1.f}, mainDrawContext);
 }
 
@@ -1716,32 +1721,19 @@ void VkRenderer::DestroyDebugUtilsMessengerEXT(VkInstance instance, VkDebugUtils
 
 void VkRenderer::CreateRandomLights() {
     totalLights.lights[0].position = glm::vec4(-9.5f, 1.4f, 3.4f, 200.f);
-    totalLights.lights[1].position = glm::vec4(-9.5f, 1.4f, -3.6f, 200.f);
-    totalLights.lights[2].position = glm::vec4(8.5f, 1.4f, 3.4f, 200.f);
-    totalLights.lights[3].position = glm::vec4(8.5f, 1.4f, -3.6f, 200.f);
+    totalLights.lights[1].position = glm::vec4(8.5f, 1.4f, -3.6f, 200.f);
+//    totalLights.lights[1].position = glm::vec4(-9.5f, 1.4f, -3.6f, 200.f);
+//    totalLights.lights[2].position = glm::vec4(8.5f, 1.4f, 3.4f, 200.f);
+//    totalLights.lights[3].position = glm::vec4(8.5f, 1.4f, -3.6f, 200.f);
 
-    totalLights.lights[0].color = glm::vec4(1.f, 0.4f, 0.2f, 1.f);
-    totalLights.lights[1].color = glm::vec4(0.2f, 0.4f, 1.f, 1.f);
-    totalLights.lights[2].color = glm::vec4(1.f, 0.4f, 0.2f, 1.f);
-    totalLights.lights[3].color = glm::vec4(0.2f, 0.4f, 1.f, 1.f);
+    totalLights.lights[0].color = glm::vec4(1.f, 0.0f, 0.0f, 1.f);
+    totalLights.lights[1].color = glm::vec4(0.0f, 0.0f, 1.f, 1.f);
+//    totalLights.lights[2].color = glm::vec4(1.f, 0.4f, 0.2f, 1.f);
+//    totalLights.lights[3].color = glm::vec4(0.2f, 0.4f, 1.f, 1.f);
 
-    totalLights.lightCount = 4;
+    totalLights.lightCount = 2;
 
-    VkBufferCreateInfo bufferCreateInfo{
-        VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-        VK_NULL_HANDLE,
-        0,
-        sizeof(Light),
-        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-        VK_SHARING_MODE_EXCLUSIVE
-    };
-
-    VmaAllocationCreateInfo allocationCreateInfo{
-        VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
-        VMA_MEMORY_USAGE_AUTO
-    };
-
-    lightUniformBuffer = memoryManager->createManagedBuffer(&bufferCreateInfo, &allocationCreateInfo);
+    lightUniformBuffer = memoryManager->createManagedBuffer(sizeof(Light), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT, VMA_MEMORY_USAGE_AUTO);
 
     const auto mappedMemoryTask = [&](auto &, auto *stagingBuffer) {
         memcpy(stagingBuffer, &totalLights, sizeof(Light));
@@ -1759,15 +1751,16 @@ void VkRenderer::CreateRandomLights() {
         });
     };
 
-    memoryManager->immediateBuffer(&bufferCreateInfo, &allocationCreateInfo, mappedMemoryTask, unmappedMemoryTask);
+    memoryManager->stagingBuffer(sizeof(Light), mappedMemoryTask, unmappedMemoryTask);
 
-    bufferCreateInfo.size = sizeof(lightVisibility);
-    visibleLightBuffer = memoryManager->createManagedBuffer(&bufferCreateInfo, &allocationCreateInfo);
+    visibleLightBuffer = memoryManager->createManagedBuffer(sizeof(lightVisibility), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, 0, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 
     ImmediateSubmit([&](auto &cmd) {
         vkCmdFillBuffer(cmd, visibleLightBuffer.buffer, 0, sizeof(lightVisibility), 0);
     });
+}
 
+void VkRenderer::UpdateDepthComputeDescriptorSets() {
     DescriptorWriter writer;
     writer.WriteImage(0, depthImage.imageView, depthSampler, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
     writer.WriteBuffer(1, lightUniformBuffer.buffer, 0, sizeof(Light), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
@@ -1780,7 +1773,35 @@ void VkRenderer::CreateRandomLights() {
                        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
     writer.WriteImage(2, depthImage.imageView, depthSampler, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
                       VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+    writer.WriteBuffer(3, frustumBuffer.buffer, 0, sizeof(ViewFrustum), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
     writer.UpdateSet(device, lightDescriptorSet);
+}
+
+void VkRenderer::ComputeFrustum() {
+    if (!frustumBuffer.buffer)
+        frustumBuffer = memoryManager->createManagedBuffer(sizeof(ViewFrustum), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, 0, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+    std::array layouts = {frustumDescriptorSetLayout};
+    auto frustumDescriptorSet = mainDescriptorAllocator.Allocate(device, layouts);
+
+    DescriptorWriter writer;
+    writer.WriteBuffer(0, frustumBuffer.buffer, 0, sizeof(ViewFrustum), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+    writer.UpdateSet(device, frustumDescriptorSet);
+
+    const auto view = camera->ViewMatrix();
+    const auto proj = camera->ProjectionMatrix();
+    ComputePushConstants pushConstants {
+        glm::inverse(view * proj),
+        camera->Position(),
+        {swapChainExtent.width, swapChainExtent.height}
+    };
+
+    ImmediateSubmit([&](auto &cmd) {
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, frustumPipeline);
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, frustumPipelineLayout, 0, 1, &frustumDescriptorSet, 0, VK_NULL_HANDLE);
+        vkCmdPushConstants(cmd, frustumPipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ComputePushConstants), &pushConstants);
+        vkCmdDispatch(cmd, (swapChainExtent.width - 1) / 16 + 1, (swapChainExtent.height - 1) / 16 + 1, 1);
+    });
 }
 
 #endif

@@ -21,6 +21,6 @@ static std::vector<T> ReadFile(const std::string &filename) {
     file.read(reinterpret_cast<char *>(buffer.data()), fileSize);
     file.close();
 
-    return buffer;
+    return std::move(buffer);
 }
 #endif //D3D12_STUFF_FILE_H
