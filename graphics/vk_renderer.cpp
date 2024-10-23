@@ -75,7 +75,7 @@ VkRenderer::VkRenderer(GLFWwindow *window, Camera *camera, const bool dynamicRen
     CreateCommandPool();
     // CreateQueryPool();
 
-    memoryManager = std::make_shared<VkMemoryManager>(instance, physicalDevice, device, isIntegratedGPU);
+    memoryManager = std::make_unique<VkMemoryManager>(instance, physicalDevice, device, isIntegratedGPU);
 
     // Reuse pipeline cache
     const auto pipelineCacheData = ReadFile<char>("pipeline_cache.bin");
@@ -616,6 +616,7 @@ void VkRenderer::Shutdown() {
 
     vkDeviceWaitIdle(device);
 
+    loadedScenes["structure"].Clear();
     loadedScenes.clear();
 
     for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
@@ -959,18 +960,6 @@ void VkRenderer::CreateLogicalDevice() {
     vkGetDeviceQueue(device, queueFamilyIndices.presentFamily.value(), 0, &presentQueue);
 
     delete[] queuePriorities;
-}
-
-void VkRenderer::CreateQueryPool() {
-    const VkQueryPoolCreateInfo createInfo{
-        VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO,
-        VK_NULL_HANDLE,
-        0,
-        VK_QUERY_TYPE_TIMESTAMP,
-        2
-    };
-
-    vkCreateQueryPool(device, &createInfo, VK_NULL_HANDLE, &queryPool);
 }
 
 void VkRenderer::CreatePipelineCache() {
@@ -1636,40 +1625,6 @@ void VkRenderer::CleanupSwapChain() {
     vkDestroySwapchainKHR(device, swapChain, nullptr);
 }
 
-VkBufferCreateInfo VkRenderer::CreateBufferCreateInfo(VkDeviceSize size, VkBufferUsageFlags usage,
-                                                      VkSharingMode sharingMode) {
-    return VkBufferCreateInfo{
-        VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-        VK_NULL_HANDLE,
-        {},
-        size,
-        usage,
-        sharingMode
-    };
-}
-
-VkImageCreateInfo VkRenderer::CreateImageCreateInfo(VkFormat format, VkExtent3D extent, VkImageUsageFlags usage,
-                                                    VkImageTiling tiling, VkImageLayout layout,
-                                                    VkImageCreateFlags flags) {
-    return VkImageCreateInfo{
-        VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
-        VK_NULL_HANDLE,
-        flags,
-        VK_IMAGE_TYPE_2D,
-        format,
-        extent,
-        1,
-        1,
-        VK_SAMPLE_COUNT_1_BIT, // Might need to change this later down the line for multisampling
-        tiling,
-        usage,
-        VK_SHARING_MODE_EXCLUSIVE,
-        0,
-        nullptr,
-        layout,
-    };
-}
-
 void VkRenderer::SavePipelineCache() const {
     size_t size;
     vkGetPipelineCacheData(device, pipelineCache, &size, nullptr);
@@ -1695,7 +1650,7 @@ void VkRenderer::UpdateScene() {
     memcpy(data, &totalLights, sizeof(Light));
     memoryManager->unmapBuffer(lightUniformBuffer);
 
-    loadedScenes["structure"]->Draw(glm::mat4{1.f}, mainDrawContext);
+    loadedScenes["structure"].Draw(glm::mat4{1.f}, mainDrawContext);
 }
 
 #ifndef NDEBUG

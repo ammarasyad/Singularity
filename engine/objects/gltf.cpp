@@ -100,9 +100,9 @@ inline VkSamplerMipmapMode extractMipmapMode(const fastgltf::Filter filter) {
 
 //#pragma GCC push_options
 //#pragma GCC optimize("O0")
-std::optional<std::shared_ptr<LoadedGLTF>> LoadGLTF(VkRenderer *renderer, const std::filesystem::path &path) {
-    auto scene = std::make_shared<LoadedGLTF>();
-    scene->renderer = renderer;
+std::optional<LoadedGLTF> LoadGLTF(VkRenderer *renderer, const std::filesystem::path &path) {
+    LoadedGLTF scene{};
+    scene.renderer = renderer;
 
 //    LoadedGLTF &file = *scene;
 
@@ -132,9 +132,9 @@ std::optional<std::shared_ptr<LoadedGLTF>> LoadGLTF(VkRenderer *renderer, const 
         }
     };
 
-    scene->descriptorAllocator.InitPool(renderer->logical_device(), gltf.materials.size(), sizes);
+    scene.descriptorAllocator.InitPool(renderer->logical_device(), gltf.materials.size(), sizes);
 
-    scene->samplers.reserve(gltf.samplers.size());
+    scene.samplers.reserve(gltf.samplers.size());
     for (const auto &[magFilter, minFilter, wrapS, wrapT, name] : gltf.samplers) {
         VkSamplerCreateInfo samplerCreateInfo{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
         samplerCreateInfo.magFilter = extractFilter(magFilter.value_or(fastgltf::Filter::Nearest));
@@ -151,7 +151,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> LoadGLTF(VkRenderer *renderer, const 
             return std::nullopt;
         }
 
-        scene->samplers.push_back(newSampler);
+        scene.samplers.push_back(newSampler);
     }
 
 //    std::vector<std::shared_ptr<MeshAsset>> meshes;
@@ -169,23 +169,23 @@ std::optional<std::shared_ptr<LoadedGLTF>> LoadGLTF(VkRenderer *renderer, const 
 
         if (img.has_value()) {
             images.push_back(img.value());
-            scene->images[image.name.c_str()] = img.value();
+            scene.images[image.name.c_str()] = img.value();
         } else {
             std::cout << "Failed to load image: " << image.name << std::endl;
             images.push_back(renderer->default_image());
         }
     }
     auto memoryManager = renderer->memory_manager();
-    scene->materialDataBuffer = memoryManager->createManagedBuffer(sizeof(VkGLTFMetallic_Roughness::MaterialConstants) * gltf.materials.size(), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT, VMA_MEMORY_USAGE_AUTO);
+    scene.materialDataBuffer = memoryManager->createManagedBuffer(sizeof(VkGLTFMetallic_Roughness::MaterialConstants) * gltf.materials.size(), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT, VMA_MEMORY_USAGE_AUTO);
 
     VkGLTFMetallic_Roughness::MaterialConstants *materialConstants;
-    memoryManager->mapBuffer(scene->materialDataBuffer, reinterpret_cast<void **>(&materialConstants));
+    memoryManager->mapBuffer(scene.materialDataBuffer, reinterpret_cast<void **>(&materialConstants));
 
     int dataIndex = 0;
 
     for (auto &material : gltf.materials) {
         GLTFMaterial newMaterial{};
-        scene->materials[material.name.c_str()] = newMaterial;
+        scene.materials[material.name.c_str()] = newMaterial;
 
         VkGLTFMetallic_Roughness::MaterialConstants constants{};
         constants.colorFactors.x = material.pbrData.baseColorFactor[0];
@@ -206,7 +206,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> LoadGLTF(VkRenderer *renderer, const 
         materialResources.metalRoughImage = renderer->default_image();
         materialResources.metalRoughSampler = renderer->default_sampler_linear();
 
-        materialResources.dataBuffer = scene->materialDataBuffer.buffer;
+        materialResources.dataBuffer = scene.materialDataBuffer.buffer;
         materialResources.offset = dataIndex * sizeof(VkGLTFMetallic_Roughness::MaterialConstants);
 
         if (material.pbrData.baseColorTexture.has_value()) {
@@ -214,16 +214,16 @@ std::optional<std::shared_ptr<LoadedGLTF>> LoadGLTF(VkRenderer *renderer, const 
             auto sampler = gltf.textures[material.pbrData.baseColorTexture.value().textureIndex].samplerIndex.value();
 
             materialResources.colorImage = images[img];
-            materialResources.colorSampler = scene->samplers[sampler];
+            materialResources.colorSampler = scene.samplers[sampler];
         }
 
         auto device = renderer->logical_device();
-        newMaterial.data = renderer->metal_rough_material().writeMaterial(device, passType, materialResources, scene->descriptorAllocator);
+        newMaterial.data = renderer->metal_rough_material().writeMaterial(device, passType, materialResources, scene.descriptorAllocator);
         dataIndex++;
         materials.emplace_back(newMaterial);
     }
 
-    memoryManager->unmapBuffer(scene->materialDataBuffer);
+    memoryManager->unmapBuffer(scene.materialDataBuffer);
 
     std::vector<uint32_t> indices;
     std::vector<VkVertex> vertices;
@@ -318,7 +318,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> LoadGLTF(VkRenderer *renderer, const 
         }
 
         meshAsset.mesh = renderer->CreateMesh(vertices, indices);
-        scene->meshes[name.c_str()] = meshAsset;
+        scene.meshes[name.c_str()] = meshAsset;
         meshes.push_back(std::move(meshAsset));
     }
 
@@ -332,8 +332,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> LoadGLTF(VkRenderer *renderer, const 
             newNode = std::make_shared<Node>();
         }
 
-        nodes.push_back(newNode);
-        scene->nodes[node.name.c_str()] = newNode;
+        scene.nodes[node.name.c_str()] = newNode;
 
         std::visit(fastgltf::visitor {
             [&](fastgltf::math::fmat4x4 &matrix) {
@@ -351,6 +350,8 @@ std::optional<std::shared_ptr<LoadedGLTF>> LoadGLTF(VkRenderer *renderer, const 
                 newNode->localTransform = transform * rotation * scale;
             }
         }, node.transform);
+
+        nodes.emplace_back(newNode);
     }
 
     for (int i = 0; i < gltf.nodes.size(); i++) {
@@ -365,7 +366,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> LoadGLTF(VkRenderer *renderer, const 
 
     for (auto &node : nodes) {
         if (node->parent.lock() == nullptr) {
-            scene->rootNodes.push_back(node);
+            scene.rootNodes.push_back(node);
             node->RefreshTransform(glm::mat4{1.f});
         }
     }
@@ -380,7 +381,7 @@ void LoadedGLTF::Draw(const glm::mat4 &topMatrix, VkDrawContext &ctx) {
     }
 }
 
-void LoadedGLTF::clear() {
+void LoadedGLTF::Clear() {
     // Buffers and images are automatically cleared by the memory manager
     // TODO: But it may be a good idea to clear them manually if scenes are dynamically loaded and unloaded
     for (auto &sampler : samplers) {

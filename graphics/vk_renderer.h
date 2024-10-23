@@ -241,7 +241,6 @@ private:
     inline void InitializeInstance();
     inline void PickPhysicalDevice();
     inline void CreateLogicalDevice();
-    inline void CreateQueryPool();
     inline void CreatePipelineCache();
     inline void CreateSwapChain();
     inline void CreateRenderPass();
@@ -262,10 +261,7 @@ private:
     inline static VkPresentModeKHR ChooseSwapPresentMode(const std::vector<VkPresentModeKHR> &availablePresentModes);
     [[nodiscard]] inline VkExtent2D ChooseSwapExtent(const VkSurfaceCapabilitiesKHR &capabilities) const;
     inline void CleanupSwapChain();
-    inline static VkBufferCreateInfo CreateBufferCreateInfo(VkDeviceSize size, VkBufferUsageFlags usage, VkSharingMode sharingMode);
-    inline static VkImageCreateInfo CreateImageCreateInfo(VkFormat format, VkExtent3D extent, VkImageUsageFlags usage, VkImageTiling tiling, VkImageLayout layout, VkImageCreateFlags flags);
 
-    // inline void UpdatePushConstants(MeshPushConstants &meshPushConstants) const;
     inline void SavePipelineCache() const;
 
     inline void UpdateScene();
@@ -337,7 +333,6 @@ private:
     VkPhysicalDeviceProperties deviceProperties;
     VkPhysicalDeviceMemoryProperties memoryProperties;
 
-//    std::vector<std::shared_ptr<MeshAsset>> meshAssets;
 
     VulkanImage defaultImage{};
 
@@ -351,12 +346,11 @@ private:
     VkGLTFMetallic_Roughness metalRoughMaterial;
 
     VkDrawContext mainDrawContext;
-    std::unordered_map<std::string, std::shared_ptr<LoadedGLTF>> loadedScenes;
+    std::unordered_map<std::string, LoadedGLTF> loadedScenes;
     SceneData sceneData{};
 
-    std::shared_ptr<VkMemoryManager> memoryManager;
+    std::unique_ptr<VkMemoryManager> memoryManager;
 
-//    std::unique_ptr<Light> totalLights = std::make_unique<Light>();
     Light totalLights{};
     LightVisibility lightVisibility{};
 
