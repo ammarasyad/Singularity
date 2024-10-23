@@ -44,7 +44,6 @@ VkRenderer::VkRenderer(GLFWwindow *window, Camera *camera, const bool dynamicRen
     PickPhysicalDevice();
     CreateLogicalDevice();
     CreateCommandPool();
-    // CreateQueryPool();
 
     memoryManager = std::make_unique<VkMemoryManager>(instance, physicalDevice, device, isIntegratedGPU);
 
@@ -56,7 +55,7 @@ VkRenderer::VkRenderer(GLFWwindow *window, Camera *camera, const bool dynamicRen
             VK_NULL_HANDLE,
             0,
             pipelineCacheData.size(),
-            reinterpret_cast<const uint8_t *>(pipelineCacheData.data())
+            pipelineCacheData.data()
         };
 
         VK_CHECK(vkCreatePipelineCache(device, &pipelineCacheCreateInfo, VK_NULL_HANDLE, &pipelineCache));
@@ -963,13 +962,7 @@ void VkRenderer::CreateLogicalDevice() {
 }
 
 void VkRenderer::CreatePipelineCache() {
-    constexpr VkPipelineCacheCreateInfo pipelineCacheInfo{
-        VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO,
-        VK_NULL_HANDLE,
-        0,
-        0,
-        VK_NULL_HANDLE
-    };
+    constexpr VkPipelineCacheCreateInfo pipelineCacheInfo{VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO};
 
     VK_CHECK(vkCreatePipelineCache(device, &pipelineCacheInfo, VK_NULL_HANDLE, &pipelineCache));
 }
@@ -1661,11 +1654,12 @@ void VkRenderer::SavePipelineCache() const {
     size_t size;
     vkGetPipelineCacheData(device, pipelineCache, &size, nullptr);
 
-    std::vector<uint8_t> data(size);
+    std::vector<char> data(size);
     vkGetPipelineCacheData(device, pipelineCache, &size, data.data());
 
     std::ofstream file("pipeline_cache.bin", std::ios::binary);
-    file.write(reinterpret_cast<const char *>(data.data()), static_cast<std::streamsize>(size));
+    file.write(data.data(), static_cast<std::streamsize>(size));
+    file.close();
 }
 
 void VkRenderer::UpdateScene() {

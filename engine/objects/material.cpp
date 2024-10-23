@@ -61,7 +61,7 @@ void VkGLTFMetallic_Roughness::buildPipelines(const VkRenderer *renderer) {
     builder.SetTopology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
     builder.SetPolygonMode(VK_POLYGON_MODE_FILL);
     builder.SetCullingMode(VK_CULL_MODE_BACK_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE);
-    builder.EnableDepthTest(false, VK_COMPARE_OP_LESS_OR_EQUAL);
+    builder.EnableDepthTest(false, VK_COMPARE_OP_EQUAL);
 
     // if (renderer->is_dynamic_rendering()) {
     //     builder.SetColorAttachmentFormat(renderer->draw_image().format);
@@ -69,7 +69,6 @@ void VkGLTFMetallic_Roughness::buildPipelines(const VkRenderer *renderer) {
     opaquePipeline.pipeline = builder.Build(false, device, renderer->pipeline_cache(), renderer->render_pass());
 
     builder.EnableBlendingAdditive();
-    builder.EnableDepthTest(false, VK_COMPARE_OP_LESS_OR_EQUAL);
     transparentPipeline.pipeline = builder.Build(false, device, renderer->pipeline_cache(), renderer->render_pass());
 
     builder.DestroyShaderModules(device);
