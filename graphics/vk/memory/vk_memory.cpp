@@ -54,6 +54,9 @@ VkMemoryManager::~VkMemoryManager() {
 
         if (vkImage.imageView)
             vkDestroyImageView(device, vkImage.imageView, nullptr);
+
+        if (vkImage.sampler)
+            vkDestroySampler(device, vkImage.sampler, nullptr);
     }
 
     trackedBuffers.clear();
