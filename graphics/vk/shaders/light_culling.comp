@@ -6,22 +6,22 @@
 
 #include "tiled_shading.glsl"
 
-layout(local_size_x = 16, local_size_y = 16) in;
+layout(local_size_x = 128, local_size_y = 1, local_size_z = 1) in;
 
 layout(set = 0, binding = 0) buffer readonly lightUniform {
     uint lightCount;
     Light lights[];
 };
 
-layout(set = 0, binding = 1) buffer writeonly visibleLightBuffer {
+layout(std430, set = 0, binding = 1) buffer visibleLightBuffer {
     LightVisibility visibleLightIndices[];
 };
 
 layout(set = 0, binding = 2) uniform sampler2D depthSampler;
 
-layout(set = 0, binding = 3) buffer readonly frustumBuffer {
-    ViewFrustum frustum;
-};
+//layout(set = 0, binding = 3) buffer readonly frustumBuffer {
+//    ViewFrustum frustum;
+//};
 
 // TODO: Reduce this to below 128 bytes for maximum compatibility
 layout(push_constant) uniform PushConstants {
@@ -30,43 +30,25 @@ layout(push_constant) uniform PushConstants {
     ivec2 viewportSize;
 } pushConstants;
 
-shared uint visibleLightCount;
+bool SphereAABBIntersection(f16vec3 sphereCenter, float16_t sphereRadius, f16vec3 aabbMin, f16vec3 aabbMax) {
+    f16vec3 closestPointInAabb = clamp(sphereCenter, aabbMin, aabbMax);
+    f16vec3 distance = sphereCenter - closestPointInAabb;
+    return dot(distance, distance) <= sphereRadius * sphereRadius;
+}
 
 void main() {
-    ivec2 tileId = ivec2(gl_WorkGroupID.xy);
-    uint tileIndex = tileId.y * gl_WorkGroupSize.x + tileId.x;
+    uint lightCount = visibleLightIndices.length();
+//    uint tileIndex = gl_WorkGroupID.x * 128 + gl_LocalInvocationID.x;
+    uint tileIndex = gl_LocalInvocationIndex + gl_WorkGroupSize.x * gl_WorkGroupSize.y * gl_WorkGroupSize.z * gl_WorkGroupID.x;
 
-    if (gl_LocalInvocationIndex == 0) {
-        visibleLightCount = 0;
-    }
+    visibleLightIndices[tileIndex].count = 0;
 
-    barrier();
+    for (uint i = 0; i < lightCount; i++) {
+        f16vec3 center = f16vec3(pushConstants.viewProjection * f16vec4(lights[i].position.xyz, 1.0));
+        float16_t radius = lights[i].position.w;
 
-    // TODO: Implement 2.5D light culling
-    for (uint i = gl_LocalInvocationIndex; i < lightCount; i += gl_WorkGroupSize.x) {
-        Light light = lights[i];
-        f16vec3 lightPos = light.position.xyz;
-        float16_t lightRadius = light.position.w;
-
-        bool visible = true;
-        for (int j = 0; j < 6; j++) {
-            f16vec4 plane = f16vec4(frustum.planes[j]);
-            float16_t distance = dot(plane.xyz, lightPos) + plane.w;
-            if (distance < -lightRadius) {
-                visible = false;
-                break;
-            }
+        if (SphereAABBIntersection(center, radius, f16vec3(visibleLightIndices[tileIndex].minPoint.xyz), f16vec3(visibleLightIndices[tileIndex].maxPoint.xyz)) && visibleLightIndices[tileIndex].count < MAX_LIGHTS) {
+            visibleLightIndices[tileIndex].indices[visibleLightIndices[tileIndex].count++] = i;
         }
-
-        if (visible) {
-            uint localIndex = atomicAdd(visibleLightCount, 1);
-            visibleLightIndices[tileIndex].indices[localIndex] = i;
-        }
-    }
-
-    barrier();
-
-    if (gl_LocalInvocationIndex == 0) {
-        visibleLightIndices[tileIndex].count = min(visibleLightCount, MAX_LIGHTS);
     }
 }

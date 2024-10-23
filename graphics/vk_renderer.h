@@ -58,12 +58,14 @@ struct Light {
     alignas(8) struct {
         hvec4 position;
         hvec4 color;
-    } lights[1];
+    } lights[128];
 };
 
 struct LightVisibility {
+    glm::vec4 minPoint;
+    glm::vec4 maxPoint;
     uint32_t visibleLightCount;
-    uint32_t indices[1024];
+    uint32_t indices[128];
 };
 
 struct ViewFrustum {
@@ -352,7 +354,7 @@ private:
 
     VulkanBuffer lightUniformBuffer{};
     VulkanBuffer visibleLightBuffer{};
-    VulkanBuffer frustumBuffer{};
+//    VulkanBuffer frustumBuffer{};
 
     VkSampler textureSamplerLinear{};
     VkSampler textureSamplerNearest{};

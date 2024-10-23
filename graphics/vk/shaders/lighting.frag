@@ -22,7 +22,7 @@ layout(set = 2, binding = 1) buffer readonly lightBuffer {
     Light lights[];
 };
 
-layout(set = 2, binding = 2) buffer readonly visibilityBuffer {
+layout(std430, set = 2, binding = 2) buffer readonly visibilityBuffer {
     LightVisibility visibilities[];
 };
 
@@ -35,34 +35,36 @@ layout(push_constant) uniform PushConstants {
 layout(early_fragment_tests) in;
 
 void main() {
-    ivec2 tile = ivec2(gl_FragCoord.xy) / pushConstants.viewportSize;
-    uint tileIndex = tile.y * 120 + tile.x;
+//    uint zTile = uint((log(abs(fragPos.z) / 0.1f) * TILE_Z) / log(10000.f));
+    uvec3 tile = uvec3(gl_FragCoord.xy / (pushConstants.viewportSize / vec2(TILE_X, TILE_Y)), gl_FragCoord.z);
+//    uvec3 tile = uvec3(gl_FragCoord.xyz) / uvec3(pushConstants.viewportSize, 1) ;
+    uint tileIndex = tile.x + tile.y * TILE_X + tile.z * TILE_X * TILE_Y;
     uint numLightsInTile = visibilities[tileIndex].count;
 
     f16vec3 diffuse = f16vec3(texture(colorTexture, fragUV).xyz);
     f16vec3 normal = f16vec3(normalize(fragNormal));
-    f16vec3 illumination = f16vec3(0.0f);
+    f16vec3 illumination = f16vec3(0.005f) * diffuse;
 
     f16vec3 viewDir = f16vec3(normalize(pushConstants.cameraPosition - fragPos));
 
     for (uint i = 0; i < numLightsInTile; i++) {
         uint lightIndex = visibilities[tileIndex].indices[i];
+        Light light = lights[lightIndex];
 
-        f16vec3 lightPosition = lights[lightIndex].position.xyz;
-        float16_t lightRadius = lights[lightIndex].position.w;
-        f16vec3 lightColor = lights[lightIndex].color.rgb;
-        float16_t lightIntensity = lights[lightIndex].color.w;
+        f16vec3 lightPosition = light.position.xyz;
+        float16_t lightRadius = light.position.w;
+        f16vec3 lightColor = light.color.rgb;
+        float16_t lightIntensity = light.color.w;
 
         f16vec3 lightDir = normalize(lightPosition - f16vec3(fragPos));
 
         float16_t lambertian = max(dot(normal, lightDir), float16_t(0.0f));
 
         float16_t lightDist = float16_t(distance(lightPosition, f16vec3(fragPos)));
-        float16_t spec = pow(max(dot(normal, normalize(lightDir + viewDir)), float16_t(0.0f)), float16_t(32.0f));
-        float16_t attenuation = float16_t(clamp(1.0f - (lightDist * lightDist) / (lightRadius * lightRadius), 0.0f, 1.0f));
+        float16_t spec = pow(max(dot(normal, normalize(lightDir + viewDir)), float16_t(0.0f)), float16_t(128.0f));
+        float16_t attenuation = float16_t(clamp(1.0f / (lightDist * lightDist), 0.0f, 1.0f));
         illumination += (lambertian * diffuse + spec) * lightColor * lightIntensity * attenuation;
     }
 
     outColor = vec4(illumination, 1.0f);
-//    outColor = vec4(abs(fragNormal), 1.0f);
 }

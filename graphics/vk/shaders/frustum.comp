@@ -1,12 +1,13 @@
 #version 460
 #extension GL_GOOGLE_include_directive : require
+#extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
 
 #include "tiled_shading.glsl"
 
-layout(local_size_x = 16, local_size_y = 16) in;
+layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
 
-layout(set = 0, binding = 0) buffer writeonly frustumBuffer {
-    ViewFrustum frustum;
+layout(std430, set = 0, binding = 0) buffer writeonly frustumBuffer {
+    LightVisibility visibleLightIndices[];
 };
 
 layout(push_constant) uniform PushConstants {
@@ -15,29 +16,36 @@ layout(push_constant) uniform PushConstants {
     ivec2 viewportSize;
 } pushConstants;
 
-vec4 ScreenSpaceToViewSpace(vec4 screenSpace) {
-    vec2 ndc = screenSpace.xy / pushConstants.viewportSize;
-    vec4 clipSpace = vec4(2.0 * vec2(ndc.x, 1.0f - ndc.y) - 1.0, screenSpace.z, screenSpace.w);
+f16vec3 ScreenSpaceToViewSpace(vec2 screenSpace) {
+    vec2 ndc = screenSpace / pushConstants.viewportSize;
+//    vec4 clipSpace = vec4(2.0 * vec2(ndc.x, 1.0f - ndc.y) - 1.0, -1.0, 1.0);
+    vec4 clipSpace = vec4(2.0 * ndc - 1.0, -1.0, 1.0);
+    vec4 view = pushConstants.inverseVp * clipSpace;
+    view /= view.w;
 
-    return (pushConstants.inverseVp * clipSpace) / clipSpace.w;
+    return f16vec3(view.xyz);
+}
+
+f16vec3 LineIntersectionWithZPlane(f16vec3 lineStart, f16vec3 lineEnd, float16_t z) {
+    float16_t t = (z - lineStart.z) / (lineEnd.z - lineStart.z);
+    return lineStart + (lineEnd - lineStart) * t;
 }
 
 void main() {
-    uint index = gl_GlobalInvocationID.y * pushConstants.viewportSize.x + gl_GlobalInvocationID.x;
+    uint tileIndex = gl_WorkGroupID.x + (gl_WorkGroupID.y * gl_NumWorkGroups.x) + (gl_WorkGroupID.z * gl_NumWorkGroups.x * gl_NumWorkGroups.y);
+    vec2 tileSize = vec2(pushConstants.viewportSize) / vec2(gl_NumWorkGroups.x, gl_NumWorkGroups.y);
 
-    vec4 screen[4];
-    screen[0] = vec4(gl_GlobalInvocationID.xy, -1.0f, 1.0f);
-    screen[1] = vec4((gl_GlobalInvocationID.x + 1) * TILE_SIZE, gl_GlobalInvocationID.y * TILE_SIZE, -1.0f, 1.0f);
-    screen[2] = vec4(gl_GlobalInvocationID.x * TILE_SIZE, (gl_GlobalInvocationID.y + 1) * TILE_SIZE, -1.0f, 1.0f);
-    screen[3] = vec4((gl_GlobalInvocationID.x + 1) * TILE_SIZE, (gl_GlobalInvocationID.y + 1) * TILE_SIZE, -1.0f, 1.0f);
+    f16vec3 minTile = ScreenSpaceToViewSpace(vec2(gl_WorkGroupID.xy) * tileSize);
+    f16vec3 maxTile = ScreenSpaceToViewSpace(vec2(gl_WorkGroupID.xy + 1) * tileSize);
 
-    vec3 view[4];
-    for (int i = 0; i < 4; i++) {
-        view[i] = ScreenSpaceToViewSpace(screen[i]).xyz;
-    }
+    float16_t planeNear = float16_t(-0.1f * pow(10000.f, gl_WorkGroupID.z / float(gl_NumWorkGroups.z)));
+    float16_t planeFar = float16_t(-0.1f * pow(10000.f, (gl_WorkGroupID.z + 1) / float(gl_NumWorkGroups.z)));
 
-    frustum.planes[0] = vec4(normalize(cross(view[1] - view[0], view[2] - view[0])), dot(view[0], view[1]));
-    frustum.planes[1] = vec4(normalize(cross(view[2] - view[0], view[3] - view[0])), dot(view[0], view[2]));
-    frustum.planes[2] = vec4(normalize(cross(view[3] - view[0], view[1] - view[0])), dot(view[0], view[3]));
-    frustum.planes[3] = vec4(normalize(cross(view[2] - view[1], view[3] - view[1])), dot(view[1], view[2]));
+    f16vec3 minPointNear = LineIntersectionWithZPlane(f16vec3(0), minTile, planeNear);
+    f16vec3 maxPointNear = LineIntersectionWithZPlane(f16vec3(0), maxTile, planeNear);
+    f16vec3 minPointFar = LineIntersectionWithZPlane(f16vec3(0), minTile, planeFar);
+    f16vec3 maxPointFar = LineIntersectionWithZPlane(f16vec3(0), maxTile, planeFar);
+
+    visibleLightIndices[tileIndex].minPoint = vec4(min(minPointNear, minPointFar), 0.0);
+    visibleLightIndices[tileIndex].maxPoint = vec4(max(maxPointNear, maxPointFar), 0.0);
 }

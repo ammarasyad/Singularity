@@ -43,7 +43,7 @@ private:
     float fov{90.f};
     float aspectRatio{16.f / 9.f};
     float nearPlane{0.1f};
-    float farPlane{10000.f};
+    float farPlane{1000.f};
     bool needsUpdate{true};
 };
 

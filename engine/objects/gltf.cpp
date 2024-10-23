@@ -179,7 +179,7 @@ std::optional<LoadedGLTF> LoadGLTF(VkRenderer *renderer, const std::filesystem::
     scene.materialDataBuffer = memoryManager->createManagedBuffer(
             {sizeof(VkGLTFMetallic_Roughness::MaterialConstants) * gltf.materials.size(),
              VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
-             VMA_MEMORY_USAGE_AUTO});
+             VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT});
 
     VkGLTFMetallic_Roughness::MaterialConstants *materialConstants;
     memoryManager->mapBuffer(scene.materialDataBuffer, reinterpret_cast<void **>(&materialConstants));
