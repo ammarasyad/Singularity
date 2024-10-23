@@ -26,6 +26,17 @@ static bool isVkRunning = false;
 constexpr uint32_t MAX_FRAMES_IN_FLIGHT = 2;
 using hvec4 = glm::vec<4, glm::detail::hdata>;
 
+namespace glm {
+    template<>
+    template<>
+    GLM_FUNC_QUALIFIER GLM_CTOR_DECL vec<4, detail::hdata>::vec(float x, float y, float z, float w)
+        : x(detail::toFloat16(x))
+        , y(detail::toFloat16(y))
+        , z(detail::toFloat16(z))
+        , w(detail::toFloat16(w))
+    {}
+}
+
 struct FrameData {
     VkSemaphore imageAvailableSemaphore;
     VkSemaphore renderFinishedSemaphore;
