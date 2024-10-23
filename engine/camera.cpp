@@ -12,11 +12,6 @@ Camera::Camera(const float posX, const float posY, const float posZ) : position(
 
 glm::mat4 Camera::ViewMatrix() const {
     return lookAt(position, position + front, up);
-    // return inverse(translate(glm::mat4{1.f}, position) * RotationMatrix());
-}
-
-glm::vec3 Camera::Position() const {
-    return position;
 }
 
 glm::mat4 Camera::ProjectionMatrix() {

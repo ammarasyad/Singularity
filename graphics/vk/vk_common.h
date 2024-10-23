@@ -95,7 +95,7 @@ struct VkVertex {
     }
 };
 
-inline void TransitionImage(VkCommandBuffer commandBuffer, VulkanImage image, VkPipelineStageFlags srcStageMask, VkPipelineStageFlags srcAccessMask, VkPipelineStageFlags dstStageMask, VkPipelineStageFlags dstAccessMask, VkImageLayout oldLayout, VkImageLayout newLayout) {
+inline void TransitionImage(VkCommandBuffer commandBuffer, VulkanImage image, VkPipelineStageFlags srcStageMask, VkPipelineStageFlags srcAccessMask, VkPipelineStageFlags dstStageMask, VkPipelineStageFlags dstAccessMask, VkImageLayout oldLayout, VkImageLayout newLayout, uint32_t mipLevels = -1, uint32_t layerCount = -1) {
     const auto aspectMask = image.format == VK_FORMAT_D32_SFLOAT ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
 
     VkImageMemoryBarrier2 imageBarrier{
@@ -113,9 +113,9 @@ inline void TransitionImage(VkCommandBuffer commandBuffer, VulkanImage image, Vk
         {
             static_cast<VkImageAspectFlags>(aspectMask),
             0,
-            VK_REMAINING_MIP_LEVELS,
+            mipLevels == -1 ? VK_REMAINING_MIP_LEVELS : mipLevels,
             0,
-            VK_REMAINING_ARRAY_LAYERS
+            layerCount == -1 ? VK_REMAINING_ARRAY_LAYERS : layerCount
         }
     };
 

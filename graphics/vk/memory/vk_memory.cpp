@@ -335,19 +335,100 @@ VulkanImage VkMemoryManager::createTexture(void *data, VkRenderer *renderer, VkE
         });
     };
 
-    VmaAllocationCreateFlags allocationFlags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
-    if (renderer->is_integrated_gpu()) {
-        allocationFlags |= VMA_ALLOCATION_CREATE_MAPPED_BIT;
-    }
-
-    VmaAllocationCreateInfo allocationCreateInfo{
-        allocationFlags,
-        VMA_MEMORY_USAGE_AUTO_PREFER_HOST,
-        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
-    };
-
     stagingBuffer(dataSize, textureCreation);
     return newTexture;
+}
+
+VulkanImage VkMemoryManager::createKtxCubemap(ktxTexture *texture, VkRenderer *renderer, VkFormat format) {
+    VkExtent3D imageSize{
+            texture->baseWidth,
+            texture->baseHeight,
+            1
+    };
+
+    auto mipLevels = texture->numLevels;
+
+    VkImageCreateInfo imageCreateInfo{
+            VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+            VK_NULL_HANDLE,
+            VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT,
+            VK_IMAGE_TYPE_2D,
+            format,
+            imageSize,
+            mipLevels,
+            6,
+            VK_SAMPLE_COUNT_1_BIT, // might need to take msaaSamples from VkRenderer
+            VK_IMAGE_TILING_OPTIMAL,
+            VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+            VK_SHARING_MODE_EXCLUSIVE, // may change
+            0,
+            VK_NULL_HANDLE,
+            VK_IMAGE_LAYOUT_UNDEFINED
+    };
+
+    VmaAllocationCreateInfo allocationCreateInfo{
+            0,
+            VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE,
+            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
+    };
+
+    if (pool)
+        allocationCreateInfo.pool = pool;
+
+    VkImage image;
+    VmaAllocation allocation{};
+    VmaAllocationInfo allocationInfo{};
+
+    vmaCreateImage(allocator, &imageCreateInfo, &allocationCreateInfo, &image, &allocation, &allocationInfo);
+
+    auto data = ktxTexture_GetData(texture);
+    auto bufferSize = ktxTexture_GetDataSize(texture);
+
+    stagingBuffer(bufferSize, [&](auto &stagingBuffer, auto mappedMemory) {
+        memcpy(mappedMemory, data, bufferSize);
+    }, [&](auto &stagingBuffer) {
+        renderer->ImmediateSubmit([&](auto &commandBuffer) {
+            std::vector<VkBufferImageCopy> copyRegions;
+            for (uint32_t face = 0; face < 6; face++) {
+                for (uint32_t level = 0; level < mipLevels; level++) {
+                    ktx_size_t offset;
+                    assert(ktxTexture_GetImageOffset(texture, level, 0, face, &offset) == KTX_SUCCESS);
+                    copyRegions.push_back({
+                        offset,
+                        0,
+                        0,
+                        { VK_IMAGE_ASPECT_COLOR_BIT, level, face, 1 },
+                        {0, 0, 0},
+                        {std::max(1u, imageSize.width >> level), std::max(1u, imageSize.height >> level), 1}
+                    });
+                }
+            }
+
+            TransitionImage(commandBuffer, {image, VK_NULL_HANDLE, allocation, imageSize, format}, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, 0, VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, mipLevels, 6);
+
+            vkCmdCopyBufferToImage(commandBuffer, stagingBuffer, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, copyRegions.size(), copyRegions.data());
+
+            TransitionImage(commandBuffer, {image, VK_NULL_HANDLE, allocation, imageSize, format}, VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, mipLevels, 6);
+        });
+    });
+
+    VulkanImage trackedImage{image, VK_NULL_HANDLE, allocation, imageSize, format};
+
+    const VkImageViewCreateInfo createInfo{
+            VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+            VK_NULL_HANDLE,
+            0,
+            image,
+            VK_IMAGE_VIEW_TYPE_CUBE,
+            format,
+            {VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY},
+            {VK_IMAGE_ASPECT_COLOR_BIT, 0, mipLevels, 0, 6}
+    };
+
+    vkCreateImageView(device, &createInfo, nullptr, &trackedImage.imageView);
+
+    trackedImages.insert(trackedImage);
+    return trackedImage;
 }
 
 void VkMemoryManager::mapBuffer(const VulkanBuffer &buffer, void **data) {

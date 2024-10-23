@@ -58,7 +58,7 @@ struct Light {
     alignas(8) struct {
         hvec4 position;
         hvec4 color;
-    } lights[2];
+    } lights[1];
 };
 
 struct LightVisibility {
@@ -279,6 +279,8 @@ private:
 
     inline void ComputeFrustum();
 
+    inline void CreateSkybox();
+
     GLFWwindow *glfwWindow;
     Camera *camera;
 
@@ -304,24 +306,29 @@ private:
     VkDescriptorSet mainDescriptorSet{};
     VkDescriptorSetLayout mainDescriptorSetLayout{};
     VkDescriptorSetLayout sceneDescriptorSetLayout{};
-    VkDescriptorSetLayout lightDescriptorSetLayout{};
-    VkDescriptorSet lightDescriptorSet{};
-
-    VkPipelineLayout depthPrepassPipelineLayout{};
-    VkPipelineLayout computePipelineLayout{};
 
     VkPipeline depthPrepassPipeline{};
+    VkPipelineLayout depthPrepassPipelineLayout{};
     VkDescriptorSet depthPrepassDescriptorSet{};
     VkRenderPass depthPrepassRenderPass{};
     VkFramebuffer depthPrepassFramebuffer{};
     VkSemaphore depthPrepassSemaphore{};
     VkCommandBuffer depthPrepassCommandBuffer{};
 
+    VkPipeline skyboxPipeline{};
+    VkPipelineLayout skyboxPipelineLayout{};
+    VkDescriptorSetLayout skyboxDescriptorSetLayout{};
+    VkDescriptorSet skyboxDescriptorSet{};
+
     VkPipeline computePipeline{};
+    VkPipelineLayout computePipelineLayout{};
+    VkDescriptorSetLayout lightDescriptorSetLayout{};
+    VkDescriptorSet lightDescriptorSet{};
+
     VkPipeline frustumPipeline{};
     VkPipelineLayout frustumPipelineLayout{};
-
     VkDescriptorSetLayout frustumDescriptorSetLayout{};
+
 
     VkSemaphore computeFinishedSemaphore{};
 
@@ -339,6 +346,7 @@ private:
     VkPhysicalDeviceMemoryProperties memoryProperties{};
 
     VulkanImage defaultImage{};
+    VulkanImage skyboxImage{};
 
     VulkanBuffer lightUniformBuffer{};
     VulkanBuffer visibleLightBuffer{};
@@ -346,6 +354,7 @@ private:
 
     VkSampler textureSamplerLinear{};
     VkSampler textureSamplerNearest{};
+    VkSampler skyboxSampler{};
 
     VkGLTFMetallic_Roughness metalRoughMaterial{};
 

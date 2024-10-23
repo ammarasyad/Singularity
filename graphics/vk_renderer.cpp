@@ -12,6 +12,7 @@
 #include "vk/vk_gui.h"
 #include "vk/vk_pipeline_builder.h"
 #include <random>
+#include <ktx.h>
 
 VkRenderer::VkRenderer(GLFWwindow *window, Camera *camera, const bool dynamicRendering, const bool asyncCompute)
     : dynamicRendering(dynamicRendering),
@@ -106,6 +107,7 @@ VkRenderer::VkRenderer(GLFWwindow *window, Camera *camera, const bool dynamicRen
     loadedScenes["structure"] = structureFile.value();
 
     CreateRandomLights();
+    CreateSkybox();
     UpdateDepthComputeDescriptorSets();
 
     isVkRunning = true;
@@ -522,6 +524,20 @@ void VkRenderer::Draw(const VkCommandBuffer &commandBuffer, uint32_t imageIndex,
     vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
     vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
 
+    vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, skyboxPipeline);
+    vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, skyboxPipelineLayout, 0, 1, &skyboxDescriptorSet, 0, VK_NULL_HANDLE);
+    struct {
+        alignas(16) glm::vec3 front;
+        alignas(16) glm::vec3 right;
+        alignas(16) glm::vec3 up;
+    } skyboxPushConstant{
+        camera->Front(),
+        camera->Right(),
+        camera->Up()
+    };
+    vkCmdPushConstants(commandBuffer, skyboxPipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(glm::vec4) * 3, &skyboxPushConstant);
+    vkCmdDraw(commandBuffer, 36, 1, 0, 0);
+
     VkMaterialPipeline lastPipeline{};
     VkMaterialInstance lastMaterialInstance{};
     VkBuffer lastIndexBuffer = VK_NULL_HANDLE;
@@ -611,6 +627,7 @@ void VkRenderer::Shutdown() {
 
     CleanupSwapChain();
 
+    vkDestroySampler(device, skyboxSampler, VK_NULL_HANDLE);
     vkDestroySampler(device, textureSamplerLinear, VK_NULL_HANDLE);
     vkDestroySampler(device, textureSamplerNearest, VK_NULL_HANDLE);
 
@@ -622,13 +639,16 @@ void VkRenderer::Shutdown() {
     vkDestroyDescriptorSetLayout(device, sceneDescriptorSetLayout, nullptr);
     vkDestroyDescriptorSetLayout(device, lightDescriptorSetLayout, nullptr);
     vkDestroyDescriptorSetLayout(device, frustumDescriptorSetLayout, nullptr);
+    vkDestroyDescriptorSetLayout(device, skyboxDescriptorSetLayout, nullptr);
 
     vkDestroyPipeline(device, depthPrepassPipeline, nullptr);
     vkDestroyPipeline(device, computePipeline, nullptr);
     vkDestroyPipeline(device, frustumPipeline, nullptr);
+    vkDestroyPipeline(device, skyboxPipeline, nullptr);
     vkDestroyPipelineLayout(device, depthPrepassPipelineLayout, nullptr);
     vkDestroyPipelineLayout(device, computePipelineLayout, nullptr);
     vkDestroyPipelineLayout(device, frustumPipelineLayout, nullptr);
+    vkDestroyPipelineLayout(device, skyboxPipelineLayout, nullptr);
 
     SavePipelineCache();
 
@@ -855,7 +875,7 @@ void VkRenderer::CreateLogicalDevice() {
     VkPhysicalDeviceFeatures2 deviceFeatures2{
         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
         &vulkan13Features,
-        {.multiDrawIndirect = VK_TRUE }
+        {.multiDrawIndirect = VK_TRUE, .samplerAnisotropy = VK_TRUE}
     };
 
     deviceExtensions.push_back(VK_KHR_PIPELINE_LIBRARY_EXTENSION_NAME);
@@ -1211,6 +1231,12 @@ void VkRenderer::CreatePipelineLayout() {
         sizeof(ComputePushConstants)
     };
 
+    VkPushConstantRange skyboxPushConstantRange{
+        VK_SHADER_STAGE_VERTEX_BIT,
+        0,
+        sizeof(glm::vec4) * 3
+    };
+
     VkPipelineLayoutCreateInfo pipelineLayoutInfo{
         VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
         VK_NULL_HANDLE,
@@ -1230,6 +1256,10 @@ void VkRenderer::CreatePipelineLayout() {
 
     pipelineLayoutInfo.pSetLayouts = &frustumDescriptorSetLayout;
     VK_CHECK(vkCreatePipelineLayout(device, &pipelineLayoutInfo, VK_NULL_HANDLE, &frustumPipelineLayout));
+
+    pipelineLayoutInfo.pSetLayouts = &skyboxDescriptorSetLayout;
+    pipelineLayoutInfo.pPushConstantRanges = &skyboxPushConstantRange;
+    VK_CHECK(vkCreatePipelineLayout(device, &pipelineLayoutInfo, VK_NULL_HANDLE, &skyboxPipelineLayout));
 }
 
 void VkRenderer::CreateGraphicsPipeline() {
@@ -1244,6 +1274,18 @@ void VkRenderer::CreateGraphicsPipeline() {
     builder.EnableDepthTest(true, VK_COMPARE_OP_LESS);
 
     depthPrepassPipeline = builder.Build(false, device, pipelineCache, depthPrepassRenderPass);
+
+    builder.DestroyShaderModules(device);
+
+    builder.Clear();
+    builder.SetPipelineLayout(skyboxPipelineLayout);
+    builder.CreateShaderModules(device, "shaders/skybox.vert.spv", "shaders/skybox.frag.spv");
+    builder.SetTopology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
+    builder.SetPolygonMode(VK_POLYGON_MODE_FILL);
+    builder.SetCullingMode(VK_CULL_MODE_BACK_BIT, VK_FRONT_FACE_CLOCKWISE);
+    builder.EnableDepthTest(false, VK_COMPARE_OP_LESS);
+
+    skyboxPipeline = builder.Build(false, device, pipelineCache, renderPass);
 
     builder.DestroyShaderModules(device);
 }
@@ -1452,6 +1494,10 @@ void VkRenderer::CreateDescriptors() {
     builder.AddBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT);
     frustumDescriptorSetLayout = builder.Build(device);
 
+    builder.Clear();
+    builder.AddBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT);
+    skyboxDescriptorSetLayout = builder.Build(device);
+
     std::array layouts = {mainDescriptorSetLayout};
     mainDescriptorSet = mainDescriptorAllocator.Allocate(device, layouts);
 
@@ -1460,6 +1506,9 @@ void VkRenderer::CreateDescriptors() {
 
     layouts = {sceneDescriptorSetLayout};
     depthPrepassDescriptorSet = mainDescriptorAllocator.Allocate(device, layouts);
+
+    layouts = {skyboxDescriptorSetLayout};
+    skyboxDescriptorSet = mainDescriptorAllocator.Allocate(device, layouts);
 
     for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
         std::array<DescriptorAllocator::PoolSizeRatio, 4> frameSizes = {
@@ -1613,13 +1662,13 @@ void VkRenderer::UpdateScene() {
 
     sceneData.worldMatrix = proj * view;
 
-    totalLights.lights[0].position = {-9.5f + 0.01f * static_cast<float>(lightSceneTime), 1.4f, 3.4f, 200.f};
-    totalLights.lights[1].position = {8.5f, 1.4f, -3.6f + 0.01f * static_cast<float>(lightSceneTime), 200.f};
+//    totalLights.lights[0].position = {-9.5f + 0.01f * static_cast<float>(lightSceneTime), 1.4f, 3.4f, 200.f};
+//    totalLights.lights[1].position = {8.5f, 1.4f, -3.6f + 0.01f * static_cast<float>(lightSceneTime), 200.f};
 
-    void *data;
-    memoryManager->mapBuffer(lightUniformBuffer, &data);
-    memcpy(data, &totalLights, sizeof(Light));
-    memoryManager->unmapBuffer(lightUniformBuffer);
+//    void *data;
+//    memoryManager->mapBuffer(lightUniformBuffer, &data);
+//    memcpy(data, &totalLights, sizeof(Light));
+//    memoryManager->unmapBuffer(lightUniformBuffer);
 
     loadedScenes["structure"].Draw(glm::mat4{1.f}, mainDrawContext);
 }
@@ -1652,18 +1701,18 @@ void VkRenderer::DestroyDebugUtilsMessengerEXT(VkInstance instance, VkDebugUtils
 }
 
 void VkRenderer::CreateRandomLights() {
-    totalLights.lights[0].position = {-9.5f, 1.4f, 3.4f, 200.f};
-    totalLights.lights[1].position = {8.5f, 1.4f, -3.6f, 200.f};
+    totalLights.lights[0].position = {0.0f, 8.0f, 0.0f, 10.f};
+//    totalLights.lights[1].position = {8.5f, 1.4f, -3.6f, 200.f};
 //    totalLights.lights[1].position = glm::vec4(-9.5f, 1.4f, -3.6f, 200.f);
 //    totalLights.lights[2].position = glm::vec4(8.5f, 1.4f, 3.4f, 200.f);
 //    totalLights.lights[3].position = glm::vec4(8.5f, 1.4f, -3.6f, 200.f);
 
-    totalLights.lights[0].color = {1.f, 0.0f, 0.0f, 1.f};
-    totalLights.lights[1].color = {0.0f, 0.0f, 1.f, 1.f};
+    totalLights.lights[0].color = {1.f, 1.f, 1.f, 1.f};
+//    totalLights.lights[1].color = {0.0f, 0.0f, 1.f, 1.f};
 //    totalLights.lights[2].color = glm::vec4(1.f, 0.4f, 0.2f, 1.f);
 //    totalLights.lights[3].color = glm::vec4(0.2f, 0.4f, 1.f, 1.f);
 
-    totalLights.lightCount = 2;
+    totalLights.lightCount = 1;
 
     lightUniformBuffer = memoryManager->createManagedBuffer(sizeof(Light), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT, VMA_MEMORY_USAGE_AUTO);
 
@@ -1707,6 +1756,10 @@ void VkRenderer::UpdateDepthComputeDescriptorSets() {
                       VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
     writer.WriteBuffer(3, frustumBuffer.buffer, 0, sizeof(ViewFrustum), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
     writer.UpdateSet(device, lightDescriptorSet);
+
+    writer.Clear();
+    writer.WriteImage(0, skyboxImage.imageView, skyboxSampler, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+    writer.UpdateSet(device, skyboxDescriptorSet);
 }
 
 void VkRenderer::ComputeFrustum() {
@@ -1734,6 +1787,34 @@ void VkRenderer::ComputeFrustum() {
         vkCmdPushConstants(cmd, frustumPipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ComputePushConstants), &pushConstants);
         vkCmdDispatch(cmd, (swapChainExtent.width - 1) / 16 + 1, (swapChainExtent.height - 1) / 16 + 1, 1);
     });
+}
+
+void VkRenderer::CreateSkybox() {
+    ktxTexture *skyboxTexture;
+    assert(ktxTexture_CreateFromNamedFile("../assets/cubemap_vulkan.ktx", KTX_TEXTURE_CREATE_LOAD_IMAGE_DATA_BIT, &skyboxTexture) == KTX_SUCCESS);
+
+    skyboxImage = memoryManager->createKtxCubemap(skyboxTexture, this, VK_FORMAT_R8G8B8A8_UNORM);
+
+    VkSamplerCreateInfo samplerCreateInfo{
+        .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+        .magFilter = VK_FILTER_LINEAR,
+        .minFilter = VK_FILTER_LINEAR,
+        .mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR,
+        .addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+        .addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+        .addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+        .mipLodBias = 0.0f,
+        .anisotropyEnable = VK_TRUE,
+        .maxAnisotropy = deviceProperties.limits.maxSamplerAnisotropy,
+        .compareOp = VK_COMPARE_OP_NEVER,
+        .minLod = 0.0f,
+        .maxLod = static_cast<float>(skyboxTexture->numLevels),
+        .borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE,
+    };
+
+    VK_CHECK(vkCreateSampler(device, &samplerCreateInfo, VK_NULL_HANDLE, &skyboxSampler));
+
+    ktxTexture_Destroy(skyboxTexture);
 }
 
 #endif
