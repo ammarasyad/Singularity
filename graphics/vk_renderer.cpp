@@ -1711,6 +1711,7 @@ void VkRenderer::DestroyDebugUtilsMessengerEXT(VkInstance instance, VkDebugUtils
         func(instance, debugMessenger, pAllocator);
     }
 }
+#endif
 
 void VkRenderer::CreateRandomLights() {
     totalLights.lights[0].position = {0.0f, 8.0f, 0.0f, 10.f};
@@ -1818,5 +1819,3 @@ void VkRenderer::CreateSkybox() {
 
     ktxTexture_Destroy(skyboxTexture);
 }
-
-#endif
