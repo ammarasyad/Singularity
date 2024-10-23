@@ -229,15 +229,12 @@ private:
             "VK_LAYER_KHRONOS_validation"
     };
 
-    VkDebugUtilsMessengerEXT debugMessenger;
+    VkDebugUtilsMessengerEXT debugMessenger{};
     static VKAPI_ATTR VkBool32 VKAPI_CALL DebugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity, VkDebugUtilsMessageTypeFlagsEXT messageType, const VkDebugUtilsMessengerCallbackDataEXT *pCallbackData, void *pUserData);
     static VkResult CreateDebugUtilsMessengerEXT(VkInstance instance, const VkDebugUtilsMessengerCreateInfoEXT *pCreateInfo, const VkAllocationCallbacks *pAllocator, VkDebugUtilsMessengerEXT *pDebugMessenger);
     static void DestroyDebugUtilsMessengerEXT(VkInstance instance, VkDebugUtilsMessengerEXT debugMessenger, const VkAllocationCallbacks *pAllocator);
 #endif
 
-    // static void FramebufferResizeCallback(GLFWwindow *window, int width, int height);
-
-    // static inline GLFWwindow *CreateVulkanWindow(float width, float height);
     inline void InitializeInstance();
     inline void PickPhysicalDevice();
     inline void CreateLogicalDevice();
@@ -274,65 +271,61 @@ private:
     GLFWwindow *glfwWindow;
     Camera *camera;
 
-    VkViewport viewport;
-    VkRect2D scissor;
+    VkViewport viewport{};
+    VkRect2D scissor{};
 
-    VkInstance instance;
-    VkSurfaceKHR surface;
-    VkPhysicalDevice physicalDevice;
-    VkDevice device;
-    VkQueryPool queryPool;
-    VkPipelineCache pipelineCache;
-    VkQueue graphicsQueue;
-    VkQueue computeQueue;
-    VkQueue presentQueue;
-    VkSwapchainKHR swapChain;
-    VkSurfaceFormatKHR surfaceFormat;
-    VkRenderPass renderPass;
+    VkInstance instance{};
+    VkSurfaceKHR surface{};
+    VkPhysicalDevice physicalDevice{};
+    VkDevice device{};
+    VkPipelineCache pipelineCache{};
+    VkQueue graphicsQueue{};
+    VkQueue computeQueue{};
+    VkQueue presentQueue{};
+    VkSwapchainKHR swapChain{};
+    VkSurfaceFormatKHR surfaceFormat{};
+    VkRenderPass renderPass{};
 
     VulkanImage depthImage{};
-    VkSampler depthSampler;
+    VkSampler depthSampler{};
 
-    DescriptorAllocator mainDescriptorAllocator;
-    VkDescriptorSet mainDescriptorSet;
-    VkDescriptorSetLayout mainDescriptorSetLayout;
-    VkDescriptorSetLayout sceneDescriptorSetLayout;
-    VkDescriptorSetLayout lightDescriptorSetLayout;
-    VkDescriptorSet lightDescriptorSet;
+    DescriptorAllocator mainDescriptorAllocator{};
+    VkDescriptorSet mainDescriptorSet{};
+    VkDescriptorSetLayout mainDescriptorSetLayout{};
+    VkDescriptorSetLayout sceneDescriptorSetLayout{};
+    VkDescriptorSetLayout lightDescriptorSetLayout{};
+    VkDescriptorSet lightDescriptorSet{};
 
-    VkPipelineLayout depthPrepassPipelineLayout;
-    VkPipelineLayout computePipelineLayout;
+    VkPipelineLayout depthPrepassPipelineLayout{};
+    VkPipelineLayout computePipelineLayout{};
 
-    VkPipeline depthPrepassPipeline;
-    VkDescriptorSet depthPrepassDescriptorSet;
-    VkRenderPass depthPrepassRenderPass;
-    VkFramebuffer depthPrepassFramebuffer;
-    VkSemaphore depthPrepassSemaphore;
-    VkCommandBuffer depthPrepassCommandBuffer;
+    VkPipeline depthPrepassPipeline{};
+    VkDescriptorSet depthPrepassDescriptorSet{};
+    VkRenderPass depthPrepassRenderPass{};
+    VkFramebuffer depthPrepassFramebuffer{};
+    VkSemaphore depthPrepassSemaphore{};
+    VkCommandBuffer depthPrepassCommandBuffer{};
 
-    VkPipeline computePipeline;
-    VkPipeline frustumPipeline;
-    VkPipelineLayout frustumPipelineLayout;
+    VkPipeline computePipeline{};
+    VkPipeline frustumPipeline{};
+    VkPipelineLayout frustumPipelineLayout{};
 
-    VkDescriptorSetLayout frustumDescriptorSetLayout;
+    VkDescriptorSetLayout frustumDescriptorSetLayout{};
 
-    VkSemaphore computeFinishedSemaphore;
-
-//    VkCommandBuffer depthCommandBuffer;
+    VkSemaphore computeFinishedSemaphore{};
 
     std::array<FrameData, MAX_FRAMES_IN_FLIGHT> frames;
-    VkCommandPool immediateCommandPool;
+    VkCommandPool immediateCommandPool{};
 
-    std::vector<VkFramebuffer> swapChainFramebuffers;
-    std::vector<VkImage> swapChainImages;
-    std::vector<VkImageView> swapChainImageViews;
+    std::vector<VkFramebuffer> swapChainFramebuffers{};
+    std::vector<VkImage> swapChainImages{};
+    std::vector<VkImageView> swapChainImageViews{};
 
-    VkPresentModeKHR presentMode;
-    VkExtent2D swapChainExtent;
+    VkPresentModeKHR presentMode{};
+    VkExtent2D swapChainExtent{};
 
-    VkPhysicalDeviceProperties deviceProperties;
-    VkPhysicalDeviceMemoryProperties memoryProperties;
-
+    VkPhysicalDeviceProperties deviceProperties{};
+    VkPhysicalDeviceMemoryProperties memoryProperties{};
 
     VulkanImage defaultImage{};
 
@@ -340,13 +333,13 @@ private:
     VulkanBuffer visibleLightBuffer{};
     VulkanBuffer frustumBuffer{};
 
-    VkSampler textureSamplerLinear;
-    VkSampler textureSamplerNearest;
+    VkSampler textureSamplerLinear{};
+    VkSampler textureSamplerNearest{};
 
-    VkGLTFMetallic_Roughness metalRoughMaterial;
+    VkGLTFMetallic_Roughness metalRoughMaterial{};
 
-    VkDrawContext mainDrawContext;
-    std::unordered_map<std::string, LoadedGLTF> loadedScenes;
+    VkDrawContext mainDrawContext{};
+    std::unordered_map<std::string, LoadedGLTF> loadedScenes{};
     SceneData sceneData{};
 
     std::unique_ptr<VkMemoryManager> memoryManager;

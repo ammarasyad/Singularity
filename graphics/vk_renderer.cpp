@@ -16,38 +16,8 @@
 VkRenderer::VkRenderer(GLFWwindow *window, Camera *camera, const bool dynamicRendering, const bool asyncCompute)
     : dynamicRendering(dynamicRendering),
       asyncCompute(asyncCompute),
-#ifndef NDEBUG
-      debugMessenger(VK_NULL_HANDLE),
-#endif
       glfwWindow(window),
-      camera(camera),
-      viewport(),
-      scissor(),
-      instance(VK_NULL_HANDLE),
-      surface(VK_NULL_HANDLE),
-      physicalDevice(VK_NULL_HANDLE),
-      device(VK_NULL_HANDLE),
-      queryPool(VK_NULL_HANDLE),
-      pipelineCache(VK_NULL_HANDLE),
-      graphicsQueue(VK_NULL_HANDLE),
-      computeQueue(VK_NULL_HANDLE),
-      presentQueue(VK_NULL_HANDLE),
-      surfaceFormat(),
-      swapChain(VK_NULL_HANDLE),
-      renderPass(VK_NULL_HANDLE),
-      mainDescriptorSetLayout(VK_NULL_HANDLE),
-      depthPrepassPipelineLayout(VK_NULL_HANDLE),
-      depthPrepassPipeline(VK_NULL_HANDLE),
-      computePipeline(VK_NULL_HANDLE),
-      frames(),
-      immediateCommandPool(VK_NULL_HANDLE),
-      presentMode(),
-      swapChainExtent(),
-      deviceProperties(),
-      memoryProperties(),
-      textureSamplerLinear(),
-      textureSamplerNearest(),
-      sceneDescriptorSetLayout(VK_NULL_HANDLE)
+      camera(camera)
 {
     frames[0].frameCallbacks.reserve(MAX_FRAMES_IN_FLIGHT);
     frames[1].frameCallbacks.reserve(MAX_FRAMES_IN_FLIGHT);
