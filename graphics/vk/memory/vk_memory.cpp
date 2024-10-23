@@ -111,19 +111,21 @@ void VkMemoryManager::stagingBuffer(VkDeviceSize bufferSize, const std::function
     vmaDestroyBuffer(allocator, stagingBuffer, allocation);
 }
 
-VulkanBuffer VkMemoryManager::createManagedBuffer(const VkDeviceSize bufferSize, const VkBufferUsageFlags bufferUsage, const VmaAllocationCreateFlags allocationFlags, const VmaMemoryUsage allocationUsage, const VkMemoryPropertyFlags requiredFlags, long minAlignment) {
-    VulkanBuffer trackedBuffer = createUnmanagedBuffer(bufferSize, bufferUsage, allocationFlags, allocationUsage, requiredFlags, minAlignment);
+VulkanBuffer VkMemoryManager::createManagedBuffer(const VulkanBufferCreateInfo &info) {
+    VulkanBuffer trackedBuffer = createUnmanagedBuffer(info);
     trackedBuffers.insert(trackedBuffer);
     return trackedBuffer;
 }
 
-VulkanImage VkMemoryManager::createManagedImage(const VkImageCreateFlags createFlags, const VkFormat imageFormat, const VkExtent3D imageExtent, const VkImageTiling imageTiling, const VkImageUsageFlags imageUsage, VkImageLayout imageLayout, VmaAllocationCreateFlags allocationFlags, VmaMemoryUsage allocationUsage, VkMemoryPropertyFlags requiredFlags, bool mipmapped, ImageViewCreateInfo *imageViewCreateInfo) {
-    VulkanImage trackedImage = createUnmanagedImage(createFlags, imageFormat, imageExtent, imageTiling, imageUsage, imageLayout, allocationFlags, allocationUsage, requiredFlags, mipmapped, imageViewCreateInfo);
+VulkanImage VkMemoryManager::createManagedImage(const VulkanImageCreateInfo &info) {
+    VulkanImage trackedImage = createUnmanagedImage(info);
     trackedImages.insert(trackedImage);
     return trackedImage;
 }
 
-VulkanBuffer VkMemoryManager::createUnmanagedBuffer(VkDeviceSize bufferSize, VkBufferUsageFlags bufferUsage, VmaAllocationCreateFlags allocationFlags, VmaMemoryUsage allocationUsage, VkMemoryPropertyFlags requiredFlags, long minAlignment) const {
+VulkanBuffer VkMemoryManager::createUnmanagedBuffer(const VulkanBufferCreateInfo &info) const {
+    auto [bufferSize, bufferUsage, allocationFlags, allocationUsage, requiredFlags, minAlignment] = info;
+
     VkBuffer buffer;
     VmaAllocation allocation{};
     VmaAllocationInfo allocationInfo{};
@@ -155,7 +157,9 @@ VulkanBuffer VkMemoryManager::createUnmanagedBuffer(VkDeviceSize bufferSize, VkB
     return trackedBuffer;
 }
 
-VulkanImage VkMemoryManager::createUnmanagedImage(const VkImageCreateFlags createFlags, const VkFormat imageFormat, const VkExtent3D imageExtent, const VkImageTiling imageTiling, const VkImageUsageFlags imageUsage, VkImageLayout imageLayout, VmaAllocationCreateFlags allocationFlags, VmaMemoryUsage allocationUsage, VkMemoryPropertyFlags requiredFlags, bool mipmapped, ImageViewCreateInfo *imageViewCreateInfo) const {
+VulkanImage VkMemoryManager::createUnmanagedImage(const VulkanImageCreateInfo &info) const {
+    auto [createFlags, imageFormat, imageExtent, imageTiling, imageUsage, imageLayout, allocationFlags, allocationUsage, requiredFlags, mipmapped, imageViewCreateInfo] = info;
+
     VkImage image;
     VmaAllocation allocation{};
     VmaAllocationInfo allocationInfo{};
@@ -221,7 +225,9 @@ VulkanImage VkMemoryManager::createTexture(VkExtent3D size, VkFormat format, VkI
     if (format == VK_FORMAT_D32_SFLOAT)
         imageViewCreateInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
 
-    return createManagedImage(0, format, size, VK_IMAGE_TILING_OPTIMAL, usage, VK_IMAGE_LAYOUT_UNDEFINED, 0, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, mipmapped, &imageViewCreateInfo);
+    return createManagedImage({0, format, size, VK_IMAGE_TILING_OPTIMAL, usage, VK_IMAGE_LAYOUT_UNDEFINED, 0,
+                               VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, mipmapped,
+                               &imageViewCreateInfo});
 }
 
 void generateMipmaps(const VkCommandBuffer &commandBuffer, VulkanImage &image, VkExtent2D size) {
@@ -427,6 +433,25 @@ VulkanImage VkMemoryManager::createKtxCubemap(ktxTexture *texture, VkRenderer *r
 
     vkCreateImageView(device, &createInfo, nullptr, &trackedImage.imageView);
 
+    VkSamplerCreateInfo samplerCreateInfo{
+            .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+            .magFilter = VK_FILTER_LINEAR,
+            .minFilter = VK_FILTER_LINEAR,
+            .mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR,
+            .addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+            .addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+            .addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+            .mipLodBias = 0.0f,
+            .anisotropyEnable = VK_TRUE,
+            .maxAnisotropy = renderer->device_properties().limits.maxSamplerAnisotropy,
+            .compareOp = VK_COMPARE_OP_NEVER,
+            .minLod = 0.0f,
+            .maxLod = static_cast<float>(mipLevels),
+            .borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE,
+    };
+
+    VK_CHECK(vkCreateSampler(device, &samplerCreateInfo, VK_NULL_HANDLE, &trackedImage.sampler));
+
     trackedImages.insert(trackedImage);
     return trackedImage;
 }
@@ -449,6 +474,9 @@ void VkMemoryManager::destroyImage(const VulkanImage &image) {
     vmaDestroyImage(allocator, image.image, image.allocation);
     if (image.imageView)
         vkDestroyImageView(device, image.imageView, nullptr);
+
+    if (image.sampler)
+        vkDestroySampler(device, image.sampler, nullptr);
 
     trackedImages.erase(image);
 }

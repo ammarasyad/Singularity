@@ -32,6 +32,7 @@ struct VulkanImage {
     VmaAllocation allocation;
     VkExtent3D extent;
     VkFormat format;
+    VkSampler sampler;
 
     bool operator==(const VulkanImage &other) const {
         return image == other.image;

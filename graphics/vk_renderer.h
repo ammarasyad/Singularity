@@ -168,6 +168,10 @@ public:
         return metalRoughMaterial;
     }
 
+    [[nodiscard]] VkPhysicalDeviceProperties device_properties() const {
+        return deviceProperties;
+    }
+
     [[nodiscard]] bool is_integrated_gpu() const {
         return isIntegratedGPU;
     }
@@ -300,7 +304,6 @@ private:
     VkRenderPass renderPass{};
 
     VulkanImage depthImage{};
-    VkSampler depthSampler{};
 
     DescriptorAllocator mainDescriptorAllocator{};
     VkDescriptorSet mainDescriptorSet{};
@@ -329,7 +332,6 @@ private:
     VkPipelineLayout frustumPipelineLayout{};
     VkDescriptorSetLayout frustumDescriptorSetLayout{};
 
-
     VkSemaphore computeFinishedSemaphore{};
 
     std::array<FrameData, MAX_FRAMES_IN_FLIGHT> frames;
@@ -354,7 +356,6 @@ private:
 
     VkSampler textureSamplerLinear{};
     VkSampler textureSamplerNearest{};
-    VkSampler skyboxSampler{};
 
     VkGLTFMetallic_Roughness metalRoughMaterial{};
 

@@ -438,7 +438,9 @@ void VkRenderer::Draw(const VkCommandBuffer &commandBuffer, uint32_t imageIndex,
         }
     });
 
-    auto buffer = memoryManager->createUnmanagedBuffer(sizeof(SceneData), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT, VMA_MEMORY_USAGE_AUTO);
+    auto buffer = memoryManager->createUnmanagedBuffer({sizeof(SceneData), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+                                                        VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
+                                                        VMA_MEMORY_USAGE_AUTO});
     frames[currentFrame].frameCallbacks.emplace_back([&, buffer] { memoryManager->destroyBuffer(buffer); });
 
     SceneData *data;
@@ -627,7 +629,6 @@ void VkRenderer::Shutdown() {
 
     CleanupSwapChain();
 
-    vkDestroySampler(device, skyboxSampler, VK_NULL_HANDLE);
     vkDestroySampler(device, textureSamplerLinear, VK_NULL_HANDLE);
     vkDestroySampler(device, textureSamplerNearest, VK_NULL_HANDLE);
 
@@ -710,14 +711,20 @@ Mesh VkRenderer::CreateMesh(const std::span<VkVertex> &vertices, const std::span
     };
 
     const auto stagingBufferUnmappedTask = [&](const VkBuffer &stagingBuffer) {
-        mesh.vertexBuffer = memoryManager->createManagedBuffer(verticesSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 0, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT).buffer;
+        mesh.vertexBuffer = memoryManager->createManagedBuffer({verticesSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT |
+                                                                              VK_BUFFER_USAGE_VERTEX_BUFFER_BIT |
+                                                                              VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+                                                                0, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE,
+                                                                VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT}).buffer;
         const VkBufferDeviceAddressInfo deviceAddressInfo{
             VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
             VK_NULL_HANDLE,
             mesh.vertexBuffer
         };
         mesh.vertexBufferDeviceAddress = vkGetBufferDeviceAddress(device, &deviceAddressInfo);
-        mesh.indexBuffer = memoryManager->createManagedBuffer(indicesSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT, 0, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT).buffer;
+        mesh.indexBuffer = memoryManager->createManagedBuffer(
+                {indicesSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT, 0,
+                 VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT}).buffer;
 
         ImmediateSubmit([&](auto &commandBuffer) {
             VkBufferCopy copyRegion{
@@ -1042,7 +1049,11 @@ void VkRenderer::CreateDepthImage() {
         .subresourceRange = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1}
     };
 
-    depthImage = memoryManager->createManagedImage(0, VK_FORMAT_D32_SFLOAT, {swapChainExtent.width, swapChainExtent.height, 1}, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, VK_IMAGE_LAYOUT_UNDEFINED, 0, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, false, &viewCreateInfo);
+    depthImage = memoryManager->createUnmanagedImage(
+            {0, VK_FORMAT_D32_SFLOAT, {swapChainExtent.width, swapChainExtent.height, 1}, VK_IMAGE_TILING_OPTIMAL,
+             VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+             VK_IMAGE_LAYOUT_UNDEFINED, 0, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+             false, &viewCreateInfo});
 
     ImmediateSubmit([&](auto &cmd) {
         TransitionImage(cmd, depthImage, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_NONE, VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT, VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
@@ -1069,7 +1080,7 @@ void VkRenderer::CreateDepthImage() {
             VK_FALSE
     };
 
-    VK_CHECK(vkCreateSampler(device, &samplerInfo, VK_NULL_HANDLE, &depthSampler));
+    VK_CHECK(vkCreateSampler(device, &samplerInfo, VK_NULL_HANDLE, &depthImage.sampler));
 }
 
 void VkRenderer::CreateRenderPass() {
@@ -1639,7 +1650,6 @@ void VkRenderer::CleanupSwapChain() {
         vkDestroyImageView(device, imageView, nullptr);
     }
 
-    vkDestroySampler(device, depthSampler, nullptr);
     memoryManager->destroyImage(depthImage);
 
     vkDestroySwapchainKHR(device, swapChain, nullptr);
@@ -1714,7 +1724,9 @@ void VkRenderer::CreateRandomLights() {
 
     totalLights.lightCount = 1;
 
-    lightUniformBuffer = memoryManager->createManagedBuffer(sizeof(Light), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT, VMA_MEMORY_USAGE_AUTO);
+    lightUniformBuffer = memoryManager->createManagedBuffer(
+            {sizeof(Light), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+             VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT, VMA_MEMORY_USAGE_AUTO});
 
     const auto mappedMemoryTask = [&](auto &, auto *stagingBuffer) {
         memcpy(stagingBuffer, &totalLights, sizeof(Light));
@@ -1734,7 +1746,12 @@ void VkRenderer::CreateRandomLights() {
 
     memoryManager->stagingBuffer(sizeof(Light), mappedMemoryTask, unmappedMemoryTask);
 
-    visibleLightBuffer = memoryManager->createManagedBuffer(sizeof(lightVisibility), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, 0, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    visibleLightBuffer = memoryManager->createManagedBuffer({sizeof(lightVisibility),
+                                                             VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
+                                                             VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
+                                                             VK_BUFFER_USAGE_TRANSFER_DST_BIT, 0,
+                                                             VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE,
+                                                             VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT});
 
     ImmediateSubmit([&](auto &cmd) {
         vkCmdFillBuffer(cmd, visibleLightBuffer.buffer, 0, sizeof(lightVisibility), 0);
@@ -1743,7 +1760,7 @@ void VkRenderer::CreateRandomLights() {
 
 void VkRenderer::UpdateDepthComputeDescriptorSets() {
     DescriptorWriter writer;
-    writer.WriteImage(0, depthImage.imageView, depthSampler, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+    writer.WriteImage(0, depthImage.imageView, depthImage.sampler, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
     writer.WriteBuffer(1, lightUniformBuffer.buffer, 0, sizeof(Light), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
     writer.WriteBuffer(2, visibleLightBuffer.buffer, 0, sizeof(lightVisibility), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
     writer.UpdateSet(device, mainDescriptorSet);
@@ -1752,19 +1769,21 @@ void VkRenderer::UpdateDepthComputeDescriptorSets() {
     writer.WriteBuffer(0, lightUniformBuffer.buffer, 0, sizeof(Light), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
     writer.WriteBuffer(1, visibleLightBuffer.buffer, 0, sizeof(lightVisibility),
                        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
-    writer.WriteImage(2, depthImage.imageView, depthSampler, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
+    writer.WriteImage(2, depthImage.imageView, depthImage.sampler, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
                       VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
     writer.WriteBuffer(3, frustumBuffer.buffer, 0, sizeof(ViewFrustum), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
     writer.UpdateSet(device, lightDescriptorSet);
 
     writer.Clear();
-    writer.WriteImage(0, skyboxImage.imageView, skyboxSampler, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+    writer.WriteImage(0, skyboxImage.imageView, skyboxImage.sampler, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
     writer.UpdateSet(device, skyboxDescriptorSet);
 }
 
 void VkRenderer::ComputeFrustum() {
     if (!frustumBuffer.buffer)
-        frustumBuffer = memoryManager->createManagedBuffer(sizeof(ViewFrustum), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, 0, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+        frustumBuffer = memoryManager->createManagedBuffer(
+                {sizeof(ViewFrustum), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, 0,
+                 VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT});
 
     std::array layouts = {frustumDescriptorSetLayout};
     auto frustumDescriptorSet = mainDescriptorAllocator.Allocate(device, layouts);
@@ -1794,25 +1813,6 @@ void VkRenderer::CreateSkybox() {
     assert(ktxTexture_CreateFromNamedFile("../assets/cubemap_vulkan.ktx", KTX_TEXTURE_CREATE_LOAD_IMAGE_DATA_BIT, &skyboxTexture) == KTX_SUCCESS);
 
     skyboxImage = memoryManager->createKtxCubemap(skyboxTexture, this, VK_FORMAT_R8G8B8A8_UNORM);
-
-    VkSamplerCreateInfo samplerCreateInfo{
-        .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
-        .magFilter = VK_FILTER_LINEAR,
-        .minFilter = VK_FILTER_LINEAR,
-        .mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR,
-        .addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
-        .addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
-        .addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
-        .mipLodBias = 0.0f,
-        .anisotropyEnable = VK_TRUE,
-        .maxAnisotropy = deviceProperties.limits.maxSamplerAnisotropy,
-        .compareOp = VK_COMPARE_OP_NEVER,
-        .minLod = 0.0f,
-        .maxLod = static_cast<float>(skyboxTexture->numLevels),
-        .borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE,
-    };
-
-    VK_CHECK(vkCreateSampler(device, &samplerCreateInfo, VK_NULL_HANDLE, &skyboxSampler));
 
     ktxTexture_Destroy(skyboxTexture);
 }
