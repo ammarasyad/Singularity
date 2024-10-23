@@ -25,7 +25,7 @@ void VkGLTFMetallic_Roughness::buildPipelines(const VkRenderer *renderer) {
 
     VkPushConstantRange fragmentPushConstantRange{
         VK_SHADER_STAGE_FRAGMENT_BIT,
-        sizeof(MeshPushConstants) + 8,
+        sizeof(MeshPushConstants),
         sizeof(FragmentPushConstants)
     };
 

@@ -326,11 +326,12 @@ void VkRenderer::DrawObject(const VkCommandBuffer &commandBuffer, const VkRender
 
     FragmentPushConstants fragmentPushConstants{
             draw.transform,
-            camera->Position()
+            camera->Position(),
+            {viewport.width, viewport.height},
     };
 
     vkCmdPushConstants(commandBuffer, draw.materialInstance->pipeline.layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(MeshPushConstants), &pushConstants);
-    vkCmdPushConstants(commandBuffer, draw.materialInstance->pipeline.layout, VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(MeshPushConstants) + 8, sizeof(FragmentPushConstants), &fragmentPushConstants);
+    vkCmdPushConstants(commandBuffer, draw.materialInstance->pipeline.layout, VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(MeshPushConstants), sizeof(FragmentPushConstants), &fragmentPushConstants);
     vkCmdDrawIndexed(commandBuffer, draw.indexCount, 1, draw.firstIndex, 0, 0);
 }
 

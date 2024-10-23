@@ -29,12 +29,13 @@ layout(set = 2, binding = 2) buffer readonly visibilityBuffer {
 layout(push_constant) uniform PushConstants {
     layout(offset = 80) mat4 viewProjection;
     layout(offset = 144) vec3 cameraPosition;
+    layout(offset = 160) ivec2 viewportSize;
 } pushConstants;
 
 layout(early_fragment_tests) in;
 
 void main() {
-    ivec2 tile = ivec2(gl_FragCoord.xy) / ivec2(1920, 1080);
+    ivec2 tile = ivec2(gl_FragCoord.xy) / pushConstants.viewportSize;
     uint tileIndex = tile.y * 120 + tile.x;
     uint numLightsInTile = visibilities[tileIndex].count;
 

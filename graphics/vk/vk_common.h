@@ -16,13 +16,14 @@ struct Mesh {
 };
 
 struct MeshPushConstants {
-    glm::mat4 worldMatrix;
-    VkDeviceAddress vertexBufferDeviceAddress;
+    alignas(16) glm::mat4 worldMatrix;
+    alignas(16) VkDeviceAddress vertexBufferDeviceAddress;
 };
 
 struct FragmentPushConstants {
-    glm::mat4 worldMatrix;
-    glm::vec3 cameraPosition;
+    alignas(16) glm::mat4 worldMatrix;
+    alignas(16) glm::vec3 cameraPosition;
+    alignas(16) glm::ivec2 viewportSize;
 };
 
 struct VulkanImage {
