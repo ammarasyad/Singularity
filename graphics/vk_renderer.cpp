@@ -539,6 +539,8 @@ void VkRenderer::Draw(const VkCommandBuffer &commandBuffer, uint32_t imageIndex,
     };
     vkCmdPushConstants(commandBuffer, skyboxPipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(glm::vec4) * 3, &skyboxPushConstant);
     vkCmdDraw(commandBuffer, 36, 1, 0, 0);
+    stats.drawCallCount++;
+    stats.triangleCount += 12;
 
     VkMaterialPipeline lastPipeline{};
     VkMaterialInstance lastMaterialInstance{};
