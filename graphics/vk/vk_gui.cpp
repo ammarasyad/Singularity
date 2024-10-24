@@ -43,6 +43,9 @@ VkGui::VkGui(const int width, const int height, const bool dynamicRendering, con
     glfwSetFramebufferSizeCallback(window, FramebufferResizeCallback);
     glfwSetMouseButtonCallback(window, MouseButtonCallback);
     glfwSetKeyCallback(window, KeyboardCallback);
+    glfwSetWindowCloseCallback(window, [](GLFWwindow *window) {
+        glfwSetWindowShouldClose(window, GLFW_TRUE);
+    });
     // glfwSetMouseButtonCallback(window, [](GLFWwindow *window, int button, int action, int mods) {
     //     ImGui_ImplGlfw_MouseButtonCallback(window, button, action, mods);
     // });
