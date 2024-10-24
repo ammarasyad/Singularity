@@ -238,10 +238,7 @@ private:
         std::vector<VkPresentModeKHR> presentModes;
     };
 
-    std::vector<const char *> deviceExtensions = {
-            13,
-            VK_KHR_SWAPCHAIN_EXTENSION_NAME
-    };
+    std::vector<const char *> deviceExtensions;
 
 #ifndef NDEBUG
     const std::array<const char *, 1> validationLayers = {
