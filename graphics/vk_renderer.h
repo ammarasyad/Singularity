@@ -318,6 +318,7 @@ private:
     VkRenderPass depthPrepassRenderPass{};
     VkFramebuffer depthPrepassFramebuffer{};
     VkSemaphore depthPrepassSemaphore{};
+    VkFence depthPrepassFence{};
     VkCommandBuffer depthPrepassCommandBuffer{};
 
     VkPipeline skyboxPipeline{};

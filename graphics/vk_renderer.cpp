@@ -195,7 +195,8 @@ void VkRenderer::Render(EngineStats &stats) {
 
     UpdateScene();
 
-    vkWaitForFences(device, 1, &frames[currentFrame].inFlightFence, VK_TRUE, UINT64_MAX);
+    std::array fences = {depthPrepassFence, frames[currentFrame].inFlightFence};
+    vkWaitForFences(device, fences.size(), fences.data(), VK_TRUE, UINT64_MAX);
 
     for (auto &callback : frames[currentFrame].frameCallbacks)
         callback();
@@ -216,8 +217,7 @@ void VkRenderer::Render(EngineStats &stats) {
         throw std::runtime_error("Failed to acquire swap chain image!");
     }
 
-    vkResetFences(device, 1, &frames[currentFrame].inFlightFence);
-    vkQueueWaitIdle(graphicsQueue);
+    vkResetFences(device, fences.size(), fences.data());
     vkResetCommandBuffer(frames[currentFrame].commandBuffer, VK_COMMAND_BUFFER_RESET_RELEASE_RESOURCES_BIT);
     vkResetCommandBuffer(depthPrepassCommandBuffer, VK_COMMAND_BUFFER_RESET_RELEASE_RESOURCES_BIT);
 
@@ -414,7 +414,7 @@ void VkRenderer::DrawDepthPrepass(const std::vector<size_t> &drawIndices) {
             &depthPrepassSemaphore
     };
 
-    VK_CHECK(vkQueueSubmit(graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE));
+    VK_CHECK(vkQueueSubmit(graphicsQueue, 1, &submitInfo, depthPrepassFence));
 }
 
 void VkRenderer::Draw(const VkCommandBuffer &commandBuffer, uint32_t imageIndex, EngineStats &stats) {
@@ -1466,6 +1466,7 @@ void VkRenderer::CreateSyncObjects() {
     }
 
     VK_CHECK(vkCreateSemaphore(device, &semaphoreInfo, VK_NULL_HANDLE, &depthPrepassSemaphore));
+    VK_CHECK(vkCreateFence(device, &fenceInfo, VK_NULL_HANDLE, &depthPrepassFence));
 }
 
 void VkRenderer::CreateDescriptors() {
