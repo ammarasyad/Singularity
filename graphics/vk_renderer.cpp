@@ -714,7 +714,7 @@ Mesh VkRenderer::CreateMesh(const std::span<VkVertex> &vertices, const std::span
         mesh.vertexBuffer = memoryManager->createManagedBuffer({verticesSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT |
                                                                               VK_BUFFER_USAGE_VERTEX_BUFFER_BIT |
                                                                               VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
-                                                                0, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE,
+                                                                VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE,
                                                                 VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT}).buffer;
         const VkBufferDeviceAddressInfo deviceAddressInfo{
             VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
