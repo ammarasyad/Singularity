@@ -1583,8 +1583,10 @@ void VkRenderer::FindQueueFamilies(const VkPhysicalDevice &gpu) {
             queueFamilyIndices.graphicsFamily = i;
         }
 
-        if (asyncCompute && queueFamily.queueFlags & VK_QUEUE_COMPUTE_BIT && !(queueFamily.queueFlags & VK_QUEUE_GRAPHICS_BIT)) {
-            queueFamilyIndices.computeFamily = i;
+        if (asyncCompute) {
+            if (queueFamily.queueFlags & VK_QUEUE_COMPUTE_BIT && !(queueFamily.queueFlags & VK_QUEUE_GRAPHICS_BIT)) {
+                queueFamilyIndices.computeFamily = i;
+            }
         } else if (queueFamily.queueFlags & VK_QUEUE_COMPUTE_BIT) {
             queueFamilyIndices.computeFamily = queueFamilyIndices.graphicsFamily;
         }
