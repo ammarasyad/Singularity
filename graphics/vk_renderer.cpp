@@ -624,6 +624,7 @@ void VkRenderer::Shutdown() {
         vkDestroySemaphore(device, computeFinishedSemaphore, nullptr);
 
     vkDestroySemaphore(device, depthPrepassSemaphore, nullptr);
+    vkDestroyFence(device, depthPrepassFence, nullptr);
 
     vkDestroyCommandPool(device, immediateCommandPool, nullptr);
 
