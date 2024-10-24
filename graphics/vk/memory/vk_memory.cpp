@@ -88,7 +88,7 @@ void VkMemoryManager::stagingBuffer(VkDeviceSize bufferSize, const std::function
 
     VmaAllocationCreateInfo allocationCreateInfo{
             allocationFlags,
-            VMA_MEMORY_USAGE_AUTO_PREFER_HOST,
+            VMA_MEMORY_USAGE_AUTO,
             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
     };
 
