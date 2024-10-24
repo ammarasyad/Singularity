@@ -1,7 +1,6 @@
 #version 460
 
 #extension GL_GOOGLE_include_directive : require
-#extension GL_EXT_debug_printf : enable
 #extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
 #extension GL_EXT_shader_16bit_storage : require
 
@@ -35,7 +34,7 @@ layout(push_constant) uniform PushConstants {
 layout(early_fragment_tests) in;
 
 void main() {
-//    uint zTile = uint((log(abs(fragPos.z) / 0.1f) * TILE_Z) / log(10000.f));
+//    uint zTile = uint((log(abs(gl_FragCoord.z) / 0.1f) * TILE_Z) / log(10000.f));
     uvec3 tile = uvec3(gl_FragCoord.xy / (pushConstants.viewportSize / vec2(TILE_X, TILE_Y)), gl_FragCoord.z);
 //    uvec3 tile = uvec3(gl_FragCoord.xyz) / uvec3(pushConstants.viewportSize, 1) ;
     uint tileIndex = tile.x + tile.y * TILE_X + tile.z * TILE_X * TILE_Y;
@@ -48,15 +47,13 @@ void main() {
     f16vec3 viewDir = f16vec3(normalize(pushConstants.cameraPosition - fragPos));
 
     for (uint i = 0; i < numLightsInTile; i++) {
-        uint lightIndex = visibilities[tileIndex].indices[i];
-        Light light = lights[lightIndex];
+        Light light = lights[visibilities[tileIndex].indices[i]];
 
         f16vec3 lightPosition = light.position.xyz;
-        float16_t lightRadius = light.position.w;
         f16vec3 lightColor = light.color.rgb;
         float16_t lightIntensity = light.color.w;
 
-        f16vec3 lightDir = normalize(lightPosition - f16vec3(fragPos));
+        f16vec3 lightDir = normalize(light.position.xyz - f16vec3(fragPos));
 
         float16_t lambertian = max(dot(normal, lightDir), float16_t(0.0f));
 

@@ -195,8 +195,9 @@ void VkRenderer::Render(EngineStats &stats) {
 
     UpdateScene();
 
-    std::array fences = {depthPrepassFence, frames[currentFrame].inFlightFence};
-    vkWaitForFences(device, fences.size(), fences.data(), VK_TRUE, UINT64_MAX);
+    std::array fences = {depthPrepassFence, frames[currentFrame].inFlightFence, computeFinishedFence};
+    const auto size = fences.size() - !asyncCompute;
+    vkWaitForFences(device, size, fences.data(), VK_TRUE, UINT64_MAX);
 
     for (auto &callback : frames[currentFrame].frameCallbacks)
         callback();
@@ -213,13 +214,52 @@ void VkRenderer::Render(EngineStats &stats) {
         return;
     }
 
-    if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
+    if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) [[unlikely]] {
         throw std::runtime_error("Failed to acquire swap chain image!");
     }
 
-    vkResetFences(device, fences.size(), fences.data());
+    vkResetFences(device, size, fences.data());
     vkResetCommandBuffer(frames[currentFrame].commandBuffer, VK_COMMAND_BUFFER_RESET_RELEASE_RESOURCES_BIT);
     vkResetCommandBuffer(depthPrepassCommandBuffer, VK_COMMAND_BUFFER_RESET_RELEASE_RESOURCES_BIT);
+
+    if (asyncCompute) {
+        vkResetCommandBuffer(computeCommandBuffer, VK_COMMAND_BUFFER_RESET_RELEASE_RESOURCES_BIT);
+
+        const VkCommandBufferBeginInfo beginInfo{
+            VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+            VK_NULL_HANDLE,
+            VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
+            VK_NULL_HANDLE
+        };
+
+        VK_CHECK(vkBeginCommandBuffer(computeCommandBuffer, &beginInfo));
+
+        vkCmdBindPipeline(computeCommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, computePipeline);
+        vkCmdBindDescriptorSets(computeCommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, computePipelineLayout, 0, 1, &lightDescriptorSet,0, VK_NULL_HANDLE);
+
+        ComputePushConstants pushConstants{
+                camera->ViewMatrix()
+        };
+
+        vkCmdPushConstants(computeCommandBuffer, computePipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pushConstants),&pushConstants);
+        vkCmdDispatch(computeCommandBuffer, 16, 9, 24);
+
+        VK_CHECK(vkEndCommandBuffer(computeCommandBuffer));
+
+        VkSubmitInfo submitInfo{
+                VK_STRUCTURE_TYPE_SUBMIT_INFO,
+                VK_NULL_HANDLE,
+                0,
+                VK_NULL_HANDLE,
+                VK_NULL_HANDLE,
+                1,
+                &computeCommandBuffer,
+                1,
+                &computeFinishedSemaphore
+        };
+
+        VK_CHECK(vkQueueSubmit(computeQueue, 1, &submitInfo, computeFinishedFence));
+    }
 
     const auto start = std::chrono::high_resolution_clock::now();
 
@@ -233,12 +273,12 @@ void VkRenderer::Render(EngineStats &stats) {
 //        AsyncComputeDispatch(frames[currentFrame].commandBuffer, imageIndex);
 //    }
 
-    VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT};
-    std::array waitSemaphores = {frames[currentFrame].imageAvailableSemaphore, depthPrepassSemaphore};
+    VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT};
+    std::array waitSemaphores = {frames[currentFrame].imageAvailableSemaphore, depthPrepassSemaphore, computeFinishedSemaphore};
     VkSubmitInfo submitInfo{
         VK_STRUCTURE_TYPE_SUBMIT_INFO,
         VK_NULL_HANDLE,
-        static_cast<uint32_t>(waitSemaphores.size()),
+        static_cast<uint32_t>(waitSemaphores.size() - !asyncCompute),
         waitSemaphores.data(),
         waitStages,
         1,
@@ -261,9 +301,9 @@ void VkRenderer::Render(EngineStats &stats) {
 
     result = vkQueuePresentKHR(presentQueue, &presentInfo);
 
-    if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || framebufferResized) {
+    if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || framebufferResized) [[unlikely]] {
         framebufferResized = false;
-    } else if (result != VK_SUCCESS) {
+    } else if (result != VK_SUCCESS) [[unlikely]] {
         throw std::runtime_error("Failed to acquire swap chain image!");
     }
 
@@ -467,22 +507,20 @@ void VkRenderer::Draw(const VkCommandBuffer &commandBuffer, uint32_t imageIndex,
 
     VK_CHECK(vkBeginCommandBuffer(commandBuffer, &beginInfo));
 
-    vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, computePipeline);
-    vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, computePipelineLayout, 0, 1, &lightDescriptorSet,
-                            0, VK_NULL_HANDLE);
+    if (!asyncCompute) {
+        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, computePipeline);
+        vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, computePipelineLayout, 0, 1,&lightDescriptorSet,0, VK_NULL_HANDLE);
 
-    auto view = camera->ViewMatrix();
-    auto proj = camera->ProjectionMatrix();
+        auto view = camera->ViewMatrix();
+        auto proj = camera->ProjectionMatrix();
 
-    ComputePushConstants pushConstants{
-            camera->ViewMatrix(),
-            camera->Position(),
-            {viewport.width, viewport.height}
-    };
+        ComputePushConstants pushConstants{
+                camera->ViewMatrix()
+        };
 
-    vkCmdPushConstants(commandBuffer, computePipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pushConstants),
-                       &pushConstants);
-    vkCmdDispatch(commandBuffer, 27, 1, 1);
+        vkCmdPushConstants(commandBuffer, computePipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pushConstants),&pushConstants);
+        vkCmdDispatch(commandBuffer, 16, 9, 24);
+    }
 
     if (dynamicRendering) {
         VkRenderingAttachmentInfo colorAttachment{
@@ -536,7 +574,7 @@ void VkRenderer::Draw(const VkCommandBuffer &commandBuffer, uint32_t imageIndex,
         camera->Up()
     };
     vkCmdPushConstants(commandBuffer, skyboxPipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(glm::vec4) * 3, &skyboxPushConstant);
-    vkCmdDraw(commandBuffer, 36, 1, 0, 0);
+    vkCmdDraw(commandBuffer, 6, 1, 0, 0);
     stats.drawCallCount++;
     stats.triangleCount += 12;
 
@@ -620,8 +658,11 @@ void VkRenderer::Shutdown() {
             callback();
     }
 
-    if (!asyncCompute)
+    if (asyncCompute) {
         vkDestroySemaphore(device, computeFinishedSemaphore, nullptr);
+        vkDestroyFence(device, computeFinishedFence, nullptr);
+        vkDestroyCommandPool(device, computeCommandPool, nullptr);
+    }
 
     vkDestroySemaphore(device, depthPrepassSemaphore, nullptr);
     vkDestroyFence(device, depthPrepassFence, nullptr);
@@ -792,7 +833,7 @@ void VkRenderer::BlitImage(const VkCommandBuffer &commandBuffer, const VulkanIma
 void VkRenderer::PickPhysicalDevice() {
     uint32_t deviceCount = 0;
     vkEnumeratePhysicalDevices(instance, &deviceCount, VK_NULL_HANDLE);
-    if (deviceCount == 0) {
+    if (deviceCount == 0) [[unlikely]] {
         throw std::runtime_error("Failed to find GPUs with Vulkan support");
     }
 
@@ -953,7 +994,7 @@ void VkRenderer::CreateLogicalDevice() {
     VK_CHECK(vkCreateDevice(physicalDevice, &createInfo, VK_NULL_HANDLE, &device));
 
     vkGetDeviceQueue(device, queueFamilyIndices.graphicsFamily.value(), 0, &graphicsQueue);
-    if (!asyncCompute)
+    if (asyncCompute)
         vkGetDeviceQueue(device, queueFamilyIndices.computeFamily.value(), 0, &computeQueue);
 
     vkGetDeviceQueue(device, queueFamilyIndices.presentFamily.value(), 0, &presentQueue);
@@ -1237,6 +1278,12 @@ void VkRenderer::CreatePipelineLayout() {
         sizeof(ComputePushConstants)
     };
 
+    VkPushConstantRange frustumPushConstantRange{
+        VK_SHADER_STAGE_COMPUTE_BIT,
+        0,
+        sizeof(FrustumPushConstants)
+    };
+
     VkPushConstantRange skyboxPushConstantRange{
         VK_SHADER_STAGE_VERTEX_BIT,
         0,
@@ -1261,6 +1308,7 @@ void VkRenderer::CreatePipelineLayout() {
     VK_CHECK(vkCreatePipelineLayout(device, &pipelineLayoutInfo, VK_NULL_HANDLE, &computePipelineLayout));
 
     pipelineLayoutInfo.pSetLayouts = &frustumDescriptorSetLayout;
+    pipelineLayoutInfo.pPushConstantRanges = &frustumPushConstantRange;
     VK_CHECK(vkCreatePipelineLayout(device, &pipelineLayoutInfo, VK_NULL_HANDLE, &frustumPipelineLayout));
 
     pipelineLayoutInfo.pSetLayouts = &skyboxDescriptorSetLayout;
@@ -1400,6 +1448,11 @@ void VkRenderer::CreateCommandPool() {
     for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
         VK_CHECK(vkCreateCommandPool(device, &poolInfo, VK_NULL_HANDLE, &frames[i].commandPool));
     }
+
+    if (asyncCompute) {
+        poolInfo.queueFamilyIndex = queueFamilyIndices.computeFamily.value();
+        VK_CHECK(vkCreateCommandPool(device, &poolInfo, VK_NULL_HANDLE, &computeCommandPool));
+    }
 }
 
 void VkRenderer::CreateCommandBuffers() {
@@ -1416,6 +1469,11 @@ void VkRenderer::CreateCommandBuffers() {
     for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
         allocInfo.commandPool = frames[i].commandPool;
         VK_CHECK(vkAllocateCommandBuffers(device, &allocInfo, &frames[i].commandBuffer));
+    }
+
+    if (asyncCompute) {
+        allocInfo.commandPool = computeCommandPool;
+        VK_CHECK(vkAllocateCommandBuffers(device, &allocInfo, &computeCommandBuffer));
     }
 }
 
@@ -1457,8 +1515,10 @@ void VkRenderer::CreateSyncObjects() {
         VK_FENCE_CREATE_SIGNALED_BIT
     };
 
-    if (!asyncCompute)
+    if (asyncCompute) {
         VK_CHECK(vkCreateSemaphore(device, &semaphoreInfo, VK_NULL_HANDLE, &computeFinishedSemaphore));
+        VK_CHECK(vkCreateFence(device, &fenceInfo, VK_NULL_HANDLE, &computeFinishedFence));
+    }
 
     for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
         VK_CHECK(vkCreateSemaphore(device, &semaphoreInfo, VK_NULL_HANDLE, &frames[i].imageAvailableSemaphore));
@@ -1549,8 +1609,10 @@ void VkRenderer::FindQueueFamilies(const VkPhysicalDevice &gpu) {
             queueFamilyIndices.graphicsFamily = i;
         }
 
-        if (queueFamily.queueFlags & VK_QUEUE_COMPUTE_BIT) {
+        if (asyncCompute && queueFamily.queueFlags & VK_QUEUE_COMPUTE_BIT && !(queueFamily.queueFlags & VK_QUEUE_GRAPHICS_BIT)) {
             queueFamilyIndices.computeFamily = i;
+        } else if (queueFamily.queueFlags & VK_QUEUE_COMPUTE_BIT) {
+            queueFamilyIndices.computeFamily = queueFamilyIndices.graphicsFamily;
         }
 
         VkBool32 presentSupport = false;
@@ -1576,7 +1638,7 @@ VkRenderer::SwapChainSupportDetails VkRenderer::QuerySwapChainSupport(const VkPh
     uint32_t formatCount;
     vkGetPhysicalDeviceSurfaceFormatsKHR(gpu, surface, &formatCount, VK_NULL_HANDLE);
 
-    if (formatCount != 0) {
+    if (formatCount != 0) [[likely]] {
         details.formats.resize(formatCount);
         vkGetPhysicalDeviceSurfaceFormatsKHR(gpu, surface, &formatCount, details.formats.data());
     }
@@ -1584,7 +1646,7 @@ VkRenderer::SwapChainSupportDetails VkRenderer::QuerySwapChainSupport(const VkPh
     uint32_t presentModeCount;
     vkGetPhysicalDeviceSurfacePresentModesKHR(gpu, surface, &presentModeCount, VK_NULL_HANDLE);
 
-    if (presentModeCount != 0) {
+    if (presentModeCount != 0) [[likely]] {
         details.presentModes.resize(presentModeCount);
         vkGetPhysicalDeviceSurfacePresentModesKHR(gpu, surface, &presentModeCount, details.presentModes.data());
     }
@@ -1709,7 +1771,8 @@ void VkRenderer::DestroyDebugUtilsMessengerEXT(VkInstance instance, VkDebugUtils
 #endif
 
 void VkRenderer::CreateRandomLights() {
-    totalLights.lightCount = 128;
+    totalLights = std::make_unique<Light>();
+    totalLights->lightCount = 128;
 
     std::random_device rd;
     std::mt19937 gen(rd());
@@ -1719,9 +1782,9 @@ void VkRenderer::CreateRandomLights() {
 
     std::uniform_real_distribution<float> disColor(0.f, 1.f);
 
-    for (size_t i = 0; i < totalLights.lightCount; i++) {
-        totalLights.lights[i].position = {disXZ(gen), disY(gen), disXZ(gen), 50.f};
-        totalLights.lights[i].color = {disColor(gen), disColor(gen), disColor(gen), 1.f};
+    for (size_t i = 0; i < totalLights->lightCount; i++) {
+        totalLights->lights[i].position = {disXZ(gen), disY(gen), disXZ(gen), 50.f};
+        totalLights->lights[i].color = {disColor(gen), disColor(gen), disColor(gen), 0.3f};
     }
 
     lightUniformBuffer = memoryManager->createManagedBuffer(
@@ -1729,7 +1792,7 @@ void VkRenderer::CreateRandomLights() {
              VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT});
 
     const auto mappedMemoryTask = [&](auto &, auto *stagingBuffer) {
-        memcpy(stagingBuffer, &totalLights, sizeof(Light));
+        memcpy(stagingBuffer, totalLights.get(), sizeof(Light));
     };
 
     const auto unmappedMemoryTask = [&](auto &buf) {
@@ -1779,11 +1842,6 @@ void VkRenderer::UpdateDepthComputeDescriptorSets() {
 }
 
 void VkRenderer::ComputeFrustum() {
-//    if (!frustumBuffer.buffer)
-//        frustumBuffer = memoryManager->createManagedBuffer(
-//                {sizeof(LightVisibility), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, 0,
-//                 VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT});
-
     std::array layouts = {frustumDescriptorSetLayout};
     auto frustumDescriptorSet = mainDescriptorAllocator.Allocate(device, layouts);
 
@@ -1793,16 +1851,15 @@ void VkRenderer::ComputeFrustum() {
 
     const auto view = camera->ViewMatrix();
     const auto proj = camera->ProjectionMatrix();
-    ComputePushConstants pushConstants {
-        glm::inverse(view * proj),
-        camera->Position(),
+    FrustumPushConstants pushConstants {
+        glm::inverse(proj),
         {swapChainExtent.width, swapChainExtent.height}
     };
 
     ImmediateSubmit([&](auto &cmd) {
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, frustumPipeline);
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, frustumPipelineLayout, 0, 1, &frustumDescriptorSet, 0, VK_NULL_HANDLE);
-        vkCmdPushConstants(cmd, frustumPipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ComputePushConstants), &pushConstants);
+        vkCmdPushConstants(cmd, frustumPipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(FrustumPushConstants), &pushConstants);
         vkCmdDispatch(cmd, 16, 9, 24);
     });
 }

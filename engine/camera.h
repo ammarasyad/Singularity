@@ -11,7 +11,7 @@ public:
 
 
     double pitch{0.};
-    double yaw{90.};
+    double yaw{180.};
 
     [[nodiscard]] glm::mat4 ViewMatrix() const;
     [[nodiscard]] glm::vec3 Position() const { return position; }

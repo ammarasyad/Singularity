@@ -1,12 +1,11 @@
 #version 460
 #extension GL_GOOGLE_include_directive : require
-#extension GL_EXT_debug_printf : enable
 #extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
 #extension GL_EXT_shader_16bit_storage : require
 
 #include "tiled_shading.glsl"
 
-layout(local_size_x = 128, local_size_y = 1, local_size_z = 1) in;
+layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
 
 layout(set = 0, binding = 0) buffer readonly lightUniform {
     uint lightCount;
@@ -19,15 +18,8 @@ layout(std430, set = 0, binding = 1) buffer visibleLightBuffer {
 
 layout(set = 0, binding = 2) uniform sampler2D depthSampler;
 
-//layout(set = 0, binding = 3) buffer readonly frustumBuffer {
-//    ViewFrustum frustum;
-//};
-
-// TODO: Reduce this to below 128 bytes for maximum compatibility
 layout(push_constant) uniform PushConstants {
-    mat4 viewProjection;
-    vec3 cameraPosition;
-    ivec2 viewportSize;
+    mat4 viewMatrix;
 } pushConstants;
 
 bool SphereAABBIntersection(f16vec3 sphereCenter, float16_t sphereRadius, f16vec3 aabbMin, f16vec3 aabbMax) {
@@ -39,15 +31,17 @@ bool SphereAABBIntersection(f16vec3 sphereCenter, float16_t sphereRadius, f16vec
 void main() {
     uint lightCount = visibleLightIndices.length();
 //    uint tileIndex = gl_WorkGroupID.x * 128 + gl_LocalInvocationID.x;
-    uint tileIndex = gl_LocalInvocationIndex + gl_WorkGroupSize.x * gl_WorkGroupSize.y * gl_WorkGroupSize.z * gl_WorkGroupID.x;
+    uint tileIndex = gl_GlobalInvocationID.x + gl_GlobalInvocationID.y * gl_NumWorkGroups.x + gl_GlobalInvocationID.z * gl_NumWorkGroups.x * gl_NumWorkGroups.y;
 
     visibleLightIndices[tileIndex].count = 0;
 
     for (uint i = 0; i < lightCount; i++) {
-        f16vec3 center = f16vec3(pushConstants.viewProjection * f16vec4(lights[i].position.xyz, 1.0));
+        f16vec3 center = f16vec3(pushConstants.viewMatrix * f16vec4(lights[i].position.xyz, 1.0));
         float16_t radius = lights[i].position.w;
+        f16vec3 minPoint = f16vec3(visibleLightIndices[tileIndex].minPoint.xyz);
+        f16vec3 maxPoint = f16vec3(visibleLightIndices[tileIndex].maxPoint.xyz);
 
-        if (SphereAABBIntersection(center, radius, f16vec3(visibleLightIndices[tileIndex].minPoint.xyz), f16vec3(visibleLightIndices[tileIndex].maxPoint.xyz)) && visibleLightIndices[tileIndex].count < MAX_LIGHTS) {
+        if (SphereAABBIntersection(center, radius, minPoint, maxPoint) && visibleLightIndices[tileIndex].count < MAX_LIGHTS) {
             visibleLightIndices[tileIndex].indices[visibleLightIndices[tileIndex].count++] = i;
         }
     }

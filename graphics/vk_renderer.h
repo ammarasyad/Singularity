@@ -58,14 +58,14 @@ struct Light {
     alignas(8) struct {
         hvec4 position;
         hvec4 color;
-    } lights[128];
+    } lights[1024];
 };
 
-struct LightVisibility {
+struct alignas(16) LightVisibility {
     glm::vec4 minPoint;
     glm::vec4 maxPoint;
     uint32_t visibleLightCount;
-    uint32_t indices[128];
+    uint32_t indices[1024];
 };
 
 struct ViewFrustum {
@@ -76,9 +76,11 @@ struct ViewFrustum {
 //};
 
 struct ComputePushConstants {
-//    glm::mat4 view;
-    alignas(16) glm::mat4 viewProjection;
-    alignas(16) glm::vec3 cameraPosition;
+    alignas(16) glm::mat4 viewMatrix;
+};
+
+struct FrustumPushConstants {
+    alignas(16) glm::mat4 viewMatrix;
     alignas(16) glm::ivec2 viewportSize;
 };
 
@@ -336,9 +338,12 @@ private:
     VkDescriptorSetLayout frustumDescriptorSetLayout{};
 
     VkSemaphore computeFinishedSemaphore{};
+    VkFence computeFinishedFence{};
+    VkCommandBuffer computeCommandBuffer{};
 
     std::array<FrameData, MAX_FRAMES_IN_FLIGHT> frames;
     VkCommandPool immediateCommandPool{};
+    VkCommandPool computeCommandPool{};
 
     std::vector<VkFramebuffer> swapChainFramebuffers{};
     std::vector<VkImage> swapChainImages{};
@@ -355,7 +360,6 @@ private:
 
     VulkanBuffer lightUniformBuffer{};
     VulkanBuffer visibleLightBuffer{};
-//    VulkanBuffer frustumBuffer{};
 
     VkSampler textureSamplerLinear{};
     VkSampler textureSamplerNearest{};
@@ -368,8 +372,7 @@ private:
 
     std::unique_ptr<VkMemoryManager> memoryManager;
 
-    Light totalLights{};
-    LightVisibility lightVisibility{};
+    std::unique_ptr<Light> totalLights;
 
     void CreateDepthImage();
 

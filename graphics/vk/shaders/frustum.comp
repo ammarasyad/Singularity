@@ -12,7 +12,6 @@ layout(std430, set = 0, binding = 0) buffer writeonly frustumBuffer {
 
 layout(push_constant) uniform PushConstants {
     mat4 inverseVp;
-    vec3 cameraPosition;
     ivec2 viewportSize;
 } pushConstants;
 
@@ -32,7 +31,7 @@ f16vec3 LineIntersectionWithZPlane(f16vec3 lineStart, f16vec3 lineEnd, float16_t
 }
 
 void main() {
-    uint tileIndex = gl_WorkGroupID.x + (gl_WorkGroupID.y * gl_NumWorkGroups.x) + (gl_WorkGroupID.z * gl_NumWorkGroups.x * gl_NumWorkGroups.y);
+    uint tileIndex = gl_GlobalInvocationID.x + gl_GlobalInvocationID.y * gl_NumWorkGroups.x + gl_GlobalInvocationID.z * gl_NumWorkGroups.x * gl_NumWorkGroups.y;
     vec2 tileSize = vec2(pushConstants.viewportSize) / vec2(gl_NumWorkGroups.x, gl_NumWorkGroups.y);
 
     f16vec3 minTile = ScreenSpaceToViewSpace(vec2(gl_WorkGroupID.xy) * tileSize);
