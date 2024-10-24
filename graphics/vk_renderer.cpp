@@ -1838,7 +1838,8 @@ void VkRenderer::ComputeFrustum() {
 
 void VkRenderer::CreateSkybox() {
     ktxTexture *skyboxTexture;
-    assert(ktxTexture_CreateFromNamedFile("../assets/cubemap_vulkan.ktx", KTX_TEXTURE_CREATE_LOAD_IMAGE_DATA_BIT, &skyboxTexture) == KTX_SUCCESS);
+    auto result = ktxTexture_CreateFromNamedFile("../assets/cubemap_vulkan.ktx", KTX_TEXTURE_CREATE_LOAD_IMAGE_DATA_BIT, &skyboxTexture);
+    assert(result == KTX_SUCCESS);
 
     skyboxImage = memoryManager->createKtxCubemap(skyboxTexture, this, VK_FORMAT_R8G8B8A8_UNORM);
 

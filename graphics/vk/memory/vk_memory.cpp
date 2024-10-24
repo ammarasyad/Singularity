@@ -401,7 +401,8 @@ VulkanImage VkMemoryManager::createKtxCubemap(ktxTexture *texture, VkRenderer *r
             for (uint32_t face = 0; face < 6; face++) {
                 for (uint32_t level = 0; level < mipLevels; level++) {
                     ktx_size_t offset;
-                    assert(ktxTexture_GetImageOffset(texture, level, 0, face, &offset) == KTX_SUCCESS);
+                    auto result = ktxTexture_GetImageOffset(texture, level, 0, face, &offset);
+                    assert(result == KTX_SUCCESS);
                     copyRegions.push_back({
                         offset,
                         0,

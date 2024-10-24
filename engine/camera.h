@@ -36,9 +36,9 @@ private:
     glm::mat4 projectionMatrix;
     glm::vec3 position;
     glm::vec3 worldUp;
-    glm::vec3 front;
-    glm::vec3 right;
-    glm::vec3 up;
+    glm::vec3 front{};
+    glm::vec3 right{};
+    glm::vec3 up{};
 
     float fov{90.f};
     float aspectRatio{16.f / 9.f};

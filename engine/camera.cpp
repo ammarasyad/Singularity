@@ -2,11 +2,11 @@
 #include "ext/matrix_clip_space.hpp"
 #include <ext/matrix_transform.hpp>
 
-Camera::Camera() : position(-5, 0, 0), worldUp(0, 1, 0), front(0, 0, -1), right(1, 0, 0), up(0, 1, 0) {
+Camera::Camera() : position(-5, 0, 0), worldUp(0, 1, 0) {
     UpdateVectors();
 }
 
-Camera::Camera(const float posX, const float posY, const float posZ) : position(posX, posY, posZ), worldUp(0, 1, 0),front(0.f, 0.f, -1.0f), right(1, 0, 0), up(0, 1, 0) {
+Camera::Camera(const float posX, const float posY, const float posZ) : position(posX, posY, posZ), worldUp(0, 1, 0) {
     UpdateVectors();
 }
 

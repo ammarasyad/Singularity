@@ -371,9 +371,9 @@ private:
 
     std::unique_ptr<Light> totalLights;
 
-    void CreateDepthImage();
+    inline void CreateDepthImage();
 
-    void UpdateDepthComputeDescriptorSets();
+    inline void UpdateDepthComputeDescriptorSets();
 };
 
 

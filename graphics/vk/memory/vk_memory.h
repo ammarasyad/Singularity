@@ -56,11 +56,11 @@ public:
 
     VulkanBuffer createManagedBuffer(const VulkanBufferCreateInfo &info);
 
-    inline VulkanImage createManagedImage(const VulkanImageCreateInfo &info);
+    VulkanImage createManagedImage(const VulkanImageCreateInfo &info);
 
     VulkanBuffer createUnmanagedBuffer(const VulkanBufferCreateInfo &info) const;
 
-    inline VulkanImage createUnmanagedImage(const VulkanImageCreateInfo &info) const;
+    VulkanImage createUnmanagedImage(const VulkanImageCreateInfo &info) const;
 
     // All textures are tracked.
     VulkanImage createTexture(VkExtent3D size, VkFormat format, VkImageUsageFlags usage, bool mipmapped = false);
