@@ -39,10 +39,10 @@ void Camera::ProcessKeyboardInput(const int key, const int action, const float d
             position += right /** 0.1f * deltaTime*/;
 
         if (key == GLFW_KEY_SPACE)
-            position += up /** 0.1f * deltaTime*/;
+            position += worldUp /** 0.1f * deltaTime*/;
 
         if (key == GLFW_KEY_LEFT_CONTROL)
-            position -= up /** 0.1f * deltaTime*/;
+            position -= worldUp /** 0.1f * deltaTime*/;
 
         if (key == GLFW_KEY_RIGHT) {
             yaw += 15.0f;
@@ -60,11 +60,15 @@ void Camera::ProcessKeyboardInput(const int key, const int action, const float d
 
         if (key == GLFW_KEY_UP) {
             pitch += 15.0f;
+            if (pitch > 90.0f)
+                pitch = 90.0f;
             UpdateVectors();
         }
 
         if (key == GLFW_KEY_DOWN) {
             pitch -= 15.0f;
+            if (pitch < -90.0f)
+                pitch = -90.0f;
             UpdateVectors();
         }
     }
