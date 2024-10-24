@@ -71,9 +71,9 @@ public:
 
     void unmapBuffer(const VulkanBuffer &buffer);
 
-    void destroyBuffer(const VulkanBuffer &buffer);
+    void destroyBuffer(const VulkanBuffer &buffer, const bool tracked = true);
 
-    void destroyImage(const VulkanImage &vkImage);
+    void destroyImage(const VulkanImage &vkImage, const bool tracked = true);
 
     [[nodiscard]] VmaAllocator getAllocator() const {
         return allocator;

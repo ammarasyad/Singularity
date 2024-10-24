@@ -26,7 +26,7 @@ namespace ImGui {
 VkGui::VkGui(const int width, const int height, const bool dynamicRendering, const bool asyncCompute) : imguiDescriptorPool(VK_NULL_HANDLE) {
     // GLFW initialization
     glfwSetErrorCallback(errorCallback);
-    if (!glfwInit())
+    if (!glfwInit()) [[unlikely]]
         throw std::runtime_error("Failed to initialize GLFW");
 
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);

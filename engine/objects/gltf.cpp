@@ -98,13 +98,9 @@ inline VkSamplerMipmapMode extractMipmapMode(const fastgltf::Filter filter) {
     }
 }
 
-//#pragma GCC push_options
-//#pragma GCC optimize("O0")
 std::optional<LoadedGLTF> LoadGLTF(VkRenderer *renderer, const std::filesystem::path &path) {
     LoadedGLTF scene{};
     scene.renderer = renderer;
-
-//    LoadedGLTF &file = *scene;
 
     fastgltf::Parser parser{};
 
@@ -154,7 +150,6 @@ std::optional<LoadedGLTF> LoadGLTF(VkRenderer *renderer, const std::filesystem::
         scene.samplers.push_back(newSampler);
     }
 
-//    std::vector<std::shared_ptr<MeshAsset>> meshes;
     std::vector<MeshAsset> meshes;
     meshes.reserve(gltf.meshes.size());
     std::vector<std::shared_ptr<Node>> nodes;
@@ -232,7 +227,6 @@ std::optional<LoadedGLTF> LoadGLTF(VkRenderer *renderer, const std::filesystem::
     std::vector<VkVertex> vertices;
 
     for (auto &[primitives, weights, name] : gltf.meshes) {
-//        auto meshAsset = std::make_shared<MeshAsset>();
         MeshAsset meshAsset{};
         meshAsset.name = name;
 
@@ -308,7 +302,7 @@ std::optional<LoadedGLTF> LoadGLTF(VkRenderer *renderer, const std::filesystem::
 
             glm::vec3 minPos = vertices[initialVerticesSize].pos;
             glm::vec3 maxPos = vertices[initialVerticesSize].pos;
-            for (int i = initialVerticesSize; i < vertices.size(); i++) {
+            for (int i = static_cast<int>(initialVerticesSize); i < vertices.size(); i++) {
                 minPos = glm::min(minPos, vertices[i].pos);
                 maxPos = glm::max(maxPos, vertices[i].pos);
             }
@@ -376,7 +370,6 @@ std::optional<LoadedGLTF> LoadGLTF(VkRenderer *renderer, const std::filesystem::
 
     return scene;
 }
-//#pragma GCC pop_options
 
 void LoadedGLTF::Draw(const glm::mat4 &topMatrix, VkDrawContext &ctx) {
     for (auto &node : rootNodes) {

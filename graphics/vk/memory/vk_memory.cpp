@@ -161,7 +161,7 @@ VulkanBuffer VkMemoryManager::createUnmanagedBuffer(const VulkanBufferCreateInfo
 }
 
 VulkanImage VkMemoryManager::createUnmanagedImage(const VulkanImageCreateInfo &info) const {
-    auto [createFlags, imageFormat, imageExtent, imageTiling, imageUsage, imageLayout, allocationFlags, allocationUsage, requiredFlags, mipmapped, imageViewCreateInfo] = info;
+    auto &[createFlags, imageFormat, imageExtent, imageTiling, imageUsage, imageLayout, allocationFlags, allocationUsage, requiredFlags, mipmapped, imageViewCreateInfo] = info;
 
     VkImage image;
     VmaAllocation allocation{};
@@ -467,13 +467,14 @@ void VkMemoryManager::unmapBuffer(const VulkanBuffer &buffer) {
     vmaUnmapMemory(allocator, buffer.allocation);
 }
 
-void VkMemoryManager::destroyBuffer(const VulkanBuffer &buffer) {
+void VkMemoryManager::destroyBuffer(const VulkanBuffer &buffer, const bool tracked) {
     vmaDestroyBuffer(allocator, buffer.buffer, buffer.allocation);
 
-    trackedBuffers.erase(buffer);
+    if (tracked)
+        trackedBuffers.erase(buffer);
 }
 
-void VkMemoryManager::destroyImage(const VulkanImage &image) {
+void VkMemoryManager::destroyImage(const VulkanImage &image, const bool tracked) {
     vmaDestroyImage(allocator, image.image, image.allocation);
     if (image.imageView)
         vkDestroyImageView(device, image.imageView, nullptr);
@@ -481,5 +482,6 @@ void VkMemoryManager::destroyImage(const VulkanImage &image) {
     if (image.sampler)
         vkDestroySampler(device, image.sampler, nullptr);
 
-    trackedImages.erase(image);
+    if (tracked)
+        trackedImages.erase(image);
 }

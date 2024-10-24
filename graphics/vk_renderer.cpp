@@ -120,12 +120,12 @@ void VkRenderer::FramebufferNeedsResizing() {
 }
 
 void VkRenderer::InitializeInstance() {
-    VkApplicationInfo appInfo{
+    constexpr VkApplicationInfo appInfo{
         VK_STRUCTURE_TYPE_APPLICATION_INFO,
         VK_NULL_HANDLE,
-        "D3D12 Stuff",
+        "Vulkan Stuff",
         VK_MAKE_VERSION(1, 0, 0),
-        "D3D12 Stuff",
+        "Vulkan Stuff",
         VK_MAKE_VERSION(1, 0, 0),
         VK_API_VERSION_1_3
     };
@@ -151,7 +151,7 @@ void VkRenderer::InitializeInstance() {
         }
     }
 
-    if (!layerFound) {
+    if (!layerFound) [[unlikely]] {
         throw std::runtime_error("validation layers requested, but not available!");
     }
 
@@ -183,7 +183,7 @@ void VkRenderer::InitializeInstance() {
     glfwCreateWindowSurface(instance, glfwWindow, nullptr, &surface);
 }
 
-int lightSceneTime = 0.f;
+int lightSceneTime = 0;
 
 void VkRenderer::Render(EngineStats &stats) {
     stats.drawCallCount = 0;
@@ -376,16 +376,11 @@ void VkRenderer::DrawObject(const VkCommandBuffer &commandBuffer, const VkRender
 }
 
 void VkRenderer::DrawDepthPrepass(const std::vector<size_t> &drawIndices) {
-    VkCommandBufferBeginInfo beginInfo{
-        VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-        VK_NULL_HANDLE,
-        0,
-        VK_NULL_HANDLE
-    };
+    static constexpr VkCommandBufferBeginInfo beginInfo{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
 
     VK_CHECK(vkBeginCommandBuffer(depthPrepassCommandBuffer, &beginInfo));
 
-    VkClearValue depthPrepassClearValue{
+    static constexpr VkClearValue depthPrepassClearValue{
         .depthStencil = {1.0f, 0}
     };
 
@@ -479,7 +474,7 @@ void VkRenderer::Draw(const VkCommandBuffer &commandBuffer, uint32_t imageIndex,
     auto buffer = memoryManager->createUnmanagedBuffer({sizeof(SceneData), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
                                                         VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
                                                         VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT});
-    frames[currentFrame].frameCallbacks.emplace_back([&, buffer] { memoryManager->destroyBuffer(buffer); });
+    frames[currentFrame].frameCallbacks.emplace_back([&, buffer] { memoryManager->destroyBuffer(buffer, false); });
 
     SceneData *data;
     memoryManager->mapBuffer(buffer, reinterpret_cast<void **>(&data));
@@ -498,12 +493,7 @@ void VkRenderer::Draw(const VkCommandBuffer &commandBuffer, uint32_t imageIndex,
 
     DrawDepthPrepass(drawIndices);
 
-    VkCommandBufferBeginInfo beginInfo{
-        VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-        VK_NULL_HANDLE,
-        0,
-        VK_NULL_HANDLE
-    };
+    static constexpr VkCommandBufferBeginInfo beginInfo{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
 
     VK_CHECK(vkBeginCommandBuffer(commandBuffer, &beginInfo));
 
@@ -543,9 +533,12 @@ void VkRenderer::Draw(const VkCommandBuffer &commandBuffer, uint32_t imageIndex,
 
         vkCmdBeginRendering(commandBuffer, &renderingInfo);
     } else {
-        std::array<VkClearValue, 2> clearValues{};
-        clearValues[0].color = {0.0f, 0.0f, 0.0f, 1.0f};
-        clearValues[1].depthStencil = {1.0f, 0};
+        static constexpr std::array<VkClearValue, 2> clearValues{
+                {
+                        {.color = {0.0f, 0.0f, 0.0f, 1.0f}},
+                        {.depthStencil = {1.0f, 0}}
+                }
+        };
         VkRenderPassBeginInfo renderPassInfo{
             VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
             VK_NULL_HANDLE,
@@ -860,10 +853,7 @@ void VkRenderer::PickPhysicalDevice() {
         }
     }
 
-    VkPhysicalDeviceRayTracingPipelinePropertiesKHR raytracingProperties{
-        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_PROPERTIES_KHR,
-        VK_NULL_HANDLE
-    };
+    VkPhysicalDeviceRayTracingPipelinePropertiesKHR raytracingProperties{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_PROPERTIES_KHR};
 
     VkPhysicalDeviceProperties2 deviceProperties2{
         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2,
@@ -914,12 +904,6 @@ void VkRenderer::CreateLogicalDevice() {
         .synchronization2 = VK_TRUE,
         .dynamicRendering = VK_TRUE,
     };
-
-    // VkPhysicalDeviceHostQueryResetFeatures hostQueryResetFeatures{
-    //     VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_HOST_QUERY_RESET_FEATURES,
-    //     &vulkan13Features,
-    //     VK_TRUE
-    // };
 
     VkPhysicalDeviceFeatures2 deviceFeatures2{
         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
@@ -1007,12 +991,11 @@ void VkRenderer::CreateLogicalDevice() {
 
 void VkRenderer::CreatePipelineCache() {
     constexpr VkPipelineCacheCreateInfo pipelineCacheInfo{VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO};
-
     VK_CHECK(vkCreatePipelineCache(device, &pipelineCacheInfo, VK_NULL_HANDLE, &pipelineCache));
 }
 
 void VkRenderer::CreateSwapChain() {
-    auto [capabilities, formats, presentModes] = QuerySwapChainSupport(physicalDevice);
+    const auto &[capabilities, formats, presentModes] = QuerySwapChainSupport(physicalDevice);
 
     surfaceFormat = ChooseSwapSurfaceFormat(formats);
     presentMode = ChooseSwapPresentMode(presentModes);
@@ -1098,7 +1081,7 @@ void VkRenderer::CreateDepthImage() {
         TransitionImage(cmd, depthImage, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_NONE, VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT, VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
     });
 
-    VkSamplerCreateInfo samplerInfo{
+    static constexpr VkSamplerCreateInfo samplerInfo{
             VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
             VK_NULL_HANDLE,
             0,
@@ -1147,12 +1130,12 @@ void VkRenderer::CreateRenderPass() {
         VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
     };
 
-    VkAttachmentReference colorAttachmentRef{
+    static constexpr VkAttachmentReference colorAttachmentRef{
         0,
         VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
     };
 
-    VkAttachmentReference mainDepthAttachmentRef{
+    static constexpr VkAttachmentReference mainDepthAttachmentRef{
         1,
         VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL
     };
@@ -1170,7 +1153,7 @@ void VkRenderer::CreateRenderPass() {
         VK_NULL_HANDLE
     };
 
-    VkSubpassDependency computeDependency{
+    static constexpr VkSubpassDependency computeDependency{
         VK_SUBPASS_EXTERNAL,
         0,
         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
@@ -1179,7 +1162,7 @@ void VkRenderer::CreateRenderPass() {
         VK_ACCESS_SHADER_READ_BIT
     };
 
-    VkSubpassDependency mainDepthPrepassDependency{
+    static constexpr VkSubpassDependency mainDepthPrepassDependency{
             VK_SUBPASS_EXTERNAL,
             0,
             VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT,
@@ -1216,7 +1199,7 @@ void VkRenderer::CreateRenderPass() {
             VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL
     };
 
-    VkAttachmentReference depthAttachmentRef{
+    static constexpr VkAttachmentReference depthAttachmentRef{
             0,
             VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
     };
@@ -1234,7 +1217,7 @@ void VkRenderer::CreateRenderPass() {
         VK_NULL_HANDLE
     };
 
-    VkSubpassDependency depthPrepassDependency{
+    static constexpr VkSubpassDependency depthPrepassDependency{
         VK_SUBPASS_EXTERNAL,
         0,
         VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT,
@@ -1243,7 +1226,7 @@ void VkRenderer::CreateRenderPass() {
         VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT
     };
 
-    VkSubpassDependency depthPrepassPostDependency{
+    static constexpr VkSubpassDependency depthPrepassPostDependency{
             0,
             VK_SUBPASS_EXTERNAL,
             VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
@@ -1269,25 +1252,25 @@ void VkRenderer::CreateRenderPass() {
 }
 
 void VkRenderer::CreatePipelineLayout() {
-    VkPushConstantRange mainPushConstantRange{
+    static constexpr VkPushConstantRange mainPushConstantRange{
         VK_SHADER_STAGE_VERTEX_BIT,
         0,
         sizeof(MeshPushConstants)
     };
 
-    VkPushConstantRange computePushConstantRange{
+    static constexpr VkPushConstantRange computePushConstantRange{
         VK_SHADER_STAGE_COMPUTE_BIT,
         0,
         sizeof(ComputePushConstants)
     };
 
-    VkPushConstantRange frustumPushConstantRange{
+    static constexpr VkPushConstantRange frustumPushConstantRange{
         VK_SHADER_STAGE_COMPUTE_BIT,
         0,
         sizeof(FrustumPushConstants)
     };
 
-    VkPushConstantRange skyboxPushConstantRange{
+    static constexpr VkPushConstantRange skyboxPushConstantRange{
         VK_SHADER_STAGE_VERTEX_BIT,
         0,
         sizeof(glm::vec4) * 3
@@ -1386,8 +1369,6 @@ void VkRenderer::CreateComputePipeline() {
 
     vkDestroyShaderModule(device, computeShaderModule, VK_NULL_HANDLE);
 
-//    VkShaderModule frustumShaderModule;
-
     auto frustumShaderCode = ReadFile<uint32_t>("shaders/frustum.comp.spv");
 
     computeShaderModuleCreateInfo.codeSize = frustumShaderCode.size();
@@ -1484,8 +1465,7 @@ void VkRenderer::CreateDefaultTexture() {
     // const uint32_t purple = packUnorm4x8(glm::vec4{1, 0, 1, 1});
 
     constexpr uint32_t textureSize = 16;
-    std::array<uint32_t, textureSize * textureSize> pixels{};
-    std::fill_n(pixels.begin(), pixels.size(), UINT32_MAX);
+    std::array<uint32_t, textureSize * textureSize> pixels{UINT32_MAX};
     // for (size_t i = 0; i < textureSize * textureSize; i++) {
     //     pixels[i] = (i / textureSize + i % textureSize) % 2 == 0 ? 0 : purple;
     // }
@@ -1506,13 +1486,9 @@ void VkRenderer::CreateDefaultTexture() {
 }
 
 void VkRenderer::CreateSyncObjects() {
-    VkSemaphoreCreateInfo semaphoreInfo{
-        VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
-        VK_NULL_HANDLE,
-        0
-    };
+    constexpr VkSemaphoreCreateInfo semaphoreInfo{VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
 
-    VkFenceCreateInfo fenceInfo{
+    constexpr VkFenceCreateInfo fenceInfo{
         VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
         VK_NULL_HANDLE,
         VK_FENCE_CREATE_SIGNALED_BIT
@@ -1557,7 +1533,6 @@ void VkRenderer::CreateDescriptors() {
     builder.AddBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT);
     builder.AddBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT);
     builder.AddBinding(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT);
-//    builder.AddBinding(3, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT);
     lightDescriptorSetLayout = builder.Build(device);
 
     builder.Clear();
@@ -1596,10 +1571,6 @@ void VkRenderer::CreateDescriptors() {
 }
 
 void VkRenderer::FindQueueFamilies(const VkPhysicalDevice &gpu) {
-    if (queueFamilyIndices.IsComplete()) {
-        return;
-    }
-
     uint32_t queueFamilyCount = 0;
     vkGetPhysicalDeviceQueueFamilyProperties(gpu, &queueFamilyCount, VK_NULL_HANDLE);
 
@@ -1711,7 +1682,7 @@ void VkRenderer::CleanupSwapChain() {
         vkDestroyImageView(device, imageView, nullptr);
     }
 
-    memoryManager->destroyImage(depthImage);
+    memoryManager->destroyImage(depthImage, false);
 
     vkDestroySwapchainKHR(device, swapChain, nullptr);
 }
@@ -1852,10 +1823,8 @@ void VkRenderer::ComputeFrustum() {
     writer.WriteBuffer(0, visibleLightBuffer.buffer, 0, sizeof(LightVisibility) * 3456, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
     writer.UpdateSet(device, frustumDescriptorSet);
 
-    const auto view = camera->ViewMatrix();
-    const auto proj = camera->ProjectionMatrix();
     FrustumPushConstants pushConstants {
-        glm::inverse(proj),
+        glm::inverse(camera->ProjectionMatrix()),
         {swapChainExtent.width, swapChainExtent.height}
     };
 
