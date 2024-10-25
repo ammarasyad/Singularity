@@ -58,22 +58,15 @@ struct Light {
     alignas(8) struct {
         hvec4 position;
         hvec4 color;
-    } lights[1024];
+    } lights[128];
 };
 
 struct alignas(16) LightVisibility {
-    glm::vec4 minPoint;
-    glm::vec4 maxPoint;
+    hvec4 minPoint;
+    hvec4 maxPoint;
     uint32_t visibleLightCount;
-    uint32_t indices[1024];
+    uint32_t indices[128];
 };
-
-struct ViewFrustum {
-    glm::vec4 planes[4];
-};
-
-//struct FragmentPushConstants {
-//};
 
 struct ComputePushConstants {
     alignas(16) glm::mat4 viewMatrix;

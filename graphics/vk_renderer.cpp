@@ -161,10 +161,10 @@ void VkRenderer::InitializeInstance() {
     extensions.push_back(VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME);
 
 #ifndef NDEBUG
-    auto validationSize = static_cast<uint32_t>(validationLayers.size());
+    const uint32_t validationSize = static_cast<uint32_t>(validationLayers.size());
     auto validationData = validationLayers.data();
 #else
-    auto validationSize = 0;
+    const uint32_t validationSize = 0;
     auto validationData = VK_NULL_HANDLE;
 #endif
 
@@ -225,11 +225,10 @@ void VkRenderer::Render(EngineStats &stats) {
     if (asyncCompute) {
         vkResetCommandBuffer(computeCommandBuffer, VK_COMMAND_BUFFER_RESET_RELEASE_RESOURCES_BIT);
 
-        const VkCommandBufferBeginInfo beginInfo{
+        constexpr VkCommandBufferBeginInfo beginInfo{
             VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
             VK_NULL_HANDLE,
-            VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
-            VK_NULL_HANDLE
+            VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT
         };
 
         VK_CHECK(vkBeginCommandBuffer(computeCommandBuffer, &beginInfo));
@@ -242,7 +241,7 @@ void VkRenderer::Render(EngineStats &stats) {
         };
 
         vkCmdPushConstants(computeCommandBuffer, computePipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pushConstants),&pushConstants);
-        vkCmdDispatch(computeCommandBuffer, 16, 9, 24);
+        vkCmdDispatch(computeCommandBuffer, 16, 9, 1); // TODO: Find the right work group size and local size
 
         VK_CHECK(vkEndCommandBuffer(computeCommandBuffer));
 
@@ -268,10 +267,6 @@ void VkRenderer::Render(EngineStats &stats) {
     const auto end = std::chrono::high_resolution_clock::now();
     const auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
     stats.meshDrawTime = static_cast<float>(elapsed) / 1000.f;
-
-//    if (asyncCompute) {
-//        AsyncComputeDispatch(frames[currentFrame].commandBuffer, imageIndex);
-//    }
 
     VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT};
     std::array waitSemaphores = {frames[currentFrame].imageAvailableSemaphore, depthPrepassSemaphore, computeFinishedSemaphore};
@@ -474,12 +469,14 @@ void VkRenderer::Draw(const VkCommandBuffer &commandBuffer, uint32_t imageIndex,
     auto buffer = memoryManager->createUnmanagedBuffer({sizeof(SceneData), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
                                                         VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
                                                         VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT});
-    frames[currentFrame].frameCallbacks.emplace_back([&, buffer] { memoryManager->destroyBuffer(buffer, false); });
+    frames[currentFrame].frameCallbacks.emplace_back([&, buffer] {
+        memoryManager->unmapBuffer(buffer);
+        memoryManager->destroyBuffer(buffer, false);
+    });
 
     SceneData *data;
     memoryManager->mapBuffer(buffer, reinterpret_cast<void **>(&data));
     memcpy(data, &sceneData, sizeof(SceneData));
-    memoryManager->unmapBuffer(buffer);
 
     static std::array layouts = {sceneDescriptorSetLayout};
     auto sceneDescriptorSet = frames[currentFrame].frameDescriptors.Allocate(device, layouts);
@@ -888,7 +885,7 @@ void VkRenderer::CreateLogicalDevice() {
     VkPhysicalDeviceVulkan11Features vulkan11Features{
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES,
         .storageBuffer16BitAccess = VK_TRUE,
-        .uniformAndStorageBuffer16BitAccess = VK_TRUE,
+        .uniformAndStorageBuffer16BitAccess = VK_TRUE
     };
 
     VkPhysicalDeviceVulkan12Features vulkan12Features{
@@ -1027,9 +1024,9 @@ void VkRenderer::CreateSwapChain() {
         VK_NULL_HANDLE
     };
 
-    const uint32_t qfi[] = {queueFamilyIndices.graphicsFamily.value(), queueFamilyIndices.presentFamily.value()};
-
     if (queueFamilyIndices.graphicsFamily != queueFamilyIndices.presentFamily) {
+        const uint32_t qfi[] = {queueFamilyIndices.graphicsFamily.value(), queueFamilyIndices.presentFamily.value()};
+
         createInfo.imageSharingMode = VK_SHARING_MODE_CONCURRENT;
         createInfo.queueFamilyIndexCount = 2;
         createInfo.pQueueFamilyIndices = qfi;
@@ -1604,6 +1601,12 @@ void VkRenderer::FindQueueFamilies(const VkPhysicalDevice &gpu) {
 
         i++;
     }
+
+    if (!queueFamilyIndices.computeFamily.has_value()) {
+        std::cout << "Compute queue family not found, using graphics queue family" << std::endl;
+        queueFamilyIndices.computeFamily = queueFamilyIndices.graphicsFamily;
+        asyncCompute = false;
+    }
 }
 
 VkRenderer::SwapChainSupportDetails VkRenderer::QuerySwapChainSupport(const VkPhysicalDevice &gpu) const {
@@ -1643,7 +1646,7 @@ VkSurfaceFormatKHR VkRenderer::ChooseSwapSurfaceFormat(const std::vector<VkSurfa
 
 VkPresentModeKHR VkRenderer::ChooseSwapPresentMode(const std::vector<VkPresentModeKHR> &availablePresentModes) {
     for (const auto &availablePresentMode: availablePresentModes) {
-        if (availablePresentMode == VK_PRESENT_MODE_MAILBOX_KHR) {
+        if (availablePresentMode == VK_PRESENT_MODE_IMMEDIATE_KHR) {
             return availablePresentMode;
         }
     }

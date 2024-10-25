@@ -1,5 +1,4 @@
 #include "vk_gui.h"
-#include "camera.h"
 
 #include <chrono>
 #include <backends/imgui_impl_glfw.h>
@@ -30,6 +29,7 @@ VkGui::VkGui(const int width, const int height, const bool dynamicRendering, con
         throw std::runtime_error("Failed to initialize GLFW");
 
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+    glfwWindowHint(GLFW_DECORATED, GLFW_FALSE);
 
     window = glfwCreateWindow(width, height, "Vulkan", nullptr, nullptr);
     if (!glfwVulkanSupported())
@@ -200,7 +200,7 @@ void VkGui::KeyboardCallback(GLFWwindow *window, int key, int scancode, int acti
 }
 
 void VkGui::CreateImGuiDescriptorPool() {
-    std::array<VkDescriptorPoolSize, 1> poolSizes{
+    static constexpr std::array<VkDescriptorPoolSize, 1> poolSizes{
         {
             VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1
         }};

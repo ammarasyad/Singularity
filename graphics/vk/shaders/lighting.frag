@@ -34,15 +34,15 @@ layout(push_constant) uniform PushConstants {
 layout(early_fragment_tests) in;
 
 void main() {
-//    uint zTile = uint((log(abs(gl_FragCoord.z) / 0.1f) * TILE_Z) / log(10000.f));
-    uvec3 tile = uvec3(gl_FragCoord.xy / (pushConstants.viewportSize / vec2(TILE_X, TILE_Y)), gl_FragCoord.z);
+    uint zTile = uint((log(abs(gl_FragCoord.z) / 0.1f) * TILE_Z) / log(10000.f));
+    uvec3 tile = uvec3(gl_FragCoord.xy / (pushConstants.viewportSize / vec2(TILE_X, TILE_Y)), zTile);
 //    uvec3 tile = uvec3(gl_FragCoord.xyz) / uvec3(pushConstants.viewportSize, 1) ;
     uint tileIndex = tile.x + tile.y * TILE_X + tile.z * TILE_X * TILE_Y;
     uint numLightsInTile = visibilities[tileIndex].count;
 
     f16vec3 diffuse = f16vec3(texture(colorTexture, fragUV).xyz);
     f16vec3 normal = f16vec3(normalize(fragNormal));
-    f16vec3 illumination = f16vec3(0.005f) * diffuse;
+    f16vec3 illumination = f16vec3(0.005hf) * diffuse;
 
     f16vec3 viewDir = f16vec3(normalize(pushConstants.cameraPosition - fragPos));
 
@@ -50,17 +50,14 @@ void main() {
         Light light = lights[visibilities[tileIndex].indices[i]];
 
         f16vec3 lightPosition = light.position.xyz;
-        f16vec3 lightColor = light.color.rgb;
-        float16_t lightIntensity = light.color.w;
+        f16vec4 lightColor = light.color;
 
-        f16vec3 lightDir = normalize(light.position.xyz - f16vec3(fragPos));
+        float16_t lightDist = distance(lightPosition, f16vec3(fragPos));
+        f16vec3 lightDir = (lightPosition - f16vec3(fragPos)) / lightDist;
 
-        float16_t lambertian = max(dot(normal, lightDir), float16_t(0.0f));
-
-        float16_t lightDist = float16_t(distance(lightPosition, f16vec3(fragPos)));
-        float16_t spec = pow(max(dot(normal, normalize(lightDir + viewDir)), float16_t(0.0f)), float16_t(128.0f));
-        float16_t attenuation = float16_t(clamp(1.0f / (lightDist * lightDist), 0.0f, 1.0f));
-        illumination += (lambertian * diffuse + spec) * lightColor * lightIntensity * attenuation;
+        f16vec2 lambertianAttenuation = f16vec2(max(dot(normal, lightDir), 0.0hf), 1.0hf / dot(lightDist, lightDist));
+        float16_t spec = pow(max(dot(normal, normalize(lightDir + viewDir)), 0.0hf), 128.0hf);
+        illumination += (lambertianAttenuation.x * diffuse + spec) * lightColor.xyz * lightColor.w * lambertianAttenuation.y;
     }
 
     outColor = vec4(illumination, 1.0f);

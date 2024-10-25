@@ -11,6 +11,8 @@
 #endif
 
 #include <windows.h>
+#include <fstream>
+#include <iostream>
 #include "graphics/d3d12_renderer.h"
 #include "graphics/vk_renderer.h"
 #include "graphics/vk/vk_gui.h"
@@ -34,6 +36,9 @@ static void RedirectIOOutput() {
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow) {
 #ifndef NDEBUG
     RedirectIOOutput();
+#else
+    std::ofstream logFile("log.txt");
+    std::cout.rdbuf(logFile.rdbuf());
 #endif
 
     switch (rendererType) {
@@ -42,11 +47,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow) {
             return renderer.InitWindow(hInstance, nCmdShow, "D3D12 Renderer");
         }
         case RendererType::VK: {
-            VkGui gui(1920, 1080, false);
+            VkGui gui(2560, 1440, false);
             gui.Loop();
             gui.Shutdown();
-            // VkRenderer renderer(1280, 720, false);
-            // renderer.InitWindow();
         }
     }
 

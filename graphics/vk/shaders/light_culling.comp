@@ -5,7 +5,11 @@
 
 #include "tiled_shading.glsl"
 
-layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+#define LOCAL_SIZE_X 4
+#define LOCAL_SIZE_Y 3
+#define LOCAL_SIZE_Z 4
+
+layout(local_size_x = LOCAL_SIZE_X, local_size_y = LOCAL_SIZE_Y, local_size_z = LOCAL_SIZE_Z) in;
 
 layout(set = 0, binding = 0) buffer readonly lightUniform {
     uint lightCount;
@@ -22,27 +26,31 @@ layout(push_constant) uniform PushConstants {
     mat4 viewMatrix;
 } pushConstants;
 
-bool SphereAABBIntersection(f16vec3 sphereCenter, float16_t sphereRadius, f16vec3 aabbMin, f16vec3 aabbMax) {
-    f16vec3 closestPointInAabb = clamp(sphereCenter, aabbMin, aabbMax);
-    f16vec3 distance = sphereCenter - closestPointInAabb;
-    return dot(distance, distance) <= sphereRadius * sphereRadius;
+bool SphereAABBIntersection(f16vec4 sphere, float16_t radius, f16vec3 aabbMin, f16vec3 aabbMax) {
+    f16vec3 closestPointInAabb = clamp(sphere.xyz, aabbMin, aabbMax);
+    f16vec3 distance = sphere.xyz - closestPointInAabb;
+    return dot(distance, distance) <= radius * radius;
 }
 
 void main() {
     uint lightCount = visibleLightIndices.length();
-//    uint tileIndex = gl_WorkGroupID.x * 128 + gl_LocalInvocationID.x;
-    uint tileIndex = gl_GlobalInvocationID.x + gl_GlobalInvocationID.y * gl_NumWorkGroups.x + gl_GlobalInvocationID.z * gl_NumWorkGroups.x * gl_NumWorkGroups.y;
+    uint tileIndex = (gl_WorkGroupID.z * LOCAL_SIZE_Z + gl_LocalInvocationID.z) * gl_NumWorkGroups.x * LOCAL_SIZE_X * gl_NumWorkGroups.y * LOCAL_SIZE_Y
+                   + (gl_WorkGroupID.y * LOCAL_SIZE_Y + gl_LocalInvocationID.y) * gl_NumWorkGroups.x * LOCAL_SIZE_X
+                   + (gl_WorkGroupID.x * LOCAL_SIZE_X + gl_LocalInvocationID.x);
 
     visibleLightIndices[tileIndex].count = 0;
 
     for (uint i = 0; i < lightCount; i++) {
-        f16vec3 center = f16vec3(pushConstants.viewMatrix * f16vec4(lights[i].position.xyz, 1.0));
-        float16_t radius = lights[i].position.w;
-        f16vec3 minPoint = f16vec3(visibleLightIndices[tileIndex].minPoint.xyz);
-        f16vec3 maxPoint = f16vec3(visibleLightIndices[tileIndex].maxPoint.xyz);
+        f16vec4 sphere = f16vec4(pushConstants.viewMatrix * f16vec4(lights[i].position.xyz, 1.0hf));
+        f16vec3 minPoint = visibleLightIndices[tileIndex].minPoint.xyz;
+        f16vec3 maxPoint = visibleLightIndices[tileIndex].maxPoint.xyz;
 
-        if (SphereAABBIntersection(center, radius, minPoint, maxPoint) && visibleLightIndices[tileIndex].count < MAX_LIGHTS) {
-            visibleLightIndices[tileIndex].indices[visibleLightIndices[tileIndex].count++] = i;
-        }
+        bool intersects = SphereAABBIntersection(sphere, lights[i].position.w, minPoint, maxPoint) && visibleLightIndices[tileIndex].count < MAX_LIGHTS;
+
+        visibleLightIndices[tileIndex].indices[visibleLightIndices[tileIndex].count] = (mix(visibleLightIndices[tileIndex].indices[visibleLightIndices[tileIndex].count], i, intersects));
+        visibleLightIndices[tileIndex].count += uint(intersects);
+//        if (SphereAABBIntersection(sphere, lights[i].position.w, minPoint, maxPoint) && visibleLightIndices[tileIndex].count < MAX_LIGHTS) {
+//            visibleLightIndices[tileIndex].indices[visibleLightIndices[tileIndex].count++] = i;
+//        }
     }
 }

@@ -13,7 +13,6 @@ set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 option(FASTGLTF_COMPILE_AS_CPP20 ON)
 option(COMPILE_AVX2 "Compile with AVX2" ON)
 
-set(libktx_DIR third_party/ktx/lib/cmake/ktx)
 set(libktx_INCLUDE_DIR third_party/ktx/include)
 
 add_subdirectory(third_party/glfw-3.4)
@@ -22,10 +21,10 @@ add_subdirectory(third_party/VulkanMemoryAllocator)
 
 find_package(Vulkan REQUIRED)
 
-find_package(libktx CONFIG REQUIRED CONFIGS KtxConfig.cmake)
+find_package(KTX CONFIG REQUIRED CONFIGS KtxConfig.cmake)
 include_directories(${libktx_INCLUDE_DIR})
-add_library(libktx SHARED IMPORTED GLOBAL)
-set_target_properties(libktx PROPERTIES IMPORTED_IMPLIB ${CMAKE_CURRENT_SOURCE_DIR}/third_party/ktx/lib/ktx.lib)
+add_library(KTX SHARED IMPORTED GLOBAL)
+set_target_properties(KTX PROPERTIES IMPORTED_IMPLIB ${CMAKE_CURRENT_SOURCE_DIR}/third_party/ktx/lib/ktx.lib)
 
 set(glm "third_party/glm")
 add_library(glm SHARED IMPORTED)
@@ -99,5 +98,5 @@ endif ()
 
 add_dependencies(Singularity shaders)
 target_include_directories(Singularity PRIVATE imgui third_party/glm third_party/fastgltf/include)
-target_link_options(Singularity PRIVATE -static-libstdc++)
-target_link_libraries(Singularity PRIVATE d3d12.lib dxgi.lib d3dcompiler.lib glfw fastgltf imgui D3D12MemoryAllocator Vulkan::Vulkan libktx GPUOpen::VulkanMemoryAllocator)
+target_link_options(Singularity PRIVATE -static)
+target_link_libraries(Singularity PRIVATE d3d12.lib dxgi.lib d3dcompiler.lib glfw fastgltf imgui D3D12MemoryAllocator Vulkan::Vulkan KTX::ktx GPUOpen::VulkanMemoryAllocator)
