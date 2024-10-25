@@ -1762,8 +1762,8 @@ void VkRenderer::CreateRandomLights() {
     std::uniform_real_distribution<float> disColor(0.f, 1.f);
 
     for (size_t i = 0; i < totalLights->lightCount; i++) {
-        totalLights->lights[i].position = {disXZ(gen), disY(gen), disXZ(gen), 50.f};
-        totalLights->lights[i].color = {disColor(gen), disColor(gen), disColor(gen), 0.3f};
+        totalLights->lights[i].position = {disXZ(gen), disY(gen), disXZ(gen), 5.f};
+        totalLights->lights[i].color = {disColor(gen), disColor(gen), disColor(gen), 1.f};
     }
 
     lightUniformBuffer = memoryManager->createManagedBuffer(
@@ -1845,6 +1845,7 @@ void VkRenderer::CreateSkybox() {
     ktxTexture *skyboxTexture;
     auto result = ktxTexture_CreateFromNamedFile("../assets/cubemap_vulkan.ktx", KTX_TEXTURE_CREATE_LOAD_IMAGE_DATA_BIT, &skyboxTexture);
     assert(result == KTX_SUCCESS);
+    std::cout << "Skybox texture load result: " << result << std::endl;
 
     skyboxImage = memoryManager->createKtxCubemap(skyboxTexture, this, VK_FORMAT_R8G8B8A8_UNORM);
 

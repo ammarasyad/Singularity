@@ -16,7 +16,7 @@ layout(set = 0, binding = 0) buffer readonly lightUniform {
     Light lights[];
 };
 
-layout(std430, set = 0, binding = 1) buffer visibleLightBuffer {
+layout(std430, set = 0, binding = 1) restrict buffer visibleLightBuffer {
     LightVisibility visibleLightIndices[];
 };
 
@@ -38,19 +38,20 @@ void main() {
                    + (gl_WorkGroupID.y * LOCAL_SIZE_Y + gl_LocalInvocationID.y) * gl_NumWorkGroups.x * LOCAL_SIZE_X
                    + (gl_WorkGroupID.x * LOCAL_SIZE_X + gl_LocalInvocationID.x);
 
-    visibleLightIndices[tileIndex].count = 0;
+    LightVisibility visibleLightIndex = visibleLightIndices[tileIndex];
+
+    visibleLightIndex.count = 0;
 
     for (uint i = 0; i < lightCount; i++) {
         f16vec4 sphere = f16vec4(pushConstants.viewMatrix * f16vec4(lights[i].position.xyz, 1.0hf));
-        f16vec3 minPoint = visibleLightIndices[tileIndex].minPoint.xyz;
-        f16vec3 maxPoint = visibleLightIndices[tileIndex].maxPoint.xyz;
+        f16vec3 minPoint = visibleLightIndex.minPoint.xyz;
+        f16vec3 maxPoint = visibleLightIndex.maxPoint.xyz;
 
-        bool intersects = SphereAABBIntersection(sphere, lights[i].position.w, minPoint, maxPoint) && visibleLightIndices[tileIndex].count < MAX_LIGHTS;
+        bool intersects = SphereAABBIntersection(sphere, lights[i].position.w, minPoint, maxPoint) && visibleLightIndex.count < MAX_LIGHTS;
 
-        visibleLightIndices[tileIndex].indices[visibleLightIndices[tileIndex].count] = (mix(visibleLightIndices[tileIndex].indices[visibleLightIndices[tileIndex].count], i, intersects));
-        visibleLightIndices[tileIndex].count += uint(intersects);
-//        if (SphereAABBIntersection(sphere, lights[i].position.w, minPoint, maxPoint) && visibleLightIndices[tileIndex].count < MAX_LIGHTS) {
-//            visibleLightIndices[tileIndex].indices[visibleLightIndices[tileIndex].count++] = i;
-//        }
+        visibleLightIndex.indices[visibleLightIndex.count] = (mix(visibleLightIndex.indices[visibleLightIndex.count], i, intersects));
+        visibleLightIndex.count += uint(intersects);
     }
+
+    visibleLightIndices[tileIndex] = visibleLightIndex;
 }
