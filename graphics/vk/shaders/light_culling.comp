@@ -43,11 +43,10 @@ void main() {
     visibleLightIndex.count = 0;
 
     for (uint i = 0; i < lightCount; i++) {
-        f16vec4 sphere = f16vec4(pushConstants.viewMatrix * f16vec4(lights[i].position.xyz, 1.0hf));
-        f16vec3 minPoint = visibleLightIndex.minPoint.xyz;
-        f16vec3 maxPoint = visibleLightIndex.maxPoint.xyz;
+        f16vec4 lightPosition = lights[i].position;
+        f16vec4 sphere = f16vec4(pushConstants.viewMatrix * f16vec4(lightPosition.xyz, 1.0hf));
 
-        bool intersects = SphereAABBIntersection(sphere, lights[i].position.w, minPoint, maxPoint) && visibleLightIndex.count < MAX_LIGHTS;
+        bool intersects = SphereAABBIntersection(sphere, lightPosition.w, visibleLightIndex.minPoint.xyz, visibleLightIndex.maxPoint.xyz) && visibleLightIndex.count < MAX_LIGHTS;
 
         visibleLightIndex.indices[visibleLightIndex.count] = (mix(visibleLightIndex.indices[visibleLightIndex.count], i, intersects));
         visibleLightIndex.count += uint(intersects);
