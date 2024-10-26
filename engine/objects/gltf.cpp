@@ -164,7 +164,6 @@ std::optional<LoadedGLTF> LoadGLTF(VkRenderer *renderer, const std::filesystem::
 
         if (img.has_value()) {
             images.push_back(img.value());
-            scene.images[image.name.c_str()] = img.value();
         } else {
             std::cout << "Failed to load image: " << image.name << std::endl;
             images.push_back(renderer->default_image());
@@ -183,7 +182,6 @@ std::optional<LoadedGLTF> LoadGLTF(VkRenderer *renderer, const std::filesystem::
 
     for (auto &material : gltf.materials) {
         GLTFMaterial newMaterial{};
-        scene.materials[material.name.c_str()] = newMaterial;
 
         VkGLTFMetallic_Roughness::MaterialConstants constants{};
         constants.colorFactors.x = material.pbrData.baseColorFactor[0];
@@ -315,21 +313,15 @@ std::optional<LoadedGLTF> LoadGLTF(VkRenderer *renderer, const std::filesystem::
         }
 
         meshAsset.mesh = renderer->CreateMesh(vertices, indices);
-        scene.meshes[name.c_str()] = meshAsset;
         meshes.push_back(std::move(meshAsset));
     }
 
     for (auto &node : gltf.nodes) {
-        std::shared_ptr<Node> newNode;
+        std::shared_ptr<Node> newNode = std::make_shared<Node>();
 
-        if (node.meshIndex.has_value()) {
-            newNode = std::make_shared<MeshNode>();
-            std::dynamic_pointer_cast<MeshNode>(newNode)->meshAsset = meshes[node.meshIndex.value()];
-        } else {
-            newNode = std::make_shared<Node>();
-        }
-
-        scene.nodes[node.name.c_str()] = newNode;
+        newNode->type = static_cast<NodeType>(node.meshIndex.has_value());
+        if (static_cast<bool>(newNode->type))
+            newNode->meshAsset = meshes[node.meshIndex.value()];
 
         std::visit(fastgltf::visitor {
             [&](fastgltf::math::fmat4x4 &matrix) {
@@ -362,7 +354,7 @@ std::optional<LoadedGLTF> LoadGLTF(VkRenderer *renderer, const std::filesystem::
     }
 
     for (auto &node : nodes) {
-        if (node->parent.lock() == nullptr) {
+        if (!node->parent.lock()) {
             scene.rootNodes.push_back(node);
             node->RefreshTransform(glm::mat4{1.f});
         }

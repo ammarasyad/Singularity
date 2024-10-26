@@ -4,15 +4,12 @@
 
 #include "render_object.h"
 
-struct LoadedGLTF : IRenderable {
+struct LoadedGLTF {
 //    ~LoadedGLTF() override { clear(); }
-    void Draw(const glm::mat4 &topMatrix, VkDrawContext &ctx) override;
+    void Draw(const glm::mat4 &topMatrix, VkDrawContext &ctx);
     void Clear();
 
-    std::unordered_map<std::string, MeshAsset> meshes;
     std::unordered_map<std::string, std::shared_ptr<Node>> nodes;
-    std::unordered_map<std::string, VulkanImage> images;
-    std::unordered_map<std::string, GLTFMaterial> materials;
 
     std::vector<std::shared_ptr<Node>> rootNodes;
     std::vector<VkSampler> samplers;

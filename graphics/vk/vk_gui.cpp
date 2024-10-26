@@ -205,7 +205,7 @@ void VkGui::CreateImGuiDescriptorPool() {
             VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1
         }};
 
-    VkDescriptorPoolCreateInfo poolinfo{
+    static constexpr VkDescriptorPoolCreateInfo poolinfo{
         VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
         VK_NULL_HANDLE,
         VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT,

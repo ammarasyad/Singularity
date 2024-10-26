@@ -15,8 +15,8 @@ struct GLTFMaterial {
 
 struct Bounds {
     glm::vec3 origin;
-    float sphereRadius;
     glm::vec3 extents;
+    float sphereRadius;
 };
 
 struct GeoSurface {
@@ -27,8 +27,8 @@ struct GeoSurface {
 };
 
 struct MeshAsset {
-    std::string name;
     std::vector<GeoSurface> surfaces;
+    std::string name;
     Mesh mesh;
 };
 

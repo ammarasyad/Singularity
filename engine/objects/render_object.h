@@ -13,15 +13,13 @@ struct VkMaterialInstance;
 class D3D12Renderer;
 struct VkDrawContext;
 
-struct RenderObject {
+struct VkRenderObject {
     uint32_t indexCount{};
     uint32_t firstIndex{};
 
     Bounds bounds{};
     glm::mat4 transform{};
-};
 
-struct VkRenderObject final : RenderObject {
     VkBuffer indexBuffer{VK_NULL_HANDLE};
     VkDeviceAddress vertexBufferAddress{0};
 
@@ -40,20 +38,20 @@ struct VkDrawContext {
 //     void Draw(const glm::mat4 &topMatrix, DrawContext &renderer) override;
 // };
 
-class IRenderable {
-public:
-    virtual ~IRenderable() = default;
-
-protected:
-    virtual void Draw(const glm::mat4 &topMatrix, VkDrawContext &renderer) = 0;
+enum class NodeType {
+    Node = 0,
+    MeshNode = 1
 };
 
-struct Node : IRenderable {
+struct Node {
+    glm::mat4 localTransform{};
+    glm::mat4 worldTransform{};
+
     std::weak_ptr<Node> parent;
     std::vector<std::shared_ptr<Node>> children;
 
-    glm::mat4 localTransform{};
-    glm::mat4 worldTransform{};
+    NodeType type;
+    MeshAsset meshAsset;
 
     void RefreshTransform(const glm::mat4 &parentTransform) {
         worldTransform = parentTransform * localTransform;
@@ -62,37 +60,32 @@ struct Node : IRenderable {
         }
     }
 
-    void Draw(const glm::mat4 &topMatrix, VkDrawContext &renderer) override {
-        for (const auto &c : children) {
-            c->Draw(topMatrix, renderer);
-        }
-    }
-};
+    void Draw(const glm::mat4 &topMatrix, VkDrawContext &ctx) {
+        switch (type) {
+            case NodeType::MeshNode: {
+                const glm::mat4 nodeMatrix = topMatrix * worldTransform;
 
-struct MeshNode final : Node {
-    MeshAsset meshAsset;
+                for (auto &[startIndex, indexCount, bounds, material]: meshAsset.surfaces) {
+                    switch (material.data.pass) {
+                        case MaterialPass::MainColor:
+                            ctx.opaqueSurfaces.emplace_back(indexCount, startIndex, bounds, nodeMatrix,meshAsset.mesh.indexBuffer,meshAsset.mesh.vertexBufferDeviceAddress, &material.data);
+                            break;
+                        case MaterialPass::Transparent:
+                            ctx.transparentSurfaces.emplace_back(indexCount, startIndex, bounds, nodeMatrix,meshAsset.mesh.indexBuffer,meshAsset.mesh.vertexBufferDeviceAddress,&material.data);
+                            break;
+                        default:
+                            break;
+                    }
+                }
+            }
 
-    void Draw(const glm::mat4 &topMatrix, VkDrawContext &ctx) override {
-        const glm::mat4 nodeMatrix = topMatrix * worldTransform;
-
-        for (auto &[startIndex, indexCount, bounds, material] : meshAsset.surfaces) {
-            VkRenderObject renderObject;
-            renderObject.indexCount = indexCount;
-            renderObject.firstIndex = startIndex;
-            renderObject.indexBuffer = meshAsset.mesh.indexBuffer;
-            renderObject.materialInstance = &material.data;
-            renderObject.bounds = bounds;
-            renderObject.transform = nodeMatrix;
-            renderObject.vertexBufferAddress = meshAsset.mesh.vertexBufferDeviceAddress;
-
-            if (material.data.pass == MaterialPass::MainColor) {
-                ctx.opaqueSurfaces.emplace_back(renderObject);
-            } else if (material.data.pass == MaterialPass::Transparent) {
-                ctx.transparentSurfaces.emplace_back(renderObject);
+            case NodeType::Node: {
+                for (const auto &c: children) {
+                    c->Draw(topMatrix, ctx);
+                }
+                break;
             }
         }
-
-        Node::Draw(topMatrix, ctx);
     }
 };
 
