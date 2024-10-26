@@ -119,6 +119,100 @@ void VkRenderer::FramebufferNeedsResizing() {
     framebufferResized = true;
 }
 
+void VkRenderer::Screenshot() {
+    VkFormatProperties formatProperties;
+    vkGetPhysicalDeviceFormatProperties(physicalDevice, surfaceFormat.format, &formatProperties);
+
+    bool supportBlit = formatProperties.optimalTilingFeatures & VK_FORMAT_FEATURE_BLIT_SRC_BIT;
+
+    vkGetPhysicalDeviceFormatProperties(physicalDevice, VK_FORMAT_R8G8B8A8_UNORM, &formatProperties);
+    supportBlit = supportBlit && (formatProperties.linearTilingFeatures & VK_FORMAT_FEATURE_BLIT_DST_BIT);
+
+    !supportBlit && std::cout << "Blit not supported, using copy instead" << std::endl;
+
+    VulkanImage srcImage = {
+            swapChainImages[currentFrame],
+            swapChainImageViews[currentFrame],
+            VK_NULL_HANDLE,
+            {swapChainExtent.width, swapChainExtent.height, 1},
+            surfaceFormat.format,
+    };
+
+    VulkanImage dstImage = memoryManager->createUnmanagedImage({
+        .imageFormat = VK_FORMAT_R8G8B8A8_UNORM,
+        .imageExtent = {swapChainExtent.width, swapChainExtent.height, 1},
+        .imageTiling = VK_IMAGE_TILING_LINEAR,
+        .imageUsage = VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+        .allocationFlags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
+        .allocationUsage = VMA_MEMORY_USAGE_AUTO,
+        .requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+    });
+
+    ImmediateSubmit([&](auto &commandBuffer) {
+        TransitionImage(commandBuffer, dstImage, VK_PIPELINE_STAGE_2_TRANSFER_BIT, 0, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        TransitionImage(commandBuffer, srcImage, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_MEMORY_READ_BIT, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_READ_BIT, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+
+        if (supportBlit) {
+            BlitImage(commandBuffer, srcImage, dstImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT);
+        } else {
+            VkImageCopy2 copyRegion{
+                VK_STRUCTURE_TYPE_IMAGE_COPY_2,
+                VK_NULL_HANDLE,
+                {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
+                {0, 0, 0},
+                {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
+                {0, 0, 0},
+                {swapChainExtent.width, swapChainExtent.height, 1}
+            };
+
+            VkCopyImageInfo2 copyImageInfo{
+                VK_STRUCTURE_TYPE_COPY_IMAGE_INFO_2,
+                VK_NULL_HANDLE,
+                srcImage.image,
+                VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                dstImage.image,
+                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                1,
+                &copyRegion
+            };
+
+            vkCmdCopyImage2(commandBuffer, &copyImageInfo);
+        }
+
+        TransitionImage(commandBuffer, dstImage, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_MEMORY_READ_BIT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL);
+        TransitionImage(commandBuffer, srcImage, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_READ_BIT, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_MEMORY_READ_BIT, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+    });
+
+    VkImageSubresource subresource{VK_IMAGE_ASPECT_COLOR_BIT};
+    VkSubresourceLayout layout;
+    vkGetImageSubresourceLayout(device, dstImage.image, &subresource, &layout);
+
+    void *data;
+    memoryManager->mapImage(dstImage, &data);
+    data = static_cast<uint8_t *>(data) + layout.offset;
+
+//    constexpr std::array formats = {VK_FORMAT_B8G8R8A8_SRGB, VK_FORMAT_B8G8R8A8_UNORM, VK_FORMAT_B8G8R8A8_SNORM};
+//    bool colorSwizzle = !supportBlit && std::find(formats.begin(), formats.end(), surfaceFormat.format) != formats.end();
+
+//    constexpr auto fileName = "screenshot.png";
+//    png::image<png::rgba_pixel> image(static_cast<int32_t>(swapChainExtent.width), static_cast<int32_t>(swapChainExtent.height));
+//    for (uint32_t y = 0; y < swapChainExtent.height; y++) {
+//        for (uint32_t x = 0; x < swapChainExtent.width; x++) {
+//            const auto *pixel = static_cast<uint8_t *>(data) + (y * layout.rowPitch + x * 4);
+//            image[y][x] = png::rgba_pixel(pixel[0], pixel[1], pixel[2], pixel[3]);
+//        }
+//    }
+
+//    image.write(fileName);
+    constexpr auto filename = "screenshot.bmp";
+    SaveToBitmap(filename, static_cast<char *>(data), swapChainExtent.width, swapChainExtent.height, layout.rowPitch);
+
+    std::cout << "Screenshot saved to " << filename << std::endl;
+
+    memoryManager->unmapImage(dstImage);
+    memoryManager->destroyImage(dstImage);
+}
+
 void VkRenderer::InitializeInstance() {
     constexpr VkApplicationInfo appInfo{
         VK_STRUCTURE_TYPE_APPLICATION_INFO,
@@ -782,10 +876,7 @@ Mesh VkRenderer::CreateMesh(const std::span<VkVertex> &vertices, const std::span
 void VkRenderer::BlitImage(const VkCommandBuffer &commandBuffer, const VulkanImage &srcImage,
                            const VulkanImage &dstImage, const VkImageLayout srcLayout, const VkImageLayout dstLayout,
                            const VkImageAspectFlags aspectFlags) {
-    VkImageBlit2 blitRegion{
-        VK_STRUCTURE_TYPE_IMAGE_BLIT_2,
-        VK_NULL_HANDLE
-    };
+    VkImageBlit2 blitRegion{VK_STRUCTURE_TYPE_IMAGE_BLIT_2};
 
     blitRegion.srcOffsets[1].x = static_cast<int32_t>(srcImage.extent.width);
     blitRegion.srcOffsets[1].y = static_cast<int32_t>(srcImage.extent.height);
@@ -1699,9 +1790,10 @@ void VkRenderer::SavePipelineCache() const {
     std::vector<char> data(size);
     vkGetPipelineCacheData(device, pipelineCache, &size, data.data());
 
-    std::ofstream file("pipeline_cache.bin", std::ios::binary);
-    file.write(data.data(), static_cast<std::streamsize>(size));
-    file.close();
+    WriteFile("pipeline_cache.bin", data.data(), static_cast<std::streamsize>(size));
+//    std::ofstream file("pipeline_cache.bin", std::ios::binary);
+//    file.write(data.data(), static_cast<std::streamsize>(size));
+//    file.close();
 }
 
 void VkRenderer::UpdateScene() {

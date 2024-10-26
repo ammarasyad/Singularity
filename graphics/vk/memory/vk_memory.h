@@ -68,8 +68,10 @@ public:
     VulkanImage createKtxCubemap(ktxTexture *texture, VkRenderer *renderer, VkFormat format);
 
     void mapBuffer(const VulkanBuffer &buffer, void **data);
+    void mapImage(const VulkanImage &vkImage, void **data);
 
     void unmapBuffer(const VulkanBuffer &buffer);
+    void unmapImage(const VulkanImage &vkImage);
 
     void destroyBuffer(const VulkanBuffer &buffer, const bool tracked = true);
 

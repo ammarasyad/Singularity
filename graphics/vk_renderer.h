@@ -103,7 +103,7 @@ public:
 
     Mesh CreateMesh(const std::span<VkVertex> &vertices, const std::span<uint32_t> &indices);
 
-    static void BlitImage(const VkCommandBuffer &commandBuffer, const VulkanImage &srcImage, const VulkanImage &dstImage, VkImageLayout srcLayout, VkImageLayout dstLayout, VkImageAspectFlags aspectFlags);
+    static inline void BlitImage(const VkCommandBuffer &commandBuffer, const VulkanImage &srcImage, const VulkanImage &dstImage, VkImageLayout srcLayout, VkImageLayout dstLayout, VkImageAspectFlags aspectFlags);
 
     [[nodiscard]] const QueueFamilyIndices &queue_family_indices() const {
         return queueFamilyIndices;
@@ -214,6 +214,7 @@ public:
     }
 
     void FramebufferNeedsResizing();
+    void Screenshot();
 private:
     uint32_t currentFrame = 0;
 

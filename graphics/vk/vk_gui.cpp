@@ -194,6 +194,10 @@ void VkGui::KeyboardCallback(GLFWwindow *window, int key, int scancode, int acti
         if (key == GLFW_KEY_ESCAPE) {
             glfwSetWindowShouldClose(window, GLFW_TRUE);
         }
+
+        if (key == GLFW_KEY_F2) {
+            gui->renderer->Screenshot();
+        }
     }
 
     gui->camera.ProcessKeyboardInput(key, action, gui->deltaTime);

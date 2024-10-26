@@ -464,8 +464,16 @@ void VkMemoryManager::mapBuffer(const VulkanBuffer &buffer, void **data) {
     VK_CHECK(vmaMapMemory(allocator, buffer.allocation, data));
 }
 
+void VkMemoryManager::mapImage(const VulkanImage &image, void **data) {
+    VK_CHECK(vmaMapMemory(allocator, image.allocation, data));
+}
+
 void VkMemoryManager::unmapBuffer(const VulkanBuffer &buffer) {
     vmaUnmapMemory(allocator, buffer.allocation);
+}
+
+void VkMemoryManager::unmapImage(const VulkanImage &image) {
+    vmaUnmapMemory(allocator, image.allocation);
 }
 
 void VkMemoryManager::destroyBuffer(const VulkanBuffer &buffer, const bool tracked) {
