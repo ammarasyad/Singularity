@@ -4,6 +4,7 @@
 #include <fstream>
 #include <vector>
 #include <filesystem>
+#include <immintrin.h>
 
 template<typename T>
 static inline std::vector<T> ReadFile(const std::filesystem::path &filename) {
@@ -63,18 +64,17 @@ struct __attribute__((packed)) BitmapColorHeader {
     uint32_t unused[16]{0};
 };
 
-struct Bitmap {
+struct BitmapHeader {
     BitmapFileHeader fileHeader;
     BitmapInfoHeader infoHeader;
     BitmapColorHeader colorHeader;
-    const char *data;
 };
 
-static inline void SaveToBitmap(const std::filesystem::path &filename, const char *data, const uint32_t width, const uint32_t height, const uint32_t rowPitch) {
-    Bitmap bitmap{.data = data};
+static inline void SaveToBitmap(const std::filesystem::path &filename, char *data, const uint32_t width, const uint32_t height, const uint32_t rowPitch) {
+    BitmapHeader bitmap{};
 
-    bitmap.fileHeader.size = sizeof(BitmapFileHeader) + sizeof(BitmapInfoHeader) + sizeof(BitmapColorHeader) + width * height * 4;
-    bitmap.fileHeader.offset = sizeof(BitmapFileHeader) + sizeof(BitmapInfoHeader) + sizeof(BitmapColorHeader);
+    bitmap.fileHeader.size = sizeof(BitmapHeader) + width * height;
+    bitmap.fileHeader.offset = sizeof(BitmapHeader);
 
     bitmap.infoHeader.size = sizeof(BitmapInfoHeader);
     bitmap.infoHeader.width = static_cast<int32_t>(width);
@@ -86,10 +86,20 @@ static inline void SaveToBitmap(const std::filesystem::path &filename, const cha
     file.write(reinterpret_cast<const char *>(&bitmap.infoHeader), sizeof(BitmapInfoHeader));
     file.write(reinterpret_cast<const char *>(&bitmap.colorHeader), sizeof(BitmapColorHeader));
 
-//    for (uint32_t y = 0; y < height; y++) {
-//        file.write(data + rowPitch * y, width * 4);
-//    }
-    file.write(data, width * height * 4);
+    for (uint32_t y = 0; y < height; y++) {
+        // idk if these pragma directives work tbh
+#pragma omp parallel for ordered
+        for (uint32_t x = 0; x < rowPitch; x += 32) {
+            __m256i bgra = _mm256_loadu_si256(reinterpret_cast<const __m256i *>(data + y * rowPitch + x));
+
+            // Curse you Intel for removing AVX512
+            const __m256i mask = _mm256_setr_epi8(2, 1, 0, 3, 6, 5, 4, 7, 10, 9, 8, 11, 14, 13, 12, 15, 2, 1, 0, 3, 6, 5, 4, 7, 10, 9, 8, 11, 14, 13, 12, 15);
+            const __m256i rgba = _mm256_shuffle_epi8(bgra, mask);
+
+#pragma omp ordered
+            file.write(reinterpret_cast<const char *>(&rgba), 32);
+        }
+    }
     file.close();
 }
 
