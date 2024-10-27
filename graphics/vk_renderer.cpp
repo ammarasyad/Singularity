@@ -14,6 +14,11 @@
 #include <random>
 #include <ktx.h>
 
+// TODO: I give up trying to set up libpng
+// Workaround for png++
+//#define __STDC_LIB_EXT1__
+//#include <png.hpp>
+
 VkRenderer::VkRenderer(GLFWwindow *window, Camera *camera, const bool dynamicRendering, const bool asyncCompute)
     : dynamicRendering(dynamicRendering),
       asyncCompute(asyncCompute),
@@ -97,7 +102,11 @@ VkRenderer::VkRenderer(GLFWwindow *window, Camera *camera, const bool dynamicRen
     CreateDefaultTexture();
     CreateSyncObjects();
 
+    auto start = std::chrono::high_resolution_clock::now();
     auto structureFile = LoadGLTF(this, "../assets/Sponza/Sponza.gltf");
+    auto end = std::chrono::high_resolution_clock::now();
+
+    std::cout << "Loading took " << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << "ms" << std::endl;
 
     assert(structureFile.has_value());
 
@@ -191,19 +200,6 @@ void VkRenderer::Screenshot() {
     memoryManager->mapImage(dstImage, &data);
     data = static_cast<uint8_t *>(data) + layout.offset;
 
-//    constexpr std::array formats = {VK_FORMAT_B8G8R8A8_SRGB, VK_FORMAT_B8G8R8A8_UNORM, VK_FORMAT_B8G8R8A8_SNORM};
-//    bool colorSwizzle = !supportBlit && std::find(formats.begin(), formats.end(), surfaceFormat.format) != formats.end();
-
-//    constexpr auto fileName = "screenshot.png";
-//    png::image<png::rgba_pixel> image(static_cast<int32_t>(swapChainExtent.width), static_cast<int32_t>(swapChainExtent.height));
-//    for (uint32_t y = 0; y < swapChainExtent.height; y++) {
-//        for (uint32_t x = 0; x < swapChainExtent.width; x++) {
-//            const auto *pixel = static_cast<uint8_t *>(data) + (y * layout.rowPitch + x * 4);
-//            image[y][x] = png::rgba_pixel(pixel[0], pixel[1], pixel[2], pixel[3]);
-//        }
-//    }
-
-//    image.write(fileName);
     constexpr auto filename = "screenshot.bmp";
     SaveToBitmap(filename, static_cast<char *>(data), swapChainExtent.width, swapChainExtent.height, layout.rowPitch);
 
@@ -319,7 +315,7 @@ void VkRenderer::Render(EngineStats &stats) {
     if (asyncCompute) {
         vkResetCommandBuffer(computeCommandBuffer, VK_COMMAND_BUFFER_RESET_RELEASE_RESOURCES_BIT);
 
-        constexpr VkCommandBufferBeginInfo beginInfo{
+        static constexpr VkCommandBufferBeginInfo beginInfo{
             VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
             VK_NULL_HANDLE,
             VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT
@@ -328,7 +324,7 @@ void VkRenderer::Render(EngineStats &stats) {
         VK_CHECK(vkBeginCommandBuffer(computeCommandBuffer, &beginInfo));
 
         vkCmdBindPipeline(computeCommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, computePipeline);
-        vkCmdBindDescriptorSets(computeCommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, computePipelineLayout, 0, 1, &lightDescriptorSet,0, VK_NULL_HANDLE);
+        vkCmdBindDescriptorSets(computeCommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, computePipelineLayout, 0, 1, &mainDescriptorSet,0, VK_NULL_HANDLE);
 
         ComputePushConstants pushConstants{
                 camera->ViewMatrix()
@@ -362,7 +358,7 @@ void VkRenderer::Render(EngineStats &stats) {
     const auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
     stats.meshDrawTime = static_cast<float>(elapsed) / 1000.f;
 
-    VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT};
+    VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT};
     std::array waitSemaphores = {frames[currentFrame].imageAvailableSemaphore, depthPrepassSemaphore, computeFinishedSemaphore};
     VkSubmitInfo submitInfo{
         VK_STRUCTURE_TYPE_SUBMIT_INFO,
@@ -454,7 +450,6 @@ void VkRenderer::DrawObject(const VkCommandBuffer &commandBuffer, const VkRender
     };
 
     FragmentPushConstants fragmentPushConstants{
-            draw.transform,
             camera->Position(),
             {viewport.width, viewport.height},
     };
@@ -590,7 +585,7 @@ void VkRenderer::Draw(const VkCommandBuffer &commandBuffer, uint32_t imageIndex,
 
     if (!asyncCompute) {
         vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, computePipeline);
-        vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, computePipelineLayout, 0, 1,&lightDescriptorSet,0, VK_NULL_HANDLE);
+        vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, computePipelineLayout, 0, 1,&mainDescriptorSet,0, VK_NULL_HANDLE);
 
         auto view = camera->ViewMatrix();
         auto proj = camera->ProjectionMatrix();
@@ -764,7 +759,6 @@ void VkRenderer::Shutdown() {
     mainDescriptorAllocator.Destroy(device);
     vkDestroyDescriptorSetLayout(device, mainDescriptorSetLayout, nullptr);
     vkDestroyDescriptorSetLayout(device, sceneDescriptorSetLayout, nullptr);
-    vkDestroyDescriptorSetLayout(device, lightDescriptorSetLayout, nullptr);
     vkDestroyDescriptorSetLayout(device, frustumDescriptorSetLayout, nullptr);
     vkDestroyDescriptorSetLayout(device, skyboxDescriptorSetLayout, nullptr);
 
@@ -1376,7 +1370,7 @@ void VkRenderer::CreatePipelineLayout() {
 
     VK_CHECK(vkCreatePipelineLayout(device, &pipelineLayoutInfo, VK_NULL_HANDLE, &depthPrepassPipelineLayout));
 
-    pipelineLayoutInfo.pSetLayouts = &lightDescriptorSetLayout;
+    pipelineLayoutInfo.pSetLayouts = &mainDescriptorSetLayout;
     pipelineLayoutInfo.pPushConstantRanges = &computePushConstantRange;
 
     VK_CHECK(vkCreatePipelineLayout(device, &pipelineLayoutInfo, VK_NULL_HANDLE, &computePipelineLayout));
@@ -1598,30 +1592,24 @@ void VkRenderer::CreateSyncObjects() {
 }
 
 void VkRenderer::CreateDescriptors() {
-    std::array<DescriptorAllocator::PoolSizeRatio, 2> sizes{
+    std::array<DescriptorAllocator::PoolSizeRatio, 3> sizes{
         {
             {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1},
             {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1},
+            {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 3},
         }
     };
 
     mainDescriptorAllocator.InitPool(device, 10, sizes);
 
     DescriptorLayoutBuilder builder;
-    builder.AddBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT);
-    builder.AddBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_FRAGMENT_BIT);
-    builder.AddBinding(2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_FRAGMENT_BIT);
+    builder.AddBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
+    builder.AddBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
     mainDescriptorSetLayout = builder.Build(device);
 
     builder.Clear();
     builder.AddBinding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT);
     sceneDescriptorSetLayout = builder.Build(device);
-
-    builder.Clear();
-    builder.AddBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT);
-    builder.AddBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT);
-    builder.AddBinding(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT);
-    lightDescriptorSetLayout = builder.Build(device);
 
     builder.Clear();
     builder.AddBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT);
@@ -1633,9 +1621,6 @@ void VkRenderer::CreateDescriptors() {
 
     std::array layouts = {mainDescriptorSetLayout};
     mainDescriptorSet = mainDescriptorAllocator.Allocate(device, layouts);
-
-    layouts = {lightDescriptorSetLayout};
-    lightDescriptorSet = mainDescriptorAllocator.Allocate(device, layouts);
 
     layouts = {sceneDescriptorSetLayout};
     depthPrepassDescriptorSet = mainDescriptorAllocator.Allocate(device, layouts);
@@ -1843,7 +1828,7 @@ void VkRenderer::DestroyDebugUtilsMessengerEXT(VkInstance instance, VkDebugUtils
 
 void VkRenderer::CreateRandomLights() {
     totalLights = std::make_unique<Light>();
-    totalLights->lightCount = 128;
+    totalLights->lightCount = 1024;
 
     std::random_device rd;
     std::mt19937 gen(rd());
@@ -1894,18 +1879,9 @@ void VkRenderer::CreateRandomLights() {
 
 void VkRenderer::UpdateDepthComputeDescriptorSets() {
     DescriptorWriter writer;
-    writer.WriteImage(0, depthImage.imageView, depthImage.sampler, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
-    writer.WriteBuffer(1, lightUniformBuffer.buffer, 0, sizeof(Light), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
-    writer.WriteBuffer(2, visibleLightBuffer.buffer, 0, sizeof(LightVisibility) * 3456, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
-    writer.UpdateSet(device, mainDescriptorSet);
-
-    writer.Clear();
     writer.WriteBuffer(0, lightUniformBuffer.buffer, 0, sizeof(Light), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
-    writer.WriteBuffer(1, visibleLightBuffer.buffer, 0, sizeof(LightVisibility) * 3456,
-                       VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
-    writer.WriteImage(2, depthImage.imageView, depthImage.sampler, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
-                      VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
-    writer.UpdateSet(device, lightDescriptorSet);
+    writer.WriteBuffer(1, visibleLightBuffer.buffer, 0, sizeof(LightVisibility) * 3456, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+    writer.UpdateSet(device, mainDescriptorSet);
 
     writer.Clear();
     writer.WriteImage(0, skyboxImage.imageView, skyboxImage.sampler, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);

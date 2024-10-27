@@ -12,8 +12,8 @@ struct Light {
 };
 
 struct LightVisibility {
-    f16vec4 minPoint;
-    f16vec4 maxPoint;
+    vec4 minPoint;
+    vec4 maxPoint;
     uint count;
     uint indices[MAX_LIGHTS];
 };

@@ -20,20 +20,17 @@ layout(std430, set = 0, binding = 1) restrict buffer visibleLightBuffer {
     LightVisibility visibleLightIndices[];
 };
 
-layout(set = 0, binding = 2) uniform sampler2D depthSampler;
-
 layout(push_constant) uniform PushConstants {
     mat4 viewMatrix;
 } pushConstants;
 
-bool SphereAABBIntersection(f16vec4 sphere, float16_t radius, f16vec3 aabbMin, f16vec3 aabbMax) {
-    f16vec3 closestPointInAabb = clamp(sphere.xyz, aabbMin, aabbMax);
-    f16vec3 distance = sphere.xyz - closestPointInAabb;
+bool SphereAABBIntersection(vec4 sphere, float16_t radius, vec3 aabbMin, vec3 aabbMax) {
+    vec3 closestPointInAabb = clamp(sphere.xyz, aabbMin, aabbMax);
+    vec3 distance = sphere.xyz - closestPointInAabb;
     return dot(distance, distance) <= radius * radius;
 }
 
 void main() {
-    uint lightCount = visibleLightIndices.length();
     uint tileIndex = (gl_WorkGroupID.z * LOCAL_SIZE_Z + gl_LocalInvocationID.z) * gl_NumWorkGroups.x * LOCAL_SIZE_X * gl_NumWorkGroups.y * LOCAL_SIZE_Y
                    + (gl_WorkGroupID.y * LOCAL_SIZE_Y + gl_LocalInvocationID.y) * gl_NumWorkGroups.x * LOCAL_SIZE_X
                    + (gl_WorkGroupID.x * LOCAL_SIZE_X + gl_LocalInvocationID.x);
@@ -44,9 +41,8 @@ void main() {
 
     for (uint i = 0; i < lightCount; i++) {
         f16vec4 lightPosition = lights[i].position;
-        f16vec4 sphere = f16vec4(pushConstants.viewMatrix * f16vec4(lightPosition.xyz, 1.0hf));
 
-        bool intersects = SphereAABBIntersection(sphere, lightPosition.w, visibleLightIndex.minPoint.xyz, visibleLightIndex.maxPoint.xyz) && visibleLightIndex.count < MAX_LIGHTS;
+        bool intersects = SphereAABBIntersection(pushConstants.viewMatrix * vec4(lightPosition.xyz, 1.0f), lightPosition.w, visibleLightIndex.minPoint.xyz, visibleLightIndex.maxPoint.xyz) && visibleLightIndex.count < MAX_LIGHTS;
 
         visibleLightIndex.indices[visibleLightIndex.count] = (mix(visibleLightIndex.indices[visibleLightIndex.count], i, intersects));
         visibleLightIndex.count += uint(intersects);

@@ -47,7 +47,10 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow) {
             return renderer.InitWindow(hInstance, nCmdShow, "D3D12 Renderer");
         }
         case RendererType::VK: {
+            auto start = std::chrono::high_resolution_clock ::now();
             VkGui gui(2560, 1440, false);
+            auto end = std::chrono::high_resolution_clock ::now();
+            std::cout << "Initialization took " << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << "ms" << std::endl;
             gui.Loop();
             gui.Shutdown();
         }

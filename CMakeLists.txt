@@ -30,6 +30,16 @@ set(glm "third_party/glm")
 add_library(glm SHARED IMPORTED)
 
 add_subdirectory(third_party/fastgltf)
+#set(ZLIB_ROOT third_party/zlib)
+#set(ZLIB_LIBRARY zlibstatic)
+#
+#set(PNG_TOOLS OFF)
+#set(PNG_TESTS OFF)
+#set(SKIP_ALL_INSTALL ON)
+#add_subdirectory(third_party/libpng)
+#
+#file(GLOB PNG_FILES third_party/libpng/*.c)
+#add_library(png SHARED ${PNG_FILES})
 
 set(imgui "third_party/imgui")
 file(GLOB IMGUI_GLOB ${imgui}/*.cpp ${imgui}/backends/imgui_impl_glfw.cpp ${imgui}/backends/imgui_impl_dx12.cpp ${imgui}/backends/imgui_impl_vulkan.cpp)
@@ -37,7 +47,7 @@ add_library(imgui STATIC ${IMGUI_GLOB})
 target_include_directories(imgui PUBLIC ${imgui} ${imgui}/backends)
 target_link_libraries(imgui PRIVATE glfw Vulkan::Vulkan)
 
-include_directories(${glm} ${glfw}/include ${D3D12MemoryAllocator}/include common graphics engine third_party/stb)
+include_directories(${glm} ${glfw}/include ${D3D12MemoryAllocator}/include common graphics engine third_party/stb #[[third_party/png++]])
 
 add_executable(Singularity WIN32 main.cpp
         graphics/d3d12_renderer.cpp
@@ -97,6 +107,6 @@ if (COMPILE_AVX2)
 endif ()
 
 add_dependencies(Singularity shaders)
-target_include_directories(Singularity PRIVATE imgui third_party/glm third_party/fastgltf/include)
+target_include_directories(Singularity PRIVATE imgui third_party/glm third_party/fastgltf/include #[[third_party/libpng]])
 target_link_options(Singularity PRIVATE -static)
-target_link_libraries(Singularity PRIVATE d3d12.lib dxgi.lib d3dcompiler.lib glfw fastgltf imgui D3D12MemoryAllocator Vulkan::Vulkan KTX::ktx GPUOpen::VulkanMemoryAllocator)
+target_link_libraries(Singularity PRIVATE d3d12.lib dxgi.lib d3dcompiler.lib glfw #[[png]] fastgltf imgui D3D12MemoryAllocator Vulkan::Vulkan KTX::ktx GPUOpen::VulkanMemoryAllocator)

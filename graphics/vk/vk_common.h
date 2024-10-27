@@ -21,7 +21,6 @@ struct MeshPushConstants {
 };
 
 struct FragmentPushConstants {
-    alignas(16) glm::mat4 worldMatrix;
     alignas(16) glm::vec3 cameraPosition;
     alignas(16) glm::ivec2 viewportSize;
 };

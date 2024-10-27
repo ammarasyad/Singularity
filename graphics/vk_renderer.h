@@ -58,14 +58,14 @@ struct Light {
     alignas(8) struct {
         hvec4 position;
         hvec4 color;
-    } lights[128];
+    } lights[1024];
 };
 
 struct alignas(16) LightVisibility {
-    hvec4 minPoint;
-    hvec4 maxPoint;
+    glm::vec4 minPoint;
+    glm::vec4 maxPoint;
     uint32_t visibleLightCount;
-    uint32_t indices[128];
+    uint32_t indices[1024];
 };
 
 struct ComputePushConstants {
@@ -321,8 +321,6 @@ private:
 
     VkPipeline computePipeline{};
     VkPipelineLayout computePipelineLayout{};
-    VkDescriptorSetLayout lightDescriptorSetLayout{};
-    VkDescriptorSet lightDescriptorSet{};
 
     VkPipeline frustumPipeline{};
     VkPipelineLayout frustumPipelineLayout{};

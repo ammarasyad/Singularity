@@ -15,39 +15,39 @@ layout(push_constant) uniform PushConstants {
     ivec2 viewportSize;
 } pushConstants;
 
-f16vec3 ScreenSpaceToViewSpace(f16vec2 screenSpace) {
-    f16vec2 ndc = screenSpace / f16vec2(pushConstants.viewportSize);
+vec3 ScreenSpaceToViewSpace(vec2 screenSpace) {
+    vec2 ndc = screenSpace / vec2(pushConstants.viewportSize);
 //    vec4 clipSpace = vec4(2.0 * vec2(ndc.x, 1.0f - ndc.y) - 1.0, -1.0, 1.0);
-    f16vec4 clipSpace = f16vec4(2.0 * ndc - 1.0, -1.0, 1.0);
-    f16vec4 view = f16vec4(pushConstants.inverseVp) * clipSpace;
+    vec4 clipSpace = vec4(2.0 * ndc - 1.0, -1.0, 1.0);
+    vec4 view = vec4(pushConstants.inverseVp) * clipSpace;
     view /= view.w;
 
     return view.xyz;
 }
 
-f16vec3 LineIntersectionWithZPlane(f16vec3 lineStart, f16vec3 lineEnd, float16_t z) {
-    float16_t t = (z - lineStart.z) / (lineEnd.z - lineStart.z);
+vec3 LineIntersectionWithZPlane(vec3 lineStart, vec3 lineEnd, float z) {
+    float t = (z - lineStart.z) / (lineEnd.z - lineStart.z);
     return lineStart + (lineEnd - lineStart) * t;
 }
 
 void main() {
     uint tileIndex = gl_GlobalInvocationID.x + gl_GlobalInvocationID.y * gl_NumWorkGroups.x + gl_GlobalInvocationID.z * gl_NumWorkGroups.x * gl_NumWorkGroups.y;
-    f16vec2 tileSize = f16vec2(pushConstants.viewportSize) / f16vec2(gl_NumWorkGroups.xy);
+    vec2 tileSize = vec2(pushConstants.viewportSize) / gl_NumWorkGroups.xy;
 
-    f16vec2 workGroup = f16vec2(gl_WorkGroupID.xy);
+    vec2 workGroup = vec2(gl_WorkGroupID.xy);
 
-    f16vec3 minTile = ScreenSpaceToViewSpace(workGroup * tileSize);
-    f16vec3 maxTile = ScreenSpaceToViewSpace(workGroup * tileSize + tileSize);
+    vec3 minTile = ScreenSpaceToViewSpace(workGroup * tileSize);
+    vec3 maxTile = ScreenSpaceToViewSpace(workGroup * tileSize + tileSize);
 
-    f16vec2 workGroupRatio = f16vec2(gl_WorkGroupID.z / gl_NumWorkGroups.z, (gl_WorkGroupID.z + 1) / gl_NumWorkGroups.z);
-    f16vec2 planes = f16vec2(pow(10000.0hf, workGroupRatio.x), pow(10000.0hf, workGroupRatio.y)) * 0.1hf;
+    vec2 workGroupRatio = vec2(gl_WorkGroupID.z / gl_NumWorkGroups.z, (gl_WorkGroupID.z + 1) / gl_NumWorkGroups.z);
+    vec2 planes = vec2(pow(10000.0f, workGroupRatio.x), pow(10000.0f, workGroupRatio.y)) * 0.1f;
 
-    f16vec3 eye = f16vec3(0);
-    f16vec3 minPointNear = LineIntersectionWithZPlane(eye, minTile, planes.x);
-    f16vec3 maxPointNear = LineIntersectionWithZPlane(eye, maxTile, planes.x);
-    f16vec3 minPointFar = LineIntersectionWithZPlane(eye, minTile, planes.y);
-    f16vec3 maxPointFar = LineIntersectionWithZPlane(eye, maxTile, planes.y);
+    vec3 eye = vec3(0);
+    vec3 minPointNear = LineIntersectionWithZPlane(eye, minTile, planes.x);
+    vec3 maxPointNear = LineIntersectionWithZPlane(eye, maxTile, planes.x);
+    vec3 minPointFar = LineIntersectionWithZPlane(eye, minTile, planes.y);
+    vec3 maxPointFar = LineIntersectionWithZPlane(eye, maxTile, planes.y);
 
-    visibleLightIndices[tileIndex].minPoint = f16vec4(min(minPointNear, minPointFar), 0.0);
-    visibleLightIndices[tileIndex].maxPoint = f16vec4(max(maxPointNear, maxPointFar), 0.0);
+    visibleLightIndices[tileIndex].minPoint = vec4(min(minPointNear, minPointFar), 0.0);
+    visibleLightIndices[tileIndex].maxPoint = vec4(max(maxPointNear, maxPointFar), 0.0);
 }
