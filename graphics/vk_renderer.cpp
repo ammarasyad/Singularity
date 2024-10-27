@@ -11,6 +11,7 @@
 #include "file.h"
 #include "vk/vk_gui.h"
 #include "vk/vk_pipeline_builder.h"
+#include "ext/matrix_transform.hpp"
 #include <random>
 #include <ktx.h>
 
@@ -283,7 +284,7 @@ void VkRenderer::Render(EngineStats &stats) {
         lightSceneTime = 0;
     }
 
-    UpdateScene();
+    UpdateScene(stats);
 
     std::array fences = {depthPrepassFence, frames[currentFrame].inFlightFence, computeFinishedFence};
     const auto size = fences.size() - !asyncCompute;
@@ -990,7 +991,7 @@ void VkRenderer::CreateLogicalDevice() {
     VkPhysicalDeviceFeatures2 deviceFeatures2{
         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
         &vulkan13Features,
-        {.multiDrawIndirect = VK_TRUE, .samplerAnisotropy = VK_TRUE}
+        {.multiDrawIndirect = VK_TRUE, .samplerAnisotropy = VK_TRUE, .shaderInt16 = VK_TRUE}
     };
 
     deviceExtensions.reserve(13);
@@ -1781,19 +1782,21 @@ void VkRenderer::SavePipelineCache() const {
 //    file.close();
 }
 
-void VkRenderer::UpdateScene() {
+void VkRenderer::UpdateScene(EngineStats &stats) {
     auto view = camera->ViewMatrix();
     auto proj = camera->ProjectionMatrix();
 
     sceneData.worldMatrix = proj * view;
 
-//    totalLights.lights[0].position = {-9.5f + 0.01f * static_cast<float>(lightSceneTime), 1.4f, 3.4f, 200.f};
-//    totalLights.lights[1].position = {8.5f, 1.4f, -3.6f + 0.01f * static_cast<float>(lightSceneTime), 200.f};
+    auto rotation = glm::rotate(glm::mat4{1.f}, stats.frameTime / 1000.f, glm::vec3{0, 1, 0});
+    for (auto &light : totalLights->lights) {
+        light.position = {glm::vec3(rotation * hvec4(light.position.x, light.position.y, light.position.z, 1.0f)), light.position.w};
+    }
 
-//    void *data;
-//    memoryManager->mapBuffer(lightUniformBuffer, &data);
-//    memcpy(data, &totalLights, sizeof(Light));
-//    memoryManager->unmapBuffer(lightUniformBuffer);
+    void *data;
+    memoryManager->mapBuffer(lightUniformBuffer, &data);
+    memcpy(data, totalLights.get(), sizeof(Light));
+    memoryManager->unmapBuffer(lightUniformBuffer);
 
     loadedScenes["structure"].Draw(glm::mat4{1.f}, mainDrawContext);
 }
@@ -1826,20 +1829,22 @@ void VkRenderer::DestroyDebugUtilsMessengerEXT(VkInstance instance, VkDebugUtils
 }
 #endif
 
+int multiplier = 16 * 9 * 6;
+
 void VkRenderer::CreateRandomLights() {
     totalLights = std::make_unique<Light>();
-    totalLights->lightCount = 1024;
+    totalLights->lightCount = MAX_LIGHTS;
 
     std::random_device rd;
     std::mt19937 gen(rd());
 
-    std::uniform_real_distribution<float> disXZ(-15.f, 15.f);
+    std::uniform_real_distribution<float> disXZ(-9.f, 9.f);
     std::uniform_real_distribution<float> disY(0.5f, 7.f);
 
     std::uniform_real_distribution<float> disColor(0.f, 1.f);
 
     for (size_t i = 0; i < totalLights->lightCount; i++) {
-        totalLights->lights[i].position = {disXZ(gen), disY(gen), disXZ(gen), 5.f};
+        totalLights->lights[i].position = {disXZ(gen), 5.0f, disXZ(gen), 50.f};
         totalLights->lights[i].color = {disColor(gen), disColor(gen), disColor(gen), 1.f};
     }
 
@@ -1865,7 +1870,7 @@ void VkRenderer::CreateRandomLights() {
 
     memoryManager->stagingBuffer(sizeof(Light), mappedMemoryTask, unmappedMemoryTask);
 
-    visibleLightBuffer = memoryManager->createManagedBuffer({sizeof(LightVisibility) * 3456,
+    visibleLightBuffer = memoryManager->createManagedBuffer({(sizeof(LightVisibility) + 32) * multiplier,
                                                              VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
                                                              VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
                                                              VK_BUFFER_USAGE_TRANSFER_DST_BIT, 0,
@@ -1873,14 +1878,14 @@ void VkRenderer::CreateRandomLights() {
                                                              VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT});
 
     ImmediateSubmit([&](auto &cmd) {
-        vkCmdFillBuffer(cmd, visibleLightBuffer.buffer, 0, sizeof(LightVisibility) * 3456, 0);
+        vkCmdFillBuffer(cmd, visibleLightBuffer.buffer, 0, (sizeof(LightVisibility) + 32) * multiplier, 0);
     });
 }
 
 void VkRenderer::UpdateDepthComputeDescriptorSets() {
     DescriptorWriter writer;
     writer.WriteBuffer(0, lightUniformBuffer.buffer, 0, sizeof(Light), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
-    writer.WriteBuffer(1, visibleLightBuffer.buffer, 0, sizeof(LightVisibility) * 3456, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+    writer.WriteBuffer(1, visibleLightBuffer.buffer, 0, (sizeof(LightVisibility) + 32) * multiplier, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
     writer.UpdateSet(device, mainDescriptorSet);
 
     writer.Clear();
@@ -1893,7 +1898,7 @@ void VkRenderer::ComputeFrustum() {
     auto frustumDescriptorSet = mainDescriptorAllocator.Allocate(device, layouts);
 
     DescriptorWriter writer;
-    writer.WriteBuffer(0, visibleLightBuffer.buffer, 0, sizeof(LightVisibility) * 3456, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+    writer.WriteBuffer(0, visibleLightBuffer.buffer, 0, (sizeof(LightVisibility) + 32) * multiplier, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
     writer.UpdateSet(device, frustumDescriptorSet);
 
     FrustumPushConstants pushConstants {

@@ -4,8 +4,6 @@
 #define GLFW_INCLUDE_VULKAN
 #define GLM_FORCE_RADIANS
 
-#define MAX_LIGHTS 1024
-
 #include <glfw/glfw3.h>
 #include <memory>
 #include <optional>
@@ -35,6 +33,15 @@ namespace glm {
         , z(detail::toFloat16(z))
         , w(detail::toFloat16(w))
     {}
+
+    template<>
+    template<>
+    GLM_FUNC_QUALIFIER GLM_CTOR_DECL vec<4, detail::hdata>::vec(vec3 const& xyz, float w)
+            : x(detail::toFloat16(xyz.x))
+            , y(detail::toFloat16(xyz.y))
+            , z(detail::toFloat16(xyz.z))
+            , w(detail::toFloat16(w))
+    {}
 }
 
 struct FrameData {
@@ -53,19 +60,21 @@ struct SceneData {
     glm::mat4 worldMatrix;
 };
 
+#define MAX_LIGHTS 24
+
 struct Light {
     uint32_t lightCount;
     alignas(8) struct {
         hvec4 position;
         hvec4 color;
-    } lights[1024];
+    } lights[MAX_LIGHTS];
 };
 
 struct alignas(16) LightVisibility {
     glm::vec4 minPoint;
     glm::vec4 maxPoint;
-    uint32_t visibleLightCount;
-    uint32_t indices[1024];
+    uint16_t visibleLightCount;
+    uint16_t indices[MAX_LIGHTS];
 };
 
 struct ComputePushConstants {
@@ -271,7 +280,7 @@ private:
 
     inline void SavePipelineCache() const;
 
-    inline void UpdateScene();
+    inline void UpdateScene(EngineStats &stats);
 
     inline void DrawObject(const VkCommandBuffer &commandBuffer, const VkRenderObject &draw, const VkDescriptorSet &sceneDescriptorSet, VkMaterialPipeline &lastPipeline, VkMaterialInstance &lastMaterialInstance, VkBuffer &lastIndexBuffer);
     inline void DrawDepthPrepass(const std::vector<size_t> &drawIndices);

@@ -3,6 +3,7 @@
 #extension GL_GOOGLE_include_directive : require
 #extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
 #extension GL_EXT_shader_16bit_storage : require
+#extension GL_EXT_shader_explicit_arithmetic_types_int16 : require
 
 #include "input_structures.glsl"
 #include "tiled_shading.glsl"
@@ -19,6 +20,7 @@ layout(set = 2, binding = 0) buffer readonly lightBuffer {
 };
 
 layout(std430, set = 2, binding = 1) buffer readonly visibilityBuffer {
+    FrustumAABB frustumAABB;
     LightVisibility visibilities[];
 };
 
@@ -34,13 +36,13 @@ void main() {
     uvec3 tile = uvec3(gl_FragCoord.xy / (pushConstants.viewportSize / vec2(TILE_X, TILE_Y)), zTile);
 //    uvec3 tile = uvec3(gl_FragCoord.xyz) / uvec3(pushConstants.viewportSize, 1) ;
     uint tileIndex = tile.x + tile.y * TILE_X + tile.z * TILE_X * TILE_Y;
-    uint numLightsInTile = visibilities[tileIndex].count;
+    uint16_t numLightsInTile = visibilities[tileIndex].count;
 
-    f16vec3 diffuse = f16vec3(texture(colorTexture, fragUV).xyz);
+    f16vec3 position = f16vec3(fragPos);
     f16vec3 normal = f16vec3(normalize(fragNormal));
-    f16vec3 illumination = f16vec3(0.005hf) * diffuse;
+    f16vec3 diffuse = f16vec3(0.005hf);
 
-    f16vec3 viewDir = f16vec3(normalize(pushConstants.cameraPosition - fragPos));
+    f16vec3 viewDir = f16vec3(normalize(pushConstants.cameraPosition - position));
 
     for (uint i = 0; i < numLightsInTile; i++) {
         Light light = lights[visibilities[tileIndex].indices[i]];
@@ -48,14 +50,17 @@ void main() {
         f16vec4 lightPosition = light.position;
         f16vec4 lightColor = light.color;
 
-        float16_t lightDist = distance(lightPosition.xyz, f16vec3(fragPos));
-        f16vec3 lightDir = (lightPosition.xyz - f16vec3(fragPos)) / lightDist;
+        float16_t lightDist = distance(lightPosition.xyz, position);
+        f16vec3 lightDir = (lightPosition.xyz - position) / lightDist;
 
         float16_t lambertian = max(dot(normal, lightDir), 0.0hf);
-        float16_t spec = pow(max(dot(normal, normalize(lightDir + viewDir)), 0.0hf), 128.0hf);
-        float16_t attenuation = clamp(1.0hf / dot(lightDist, lightDist), 0.0hf, 1.0hf);
-        illumination += (lambertian * diffuse + spec) * lightColor.xyz * lightColor.w * attenuation;
+        float16_t distSquared = dot(lightDist, lightDist);
+        float16_t attenuation = clamp(1.0hf / distSquared, 0.0hf, 1.0hf);
+        f16vec3 halfDist = normalize(lightDir + viewDir);
+        float16_t specular = pow(clamp(dot(normal, halfDist), 0.0hf, 1.0hf), 32.0hf);
+
+        diffuse += (lambertian + specular) * lightColor.xyz * lightColor.w * attenuation;
     }
 
-    outColor = vec4(illumination, 1.0f);
+    outColor = vec4(diffuse , 1.0f) * texture(colorTexture, fragUV);
 }

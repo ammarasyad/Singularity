@@ -28,8 +28,9 @@ layout(location = 2) out vec3 fragPos;
 
 void main() {
     Vertex v = pushConstants.vertexBuffer.vertices[gl_VertexIndex];
+    vec4 pos = pushConstants.worldMatrix * vec4(v.position, 1.0);
 
-    gl_Position = sceneData.worldMatrix * pushConstants.worldMatrix * vec4(v.position, 1.0);
+    gl_Position = sceneData.worldMatrix * pos;
 
     fragPos = (pushConstants.worldMatrix * vec4(v.position, 1.0)).xyz;
     fragNormal = v.normal;

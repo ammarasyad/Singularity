@@ -1,12 +1,12 @@
 #version 460
 #extension GL_GOOGLE_include_directive : require
-#extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
 
 #include "tiled_shading.glsl"
 
 layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
 
 layout(std430, set = 0, binding = 0) buffer writeonly frustumBuffer {
+    FrustumAABB frustumAABB;
     LightVisibility visibleLightIndices[];
 };
 
@@ -48,6 +48,8 @@ void main() {
     vec3 minPointFar = LineIntersectionWithZPlane(eye, minTile, planes.y);
     vec3 maxPointFar = LineIntersectionWithZPlane(eye, maxTile, planes.y);
 
-    visibleLightIndices[tileIndex].minPoint = vec4(min(minPointNear, minPointFar), 0.0);
-    visibleLightIndices[tileIndex].maxPoint = vec4(max(maxPointNear, maxPointFar), 0.0);
+    frustumAABB.minPoint = vec4(min(minPointNear, minPointFar), 0.0);
+    frustumAABB.maxPoint = vec4(max(maxPointNear, maxPointFar), 0.0);
+//    visibleLightIndices[tileIndex].minPoint = vec4(min(minPointNear, minPointFar), 0.0);
+//    visibleLightIndices[tileIndex].maxPoint = vec4(max(maxPointNear, maxPointFar), 0.0);
 }
