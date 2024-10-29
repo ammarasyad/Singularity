@@ -9,6 +9,7 @@
 #include <optional>
 #include <vector>
 #include <detail/type_half.hpp>
+#include <omp.h>
 
 #include "camera.h"
 #include "objects/material.h"
@@ -60,7 +61,7 @@ struct SceneData {
     glm::mat4 worldMatrix;
 };
 
-#define MAX_LIGHTS 24
+#define MAX_LIGHTS 1
 
 struct Light {
     uint32_t lightCount;
@@ -90,11 +91,12 @@ struct FrustumPushConstants {
 class VkRenderer {
     struct QueueFamilyIndices {
         std::optional<uint32_t> graphicsFamily;
+        std::optional<uint32_t> transferFamily;
         std::optional<uint32_t> computeFamily;
         std::optional<uint32_t> presentFamily;
 
         [[nodiscard]] bool IsComplete() const {
-            return graphicsFamily.has_value() && computeFamily.has_value() && presentFamily.has_value();
+            return graphicsFamily.has_value() && transferFamily.has_value() && computeFamily.has_value() && presentFamily.has_value();
         }
     } queueFamilyIndices;
 public:
@@ -140,6 +142,10 @@ public:
 
     [[nodiscard]] VkQueue graphics_queue() const {
         return graphicsQueue;
+    }
+
+    [[nodiscard]] VkQueue transfer_queue() const {
+        return transferQueue;
     }
 
     [[nodiscard]] VkSurfaceFormatKHR surface_format() const {
@@ -222,6 +228,26 @@ public:
         vkFreeCommandBuffers(device, immediateCommandPool, 1, &commandBuffer);
     }
 
+//    const std::vector<VkCommandPool> &threaded_command_pools() {
+//        return commandPools;
+//    }
+//
+//    void SubmitMultithreadedCommandBuffers(const std::vector<VkCommandBuffer> &commandBuffers) const {
+//        const VkSubmitInfo submitInfo{
+//                .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+//                .pNext = VK_NULL_HANDLE,
+//                .commandBufferCount = static_cast<uint32_t>(commandBuffers.size()),
+//                .pCommandBuffers = commandBuffers.data()
+//        };
+//
+//        VK_CHECK(vkQueueSubmit(graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE));
+//        VK_CHECK(vkQueueWaitIdle(graphicsQueue));
+//
+//        for (size_t i = 0; i < commandBuffers.size(); i++) {
+//            vkResetCommandPool(device, commandPools[i], 0);
+//        }
+//    }
+
     void FramebufferNeedsResizing();
     void Screenshot();
 private:
@@ -302,6 +328,7 @@ private:
     VkPipelineCache pipelineCache{};
     VkQueue graphicsQueue{};
     VkQueue computeQueue{};
+    VkQueue transferQueue{};
     VkQueue presentQueue{};
     VkSwapchainKHR swapChain{};
     VkSurfaceFormatKHR surfaceFormat{};
@@ -341,6 +368,7 @@ private:
 
     std::array<FrameData, MAX_FRAMES_IN_FLIGHT> frames;
     VkCommandPool immediateCommandPool{};
+//    std::vector<VkCommandPool> commandPools{};
     VkCommandPool computeCommandPool{};
 
     std::vector<VkFramebuffer> swapChainFramebuffers{};

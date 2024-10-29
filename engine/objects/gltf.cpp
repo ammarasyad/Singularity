@@ -7,12 +7,13 @@
 #include <fastgltf/glm_element_traits.hpp>
 #include <stb_image.h>
 #include <ranges>
+#include <immintrin.h>
 
 #include "vk_renderer.h"
-#include "detail/type_quat.hpp"
 #include "gtc/quaternion.hpp"
+#include "threading/thread_pool.h"
 
-inline std::optional<VulkanImage> loadImage(VkRenderer *renderer, fastgltf::Asset &asset, fastgltf::Image &image) {
+inline static std::optional<VulkanImage> loadImage(VkRenderer *renderer, fastgltf::Asset &asset, fastgltf::Image &image) {
     VulkanImage vulkanImage{};
 
     int width, height, channels;
@@ -24,7 +25,7 @@ inline std::optional<VulkanImage> loadImage(VkRenderer *renderer, fastgltf::Asse
                 assert(filePath.fileByteOffset == 0);
                 assert(filePath.uri.isLocalPath());
 
-                const std::string path = "../assets/Sponza/" + std::string(filePath.uri.path().begin(), filePath.uri.path().end());
+                const std::string path = "../assets/main1_sponza/" + std::string(filePath.uri.path().begin(), filePath.uri.path().end());
                 uint8_t *data = stbi_load(path.c_str(), &width, &height, &channels, STBI_rgb_alpha);
                 if (data) {
                     VkExtent3D size{static_cast<uint32_t>(width), static_cast<uint32_t>(height), 1};
@@ -68,7 +69,48 @@ inline std::optional<VulkanImage> loadImage(VkRenderer *renderer, fastgltf::Asse
     return vulkanImage.image == VK_NULL_HANDLE ? std::nullopt : std::make_optional(vulkanImage);
 }
 
-inline VkFilter extractFilter(const fastgltf::Filter filter) {
+inline static void loadImageMultithreaded(fastgltf::Asset &asset, fastgltf::Image &image, uint32_t index, std::vector<LoadedImage> &loadedImages) {
+    thread_local int width, height, channels;
+
+    thread_local uint8_t *data;
+
+    std::visit(
+    fastgltf::visitor {
+            [](auto &arg) {},
+            [&](fastgltf::sources::URI &filePath) {
+                assert(filePath.fileByteOffset == 0);
+                assert(filePath.uri.isLocalPath());
+
+                const std::string path = "../assets/main1_sponza/" + std::string(filePath.uri.path().begin(), filePath.uri.path().end());
+                data = stbi_load(path.c_str(), &width, &height, &channels, STBI_rgb_alpha);
+                printf("Loading file: %s\n", filePath.uri.c_str());
+            },
+            [&](fastgltf::sources::Array &array) {
+                data = stbi_load_from_memory(reinterpret_cast<const stbi_uc *>(&array.bytes), static_cast<int>(array.bytes.size_bytes()), &width, &height, &channels, STBI_rgb_alpha);
+            },
+            [&](fastgltf::sources::BufferView &bufferView) {
+                assert(bufferView.bufferViewIndex < asset.bufferViews.size());
+                const auto &view = asset.bufferViews[bufferView.bufferViewIndex];
+                auto &buffer = asset.buffers[view.bufferIndex];
+
+                std::visit(fastgltf::visitor {
+                        [](auto &arg) {},
+                        [&](fastgltf::sources::Array &array) {
+                            data = stbi_load_from_memory(reinterpret_cast<const stbi_uc *>(array.bytes.data()) + view.byteOffset, static_cast<int>(view.byteLength), &width, &height, &channels, STBI_rgb_alpha);
+                        }
+                }, buffer.data);
+            }
+    }, image.data);
+
+
+    if (data) {
+        LoadedImage loadedImage{VkExtent3D{static_cast<uint32_t>(width), static_cast<uint32_t>(height), 1}, index, data};
+        LoadedImage::totalBytesSize.fetch_add(width * height * 4, std::memory_order_relaxed);
+        loadedImages[index] = loadedImage;
+    }
+}
+
+inline static VkFilter extractFilter(const fastgltf::Filter filter) {
     switch (filter) {
         case fastgltf::Filter::Linear:
         case fastgltf::Filter::LinearMipMapLinear:
@@ -84,7 +126,7 @@ inline VkFilter extractFilter(const fastgltf::Filter filter) {
     }
 }
 
-inline VkSamplerMipmapMode extractMipmapMode(const fastgltf::Filter filter) {
+inline static VkSamplerMipmapMode extractMipmapMode(const fastgltf::Filter filter) {
     switch (filter) {
         case fastgltf::Filter::LinearMipMapLinear:
         case fastgltf::Filter::NearestMipMapLinear:
@@ -98,7 +140,7 @@ inline VkSamplerMipmapMode extractMipmapMode(const fastgltf::Filter filter) {
     }
 }
 
-std::optional<LoadedGLTF> LoadGLTF(VkRenderer *renderer, const std::filesystem::path &path) {
+std::optional<LoadedGLTF> LoadGLTF(VkRenderer *renderer, bool multithread, const std::filesystem::path &path) {
     LoadedGLTF scene{};
     scene.renderer = renderer;
 
@@ -159,17 +201,51 @@ std::optional<LoadedGLTF> LoadGLTF(VkRenderer *renderer, const std::filesystem::
     std::vector<GLTFMaterial> materials;
     materials.reserve(gltf.materials.size());
 
-    for (auto &image : gltf.images) {
-        auto img = loadImage(renderer, gltf, image);
+    std::vector<LoadedImage> loadedImages;
+    loadedImages.resize(gltf.images.size());
 
-        if (img.has_value()) {
-            images.push_back(img.value());
-        } else {
-            std::cout << "Failed to load image: " << image.name << std::endl;
-            images.push_back(renderer->default_image());
+    auto memoryManager = renderer->memory_manager();
+
+    auto start = std::chrono::high_resolution_clock::now();
+    if (multithread) {
+        auto start_loop = std::chrono::high_resolution_clock::now();
+#pragma omp parallel for ordered shared(gltf, loadedImages) default(none) num_threads(std::thread::hardware_concurrency())
+        for (uint32_t i = 0; i < gltf.images.size(); i++) {
+            auto &image = gltf.images[i];
+            loadImageMultithreaded(gltf, image, i, loadedImages);
+        }
+        auto end_loop = std::chrono::high_resolution_clock::now();
+
+        std::cout << "Time to load images: " << std::chrono::duration_cast<std::chrono::milliseconds>(end_loop - start_loop).count() << "ms" << std::endl;
+
+        start_loop = std::chrono::high_resolution_clock::now();
+        images = memoryManager->createTexturesMultithreaded(loadedImages, renderer);
+        end_loop = std::chrono::high_resolution_clock::now();
+
+        std::cout << "Time to create textures: " << std::chrono::duration_cast<std::chrono::milliseconds>(end_loop - start_loop).count() << "ms" << std::endl;
+
+#pragma omp parallel for shared(loadedImages) default(none)
+        for (auto &loadedImage : loadedImages) {
+            stbi_image_free(loadedImage.data);
+        }
+
+        loadedImages.clear();
+    } else {
+        images.reserve(gltf.images.size());
+        for (auto &image: gltf.images) {
+            auto loadedImage = loadImage(renderer, gltf, image);
+            if (loadedImage.has_value()) {
+                images.push_back(loadedImage.value());
+            } else {
+                std::cerr << "Failed to load image" << std::endl;
+                images.push_back(renderer->default_image());
+            }
         }
     }
-    auto memoryManager = renderer->memory_manager();
+    auto end = std::chrono::high_resolution_clock::now();
+
+    std::cout << "Time to process images: " << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << "ms" << std::endl;
+
     scene.materialDataBuffer = memoryManager->createManagedBuffer(
             {sizeof(VkGLTFMetallic_Roughness::MaterialConstants) * gltf.materials.size(),
              VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
@@ -197,21 +273,22 @@ std::optional<LoadedGLTF> LoadGLTF(VkRenderer *renderer, const std::filesystem::
         auto passType = material.alphaMode == fastgltf::AlphaMode::Blend ? MaterialPass::Transparent : MaterialPass::MainColor;
 
         VkGLTFMetallic_Roughness::MaterialResources materialResources{};
-        materialResources.colorImage = renderer->default_image();
-        materialResources.colorSampler = renderer->default_sampler_linear();
-        materialResources.metalRoughImage = renderer->default_image();
-        materialResources.metalRoughSampler = renderer->default_sampler_linear();
-
-        materialResources.dataBuffer = scene.materialDataBuffer.buffer;
-        materialResources.offset = dataIndex * sizeof(VkGLTFMetallic_Roughness::MaterialConstants);
-
         if (material.pbrData.baseColorTexture.has_value()) {
             auto img = gltf.textures[material.pbrData.baseColorTexture.value().textureIndex].imageIndex.value();
             auto sampler = gltf.textures[material.pbrData.baseColorTexture.value().textureIndex].samplerIndex.value();
 
             materialResources.colorImage = images[img];
             materialResources.colorSampler = scene.samplers[sampler];
+        } else {
+            materialResources.colorImage = renderer->default_image();
+            materialResources.colorSampler = renderer->default_sampler_linear();
         }
+
+        materialResources.metalRoughImage = renderer->default_image();
+        materialResources.metalRoughSampler = renderer->default_sampler_linear();
+
+        materialResources.dataBuffer = scene.materialDataBuffer.buffer;
+        materialResources.offset = dataIndex * sizeof(VkGLTFMetallic_Roughness::MaterialConstants);
 
         auto device = renderer->logical_device();
         newMaterial.data = renderer->metal_rough_material().writeMaterial(device, passType, materialResources, scene.descriptorAllocator);
@@ -231,7 +308,7 @@ std::optional<LoadedGLTF> LoadGLTF(VkRenderer *renderer, const std::filesystem::
         indices.clear();
         vertices.clear();
 
-        for (auto &&primitive: primitives) {
+        for (auto &primitive: primitives) {
             GeoSurface geoSurface{
                     static_cast<uint32_t>(indices.size()),
                     static_cast<uint32_t>(gltf.accessors[primitive.indicesAccessor.value()].count)
@@ -292,11 +369,7 @@ std::optional<LoadedGLTF> LoadGLTF(VkRenderer *renderer, const std::filesystem::
                                                               });
             }
 
-            if (primitive.materialIndex.has_value()) {
-                geoSurface.material = materials[primitive.materialIndex.value()];
-            } else {
-                geoSurface.material = materials[0];
-            }
+            geoSurface.material = materials[primitive.materialIndex.value() * primitive.materialIndex.has_value()];
 
             glm::vec3 minPos = vertices[initialVerticesSize].pos;
             glm::vec3 maxPos = vertices[initialVerticesSize].pos;

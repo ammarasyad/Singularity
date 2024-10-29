@@ -1,5 +1,7 @@
 #include "vk_memory.h"
 #include <ranges>
+#include <thread>
+#include <iostream>
 
 #include "../../vk_renderer.h"
 
@@ -88,22 +90,22 @@ void VkMemoryManager::stagingBuffer(VkDeviceSize bufferSize, const std::function
 
     VmaAllocationCreateInfo allocationCreateInfo{
             allocationFlags,
-            VMA_MEMORY_USAGE_AUTO,
-            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+            VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE,
+            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
     };
 
     if (pool)
         allocationCreateInfo.pool = pool;
 
-    vmaCreateBuffer(allocator, &bufferCreateInfo, &allocationCreateInfo, &stagingBuffer, &allocation, &allocationInfo);
+    VK_CHECK(vmaCreateBuffer(allocator, &bufferCreateInfo, &allocationCreateInfo, &stagingBuffer, &allocation, &allocationInfo));
 
     if (isIntegratedGPU) {
-        vmaMapMemory(allocator, allocation, &allocationInfo.pMappedData);
+        VK_CHECK(vmaMapMemory(allocator, allocation, &allocationInfo.pMappedData));
         mappedMemoryTask(stagingBuffer, allocationInfo.pMappedData);
         vmaUnmapMemory(allocator, allocation);
     } else {
         void *data;
-        vmaMapMemory(allocator, allocation, &data);
+        VK_CHECK(vmaMapMemory(allocator, allocation, &data));
         mappedMemoryTask(stagingBuffer, data);
         vmaUnmapMemory(allocator, allocation);
     }
@@ -154,7 +156,7 @@ VulkanBuffer VkMemoryManager::createUnmanagedBuffer(const VulkanBufferCreateInfo
     if (pool)
         allocationCreateInfo.pool = pool;
 
-    vmaCreateBufferWithAlignment(allocator, &bufferCreateInfo, &allocationCreateInfo, minAlignment, &buffer, &allocation, &allocationInfo);
+    VK_CHECK(vmaCreateBuffer(allocator, &bufferCreateInfo, &allocationCreateInfo, &buffer, &allocation, &allocationInfo));
 
     VulkanBuffer trackedBuffer{buffer, allocation};
     return trackedBuffer;
@@ -194,7 +196,7 @@ VulkanImage VkMemoryManager::createUnmanagedImage(const VulkanImageCreateInfo &i
     if (pool)
         allocationCreateInfo.pool = pool;
 
-    vmaCreateImage(allocator, &imageCreateInfo, &allocationCreateInfo, &image, &allocation, &allocationInfo);
+    VK_CHECK(vmaCreateImage(allocator, &imageCreateInfo, &allocationCreateInfo, &image, &allocation, &allocationInfo));
 
     VulkanImage untrackedImage{image, VK_NULL_HANDLE, allocation, imageCreateInfo.extent, imageCreateInfo.format};
 
@@ -338,7 +340,7 @@ VulkanImage VkMemoryManager::createTexture(void *data, VkRenderer *renderer, VkE
 
             if (mipmapped) {
                 generateMipmaps(commandBuffer, newTexture, {size.width, size.height});
-            }else {
+            } else {
                 TransitionImage(commandBuffer, newTexture, VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
             }
         });
@@ -346,6 +348,148 @@ VulkanImage VkMemoryManager::createTexture(void *data, VkRenderer *renderer, VkE
 
     stagingBuffer(dataSize, textureCreation);
     return newTexture;
+}
+
+std::vector<VulkanImage> VkMemoryManager::createTexturesMultithreaded(const std::vector<LoadedImage> &loadedImages, VkRenderer *renderer) {
+//    std::vector<VkCommandBuffer> tempCommandBuffers(std::thread::hardware_concurrency());
+    uint64_t maxImageSize = 0;
+    for (const auto &loadedImage : loadedImages) {
+        maxImageSize = std::max(maxImageSize, static_cast<uint64_t>(loadedImage.size.width * loadedImage.size.height * 4));
+    }
+
+    auto imageBuffer = createUnmanagedBuffer({
+         maxImageSize,
+         VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+         VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
+         VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE,
+         VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+    });
+
+    uint8_t *mappedData;
+    mapBuffer(imageBuffer, reinterpret_cast<void **>(&mappedData));
+
+    std::vector<VulkanImage> images;
+    images.reserve(loadedImages.size());
+
+//    for (size_t i = 0; i < tempCommandBuffers.size(); i++) {
+//        const VkCommandBufferAllocateInfo allocateInfo{
+//            VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+//            VK_NULL_HANDLE,
+//            renderer->threaded_command_pools()[i],
+//            VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+//            1
+//        };
+//
+//        VK_CHECK(vkAllocateCommandBuffers(device, &allocateInfo, &tempCommandBuffers[i]));
+//
+//        constexpr VkCommandBufferBeginInfo beginInfo{
+//                VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+//                VK_NULL_HANDLE,
+//                VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT
+//        };
+//
+//        VK_CHECK(vkBeginCommandBuffer(tempCommandBuffers[i], &beginInfo));
+//    }
+
+    for (const auto &loadedImage : loadedImages) {
+        auto texture = createTexture(loadedImage.size, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, true);
+        auto size = loadedImage.size;
+
+        memcpy(mappedData, loadedImage.data, size.width * size.height * 4);
+
+        renderer->ImmediateSubmit([&](auto &commandBuffer){
+            TransitionImage(commandBuffer, texture, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, 0,
+                            VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT,
+                            VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+
+            VkBufferImageCopy copyRegion{
+                    0,
+                    0,
+                    0,
+                    {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
+                    {0, 0, 0},
+                    size
+            };
+
+            vkCmdCopyBufferToImage(commandBuffer, imageBuffer.buffer, texture.image,
+                                   VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copyRegion);
+
+            generateMipmaps(commandBuffer, texture, {size.width, size.height});
+        });
+
+        images.emplace_back(texture);
+    }
+
+//#pragma omp parallel for ordered shared(renderer, loadedImages, imageBuffer, images, tempCommandBuffers, mappedData) default(none) num_threads(std::thread::hardware_concurrency())
+//    for (uint32_t i = 0; i < loadedImages.size(); i++) {
+//        const auto &loadedImage = loadedImages[i];
+//        auto texture = createTexture(loadedImage.size, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, true);
+//        auto size = loadedImage.size;
+//        auto &commandBuffer = tempCommandBuffers[omp_get_thread_num()];
+//
+//        constexpr VkCommandBufferBeginInfo beginInfo{
+//                VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+//                VK_NULL_HANDLE,
+//                VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT
+//        };
+//
+//#pragma omp ordered
+//        {
+//            printf("Thread %d processing image %d\n", omp_get_thread_num(), i);
+//            VK_CHECK(vkBeginCommandBuffer(commandBuffer, &beginInfo));
+//
+//            TransitionImage(commandBuffer, texture, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, 0,
+//                            VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT,
+//                            VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+//
+//            VkBufferImageCopy copyRegion{
+//                    0,
+//                    0,
+//                    0,
+//                    {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
+//                    {0, 0, 0},
+//                    size
+//            };
+//
+////#pragma omp critical
+////        {
+//            memcpy(mappedData, loadedImage.data, size.width * size.height * 4);
+////        }
+//
+//            vkCmdCopyBufferToImage(commandBuffer, imageBuffer.buffer, texture.image,
+//                                   VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copyRegion);
+//            generateMipmaps(commandBuffer, texture, {size.width, size.height});
+//
+//            VK_CHECK(vkEndCommandBuffer(commandBuffer));
+//
+////#pragma omp ordered
+////        {
+//            const VkSubmitInfo submitInfo{
+//                    .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+//                    .pNext = VK_NULL_HANDLE,
+//                    .commandBufferCount = 1,
+//                    .pCommandBuffers = &commandBuffer
+//            };
+//
+//            VK_CHECK(vkQueueSubmit(renderer->graphics_queue(), 1, &submitInfo, VK_NULL_HANDLE));
+//            VK_CHECK(vkQueueWaitIdle(renderer->graphics_queue()));
+//
+//            images.emplace_back(texture);
+//        }
+////        }
+//    }
+
+//    for (const auto &commandBuffer : tempCommandBuffers) {
+//        VK_CHECK(vkEndCommandBuffer(commandBuffer));
+//    }
+
+//    renderer->SubmitMultithreadedCommandBuffers(tempCommandBuffers);
+//    tempCommandBuffers.clear();
+
+    unmapBuffer(imageBuffer);
+    destroyBuffer(imageBuffer, false);
+
+    return images;
 }
 
 VulkanImage VkMemoryManager::createKtxCubemap(ktxTexture *texture, VkRenderer *renderer, VkFormat format) {

@@ -103,10 +103,12 @@ foreach (FILE ${SHADER_FILES})
 endforeach ()
 
 if (COMPILE_AVX2)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mavx2")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mavx2 -mfma")
 endif ()
+
+target_compile_options(Singularity PRIVATE -fopenmp)
 
 add_dependencies(Singularity shaders)
 target_include_directories(Singularity PRIVATE imgui third_party/glm third_party/fastgltf/include #[[third_party/libpng]])
-target_link_options(Singularity PRIVATE -static)
+target_link_options(Singularity PRIVATE -static -fopenmp)
 target_link_libraries(Singularity PRIVATE d3d12.lib dxgi.lib d3dcompiler.lib glfw #[[png]] fastgltf imgui D3D12MemoryAllocator Vulkan::Vulkan KTX::ktx GPUOpen::VulkanMemoryAllocator)

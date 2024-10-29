@@ -7,7 +7,7 @@
 #include <vk_mem_alloc.h>
 #include <glm.hpp>
 
-#define VK_CHECK(x) do { VkResult err = x; if (err) { printf("Detected Vulkan error: %d\n", err); abort(); } } while (0)
+#define VK_CHECK(x) do { VkResult err = x; if (err) { printf(#x ", file: " __FILE__ ", line %d: %d\n", __LINE__, err); abort(); } } while (0)
 
 struct Mesh {
     VkBuffer indexBuffer;

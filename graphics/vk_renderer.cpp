@@ -1,19 +1,18 @@
 #include <iostream>
 #include <set>
 #include <algorithm>
-#include <chrono>
-#include "vk_renderer.h"
-
-#include <imgui_impl_vulkan.h>
+#include <random>
+#include <ktx.h>
+#include <thread>
 #include <ranges>
-#include "vk/memory/vk_mesh_assets.h"
+#include <imgui_impl_vulkan.h>
 
+#include "vk_renderer.h"
+#include "vk/memory/vk_mesh_assets.h"
 #include "file.h"
 #include "vk/vk_gui.h"
 #include "vk/vk_pipeline_builder.h"
 #include "ext/matrix_transform.hpp"
-#include <random>
-#include <ktx.h>
 
 // TODO: I give up trying to set up libpng
 // Workaround for png++
@@ -104,7 +103,7 @@ VkRenderer::VkRenderer(GLFWwindow *window, Camera *camera, const bool dynamicRen
     CreateSyncObjects();
 
     auto start = std::chrono::high_resolution_clock::now();
-    auto structureFile = LoadGLTF(this, "../assets/Sponza/Sponza.gltf");
+    auto structureFile = LoadGLTF(this, true, "../assets/main1_sponza/NewSponza_Main_glTF_003.gltf");
     auto end = std::chrono::high_resolution_clock::now();
 
     std::cout << "Loading took " << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << "ms" << std::endl;
@@ -954,7 +953,7 @@ void VkRenderer::CreateLogicalDevice() {
 
     std::vector<VkDeviceQueueCreateInfo> queueCreateInfos;
     std::set uniqueQueueFamilies = {
-        queueFamilyIndices.graphicsFamily.value(), queueFamilyIndices.presentFamily.value()
+        queueFamilyIndices.graphicsFamily.value(), queueFamilyIndices.transferFamily.value(), queueFamilyIndices.computeFamily.value(), queueFamilyIndices.presentFamily.value()
     };
     size_t queueCount = uniqueQueueFamilies.size();
 
@@ -1064,6 +1063,7 @@ void VkRenderer::CreateLogicalDevice() {
     VK_CHECK(vkCreateDevice(physicalDevice, &createInfo, VK_NULL_HANDLE, &device));
 
     vkGetDeviceQueue(device, queueFamilyIndices.graphicsFamily.value(), 0, &graphicsQueue);
+    vkGetDeviceQueue(device, queueFamilyIndices.transferFamily.value(), 0, &transferQueue);
     if (asyncCompute)
         vkGetDeviceQueue(device, queueFamilyIndices.computeFamily.value(), 0, &computeQueue);
 
@@ -1516,6 +1516,11 @@ void VkRenderer::CreateCommandPool() {
         VK_CHECK(vkCreateCommandPool(device, &poolInfo, VK_NULL_HANDLE, &frames[i].commandPool));
     }
 
+//    commandPools.resize(std::thread::hardware_concurrency());
+//    for (auto & commandPool : commandPools) {
+//        VK_CHECK(vkCreateCommandPool(device, &poolInfo, VK_NULL_HANDLE, &commandPool));
+//    }
+
     if (asyncCompute) {
         poolInfo.queueFamilyIndex = queueFamilyIndices.computeFamily.value();
         VK_CHECK(vkCreateCommandPool(device, &poolInfo, VK_NULL_HANDLE, &computeCommandPool));
@@ -1655,6 +1660,10 @@ void VkRenderer::FindQueueFamilies(const VkPhysicalDevice &gpu) {
     for (const auto &queueFamily: queueFamilies) {
         if (queueFamily.queueFlags & VK_QUEUE_GRAPHICS_BIT) {
             queueFamilyIndices.graphicsFamily = i;
+        }
+
+        if (queueFamily.queueFlags & VK_QUEUE_TRANSFER_BIT && !(queueFamily.queueFlags & (VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT))) {
+            queueFamilyIndices.transferFamily = i;
         }
 
         if (asyncCompute) {
@@ -1838,14 +1847,14 @@ void VkRenderer::CreateRandomLights() {
     std::random_device rd;
     std::mt19937 gen(rd());
 
-    std::uniform_real_distribution<float> disXZ(-9.f, 9.f);
-    std::uniform_real_distribution<float> disY(0.5f, 7.f);
-
-    std::uniform_real_distribution<float> disColor(0.f, 1.f);
+//    std::uniform_real_distribution<float> disXZ(-9.f, 9.f);
+//    std::uniform_real_distribution<float> disY(0.5f, 7.f);
+//
+//    std::uniform_real_distribution<float> disColor(0.f, 1.f);
 
     for (size_t i = 0; i < totalLights->lightCount; i++) {
-        totalLights->lights[i].position = {disXZ(gen), 5.0f, disXZ(gen), 50.f};
-        totalLights->lights[i].color = {disColor(gen), disColor(gen), disColor(gen), 1.f};
+        totalLights->lights[i].position = {0.0f, 10.0f, 0.0f, 500.f};
+        totalLights->lights[i].color = {1.0f, 1.0f, 1.0f, 50.f};
     }
 
     lightUniformBuffer = memoryManager->createManagedBuffer(

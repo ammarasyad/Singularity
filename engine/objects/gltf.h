@@ -19,6 +19,6 @@ struct LoadedGLTF {
     VkRenderer *renderer;
 };
 
-std::optional<LoadedGLTF> LoadGLTF(VkRenderer *renderer, const std::filesystem::path &path);
+std::optional<LoadedGLTF> LoadGLTF(VkRenderer *renderer, bool multithread, const std::filesystem::path &path);
 
 #endif //GLTF_H

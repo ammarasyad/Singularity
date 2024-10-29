@@ -87,8 +87,6 @@ static inline void SaveToBitmap(const std::filesystem::path &filename, char *dat
     file.write(reinterpret_cast<const char *>(&bitmap.colorHeader), sizeof(BitmapColorHeader));
 
     for (uint32_t y = 0; y < height; y++) {
-        // idk if these pragma directives work tbh
-#pragma omp parallel for ordered
         for (uint32_t x = 0; x < rowPitch; x += 32) {
             __m256i bgra = _mm256_loadu_si256(reinterpret_cast<const __m256i *>(data + y * rowPitch + x));
 
@@ -96,7 +94,6 @@ static inline void SaveToBitmap(const std::filesystem::path &filename, char *dat
             const __m256i mask = _mm256_setr_epi8(2, 1, 0, 3, 6, 5, 4, 7, 10, 9, 8, 11, 14, 13, 12, 15, 2, 1, 0, 3, 6, 5, 4, 7, 10, 9, 8, 11, 14, 13, 12, 15);
             const __m256i rgba = _mm256_shuffle_epi8(bgra, mask);
 
-#pragma omp ordered
             file.write(reinterpret_cast<const char *>(&rgba), 32);
         }
     }
