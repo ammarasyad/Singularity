@@ -420,6 +420,7 @@ std::optional<LoadedGLTF> LoadGLTF(VkRenderer *renderer, bool multithread, const
         fastgltf::Node &node = gltf.nodes[i];
         std::shared_ptr<Node> &sceneNode = nodes[i];
 
+        sceneNode->children.reserve(node.children.size());
         for (auto &c : node.children) {
             nodes[c]->parent = sceneNode;
             sceneNode->children.push_back(nodes[c]);
