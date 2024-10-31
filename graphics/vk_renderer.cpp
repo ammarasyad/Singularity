@@ -549,7 +549,6 @@ void VkRenderer::DrawDepthPrepass(const std::vector<size_t> &drawIndices) {
 
     if (dynamicRendering) {
         vkCmdEndRendering(depthPrepassCommandBuffer);
-        TransitionImage(depthPrepassCommandBuffer, depthImage, VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT, VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL);
     } else {
         vkCmdEndRenderPass(depthPrepassCommandBuffer);
     }
@@ -636,7 +635,7 @@ void VkRenderer::Draw(const VkCommandBuffer &commandBuffer, uint32_t imageIndex,
     VulkanImage swapChainImage{swapChainImages[imageIndex], swapChainImageViews[imageIndex], VK_NULL_HANDLE, {swapChainExtent.width, swapChainExtent.height, 1}, surfaceFormat.format};
 
     if (dynamicRendering) {
-        TransitionImage(commandBuffer, swapChainImage, VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT, 0, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+        TransitionImage(commandBuffer, swapChainImage, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, 0, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 
         VkRenderingAttachmentInfo colorAttachment{
             VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
@@ -736,7 +735,7 @@ void VkRenderer::Draw(const VkCommandBuffer &commandBuffer, uint32_t imageIndex,
     ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), commandBuffer);
     if (dynamicRendering) {
         vkCmdEndRendering(commandBuffer);
-        TransitionImage(commandBuffer, swapChainImage, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT, VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, VK_ACCESS_2_MEMORY_READ_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+        TransitionImage(commandBuffer, swapChainImage, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT, VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, 0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
     } else {
         vkCmdEndRenderPass(commandBuffer);
     }
