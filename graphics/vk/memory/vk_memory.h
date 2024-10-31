@@ -76,6 +76,8 @@ public:
     std::vector<VulkanImage> createTexturesMultithreaded(const std::vector<LoadedImage> &loadedImages, VkRenderer *renderer);
     VulkanImage createKtxCubemap(ktxTexture *texture, VkRenderer *renderer, VkFormat format);
 
+    void copyToBuffer(const VulkanBuffer &buffer, const void *data, VkDeviceSize size, VkDeviceSize offset = 0) const;
+
     void mapBuffer(const VulkanBuffer &buffer, void **data);
     void mapImage(const VulkanImage &vkImage, void **data);
 
@@ -83,7 +85,6 @@ public:
     void unmapImage(const VulkanImage &vkImage);
 
     void destroyBuffer(const VulkanBuffer &buffer, bool tracked = true);
-
     void destroyImage(const VulkanImage &vkImage, bool tracked = true);
 
     [[nodiscard]] VmaAllocator getAllocator() const {

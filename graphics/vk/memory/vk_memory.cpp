@@ -604,6 +604,10 @@ VulkanImage VkMemoryManager::createKtxCubemap(ktxTexture *texture, VkRenderer *r
     return trackedImage;
 }
 
+void VkMemoryManager::copyToBuffer(const VulkanBuffer &buffer, const void *data, VkDeviceSize size, VkDeviceSize offset) const {
+    VK_CHECK(vmaCopyMemoryToAllocation(allocator, data, buffer.allocation, offset, size));
+}
+
 void VkMemoryManager::mapBuffer(const VulkanBuffer &buffer, void **data) {
     VK_CHECK(vmaMapMemory(allocator, buffer.allocation, data));
 }

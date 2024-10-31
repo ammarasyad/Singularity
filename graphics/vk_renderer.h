@@ -316,7 +316,7 @@ private:
 
     inline void UpdateScene(EngineStats &stats);
 
-    inline void DrawObject(const VkCommandBuffer &commandBuffer, const VkRenderObject &draw, const VkDescriptorSet &sceneDescriptorSet, VkMaterialPipeline &lastPipeline, VkMaterialInstance &lastMaterialInstance, VkBuffer &lastIndexBuffer);
+    inline void DrawObject(const VkCommandBuffer &commandBuffer, const VkRenderObject &draw, VkMaterialPipeline &lastPipeline, VkMaterialInstance &lastMaterialInstance, VkBuffer &lastIndexBuffer);
     inline void DrawDepthPrepass(const std::vector<size_t> &drawIndices);
 
     inline void ComputeFrustum();
@@ -348,6 +348,9 @@ private:
     VkDescriptorSet mainDescriptorSet{};
     VkDescriptorSetLayout mainDescriptorSetLayout{};
     VkDescriptorSetLayout sceneDescriptorSetLayout{};
+
+    VkDescriptorSet sceneDescriptorSet{};
+    VulkanBuffer sceneDataBuffer{};
 
     VkPipeline depthPrepassPipeline{};
     VkPipelineLayout depthPrepassPipelineLayout{};

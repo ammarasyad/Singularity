@@ -112,6 +112,12 @@ VkRenderer::VkRenderer(GLFWwindow *window, Camera *camera, const bool dynamicRen
 
     loadedScenes["structure"] = structureFile.value();
 
+    sceneDataBuffer = memoryManager->createManagedBuffer(
+            {sizeof(SceneData), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
+             VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE,
+             VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+             VK_MEMORY_PROPERTY_HOST_COHERENT_BIT});
+
     CreateRandomLights();
     CreateSkybox();
     ComputeFrustum();
@@ -423,7 +429,7 @@ bool isObjectVisible(const VkRenderObject &obj, const glm::mat4 &viewProjection)
     return min.z < 1.f && max.z > 0.f && min.x < 1.f && max.x > -1.f && min.y < 1.f && max.y > -1.f;
 }
 
-void VkRenderer::DrawObject(const VkCommandBuffer &commandBuffer, const VkRenderObject &draw, const VkDescriptorSet &sceneDescriptorSet, VkMaterialPipeline &lastPipeline, VkMaterialInstance &lastMaterialInstance, VkBuffer &lastIndexBuffer) {
+void VkRenderer::DrawObject(const VkCommandBuffer &commandBuffer, const VkRenderObject &draw, VkMaterialPipeline &lastPipeline, VkMaterialInstance &lastMaterialInstance, VkBuffer &lastIndexBuffer) {
     if (lastMaterialInstance != *draw.materialInstance) {
         lastMaterialInstance = *draw.materialInstance;
 
@@ -512,7 +518,7 @@ void VkRenderer::DrawDepthPrepass(const std::vector<size_t> &drawIndices) {
     vkCmdBindPipeline(depthPrepassCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, depthPrepassPipeline);
     vkCmdSetViewport(depthPrepassCommandBuffer, 0, 1, &viewport);
     vkCmdSetScissor(depthPrepassCommandBuffer, 0, 1, &scissor);
-    vkCmdBindDescriptorSets(depthPrepassCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, depthPrepassPipelineLayout, 0, 1, &depthPrepassDescriptorSet, 0, VK_NULL_HANDLE);
+    vkCmdBindDescriptorSets(depthPrepassCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, depthPrepassPipelineLayout, 0, 1, &sceneDescriptorSet, 0, VK_NULL_HANDLE);
 
     VkBuffer lastIndexBuffer = VK_NULL_HANDLE;
 
@@ -588,28 +594,6 @@ void VkRenderer::Draw(const VkCommandBuffer &commandBuffer, uint32_t imageIndex,
             return surfaceA.materialInstance < surfaceB.materialInstance;
         }
     });
-
-    auto buffer = memoryManager->createUnmanagedBuffer({sizeof(SceneData), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-                                                        VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
-                                                        VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT});
-    frames[currentFrame].frameCallbacks.emplace_back([&, buffer] {
-        memoryManager->unmapBuffer(buffer);
-        memoryManager->destroyBuffer(buffer, false);
-    });
-
-    SceneData *data;
-    memoryManager->mapBuffer(buffer, reinterpret_cast<void **>(&data));
-    memcpy(data, &sceneData, sizeof(SceneData));
-
-    static std::array layouts = {sceneDescriptorSetLayout};
-    auto sceneDescriptorSet = frames[currentFrame].frameDescriptors.Allocate(device, layouts);
-
-    {
-        DescriptorWriter writer;
-        writer.WriteBuffer(0, buffer.buffer, 0, sizeof(SceneData), VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
-        writer.UpdateSet(device, sceneDescriptorSet);
-        writer.UpdateSet(device, depthPrepassDescriptorSet);
-    }
 
     DrawDepthPrepass(drawIndices);
 
@@ -721,13 +705,13 @@ void VkRenderer::Draw(const VkCommandBuffer &commandBuffer, uint32_t imageIndex,
 
     for (const auto &i : drawIndices) {
         const VkRenderObject &draw = mainDrawContext.opaqueSurfaces[i];
-        DrawObject(commandBuffer, draw, sceneDescriptorSet, lastPipeline, lastMaterialInstance, lastIndexBuffer);
+        DrawObject(commandBuffer, draw, lastPipeline, lastMaterialInstance, lastIndexBuffer);
         stats.drawCallCount++;
         stats.triangleCount += draw.indexCount / 3;
     }
 
     for (const auto &r : mainDrawContext.transparentSurfaces) {
-        DrawObject(commandBuffer, r, sceneDescriptorSet, lastPipeline, lastMaterialInstance, lastIndexBuffer);
+        DrawObject(commandBuffer, r, lastPipeline, lastMaterialInstance, lastIndexBuffer);
         stats.drawCallCount++;
         stats.triangleCount += r.indexCount / 3;
     }
@@ -1672,7 +1656,7 @@ void VkRenderer::CreateDescriptors() {
     mainDescriptorSet = mainDescriptorAllocator.Allocate(device, layouts);
 
     layouts = {sceneDescriptorSetLayout};
-    depthPrepassDescriptorSet = mainDescriptorAllocator.Allocate(device, layouts);
+    sceneDescriptorSet = mainDescriptorAllocator.Allocate(device, layouts);
 
     layouts = {skyboxDescriptorSetLayout};
     skyboxDescriptorSet = mainDescriptorAllocator.Allocate(device, layouts);
@@ -1839,6 +1823,7 @@ void VkRenderer::UpdateScene(EngineStats &stats) {
     auto proj = camera->ProjectionMatrix();
 
     sceneData.worldMatrix = proj * view;
+    memoryManager->copyToBuffer(sceneDataBuffer, &sceneData, sizeof(SceneData));
 
     auto rotation = glm::rotate(glm::mat4{1.f}, stats.frameTime / 1000.f, glm::vec3{0, 1, 0});
     for (auto &light : totalLights->lights) {
@@ -1943,6 +1928,10 @@ void VkRenderer::UpdateDepthComputeDescriptorSets() {
     writer.Clear();
     writer.WriteImage(0, skyboxImage.imageView, skyboxImage.sampler, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
     writer.UpdateSet(device, skyboxDescriptorSet);
+
+    writer.Clear();
+    writer.WriteBuffer(0, sceneDataBuffer.buffer, 0, sizeof(SceneData), VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
+    writer.UpdateSet(device, sceneDescriptorSet);
 }
 
 void VkRenderer::ComputeFrustum() {
