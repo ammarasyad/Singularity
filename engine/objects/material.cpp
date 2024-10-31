@@ -51,13 +51,16 @@ void VkGLTFMetallic_Roughness::buildPipelines(const VkRenderer *renderer) {
     builder.SetCullingMode(VK_CULL_MODE_BACK_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE);
     builder.EnableDepthTest(false, VK_COMPARE_OP_EQUAL);
 
-    // if (renderer->is_dynamic_rendering()) {
-    //     builder.SetColorAttachmentFormat(renderer->draw_image().format);
-    // }
-    opaquePipeline.pipeline = builder.Build(false, device, renderer->pipeline_cache(), renderer->render_pass());
+    bool dynamicRendering = renderer->is_dynamic_rendering();
+    if (dynamicRendering) {
+         builder.SetColorAttachmentFormat(renderer->surface_format().format);
+         builder.SetDepthFormat(renderer->depth_format());
+    }
+
+    opaquePipeline.pipeline = builder.Build(dynamicRendering, device, renderer->pipeline_cache(), renderer->render_pass());
 
     builder.EnableBlendingAdditive();
-    transparentPipeline.pipeline = builder.Build(false, device, renderer->pipeline_cache(), renderer->render_pass());
+    transparentPipeline.pipeline = builder.Build(dynamicRendering, device, renderer->pipeline_cache(), renderer->render_pass());
 
     builder.DestroyShaderModules(device);
 }

@@ -63,6 +63,7 @@ VkGui::VkGui(const int width, const int height, const bool dynamicRendering, con
     const auto pipelineCache = renderer->pipeline_cache();
 
     const auto format = renderer->surface_format().format;
+    const auto depthFormat = renderer->depth_format();
 
     CreateImGuiDescriptorPool();
 
@@ -94,7 +95,8 @@ VkGui::VkGui(const int width, const int height, const bool dynamicRendering, con
         initInfo.PipelineRenderingCreateInfo = {
             .sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO,
             .colorAttachmentCount = 1,
-            .pColorAttachmentFormats = &format
+            .pColorAttachmentFormats = &format,
+            .depthAttachmentFormat = depthFormat,
         };
     }
 

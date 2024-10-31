@@ -468,17 +468,46 @@ void VkRenderer::DrawDepthPrepass(const std::vector<size_t> &drawIndices) {
         .depthStencil = {1.0f, 0}
     };
 
-    VkRenderPassBeginInfo renderPassInfo{
-        VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
-        VK_NULL_HANDLE,
-        depthPrepassRenderPass,
-        depthPrepassFramebuffer,
-        {{0, 0}, swapChainExtent},
-        1,
-        &depthPrepassClearValue
-    };
+    if (dynamicRendering) {
+        VkRenderingAttachmentInfo attachmentInfo{
+            VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
+            VK_NULL_HANDLE,
+            depthImage.imageView,
+            VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+            VK_RESOLVE_MODE_NONE,
+            VK_NULL_HANDLE,
+            VK_IMAGE_LAYOUT_UNDEFINED,
+            VK_ATTACHMENT_LOAD_OP_CLEAR,
+            VK_ATTACHMENT_STORE_OP_STORE,
+            depthPrepassClearValue
+        };
 
-    vkCmdBeginRenderPass(depthPrepassCommandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+        VkRenderingInfo renderingInfo{
+            VK_STRUCTURE_TYPE_RENDERING_INFO,
+            VK_NULL_HANDLE,
+            {},
+            {0, 0, swapChainExtent.width, swapChainExtent.height},
+            1,
+            0,
+            0,
+            VK_NULL_HANDLE,
+            &attachmentInfo
+        };
+
+        vkCmdBeginRendering(depthPrepassCommandBuffer, &renderingInfo);
+    } else {
+        VkRenderPassBeginInfo renderPassInfo{
+            VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
+            VK_NULL_HANDLE,
+            depthPrepassRenderPass,
+            depthPrepassFramebuffer,
+            {{0, 0}, swapChainExtent},
+            1,
+            &depthPrepassClearValue
+        };
+
+        vkCmdBeginRenderPass(depthPrepassCommandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+    }
 
     vkCmdBindPipeline(depthPrepassCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, depthPrepassPipeline);
     vkCmdSetViewport(depthPrepassCommandBuffer, 0, 1, &viewport);
@@ -518,7 +547,13 @@ void VkRenderer::DrawDepthPrepass(const std::vector<size_t> &drawIndices) {
 //        vkCmdDrawIndexed(depthPrepassCommandBuffer, r.indexCount, 1, r.firstIndex, 0, 0);
 //    }
 
-    vkCmdEndRenderPass(depthPrepassCommandBuffer);
+    if (dynamicRendering) {
+        vkCmdEndRendering(depthPrepassCommandBuffer);
+        TransitionImage(depthPrepassCommandBuffer, depthImage, VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT, VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL);
+    } else {
+        vkCmdEndRenderPass(depthPrepassCommandBuffer);
+    }
+
     VK_CHECK(vkEndCommandBuffer(depthPrepassCommandBuffer));
 
     VkSubmitInfo submitInfo{
@@ -598,12 +633,35 @@ void VkRenderer::Draw(const VkCommandBuffer &commandBuffer, uint32_t imageIndex,
         vkCmdDispatch(commandBuffer, 16, 9, 24);
     }
 
+    VulkanImage swapChainImage{swapChainImages[imageIndex], swapChainImageViews[imageIndex], VK_NULL_HANDLE, {swapChainExtent.width, swapChainExtent.height, 1}, surfaceFormat.format};
+
     if (dynamicRendering) {
+        TransitionImage(commandBuffer, swapChainImage, VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT, 0, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+
         VkRenderingAttachmentInfo colorAttachment{
             VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
             VK_NULL_HANDLE,
             swapChainImageViews[imageIndex],
-            VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
+            VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+            VK_RESOLVE_MODE_NONE,
+            VK_NULL_HANDLE,
+            VK_IMAGE_LAYOUT_UNDEFINED,
+            VK_ATTACHMENT_LOAD_OP_CLEAR,
+            VK_ATTACHMENT_STORE_OP_STORE,
+            {0.0f, 0.0f, 0.0f, 1.0f}
+        };
+
+        VkRenderingAttachmentInfo depthAttachment{
+            VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
+            VK_NULL_HANDLE,
+            depthImage.imageView,
+            VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
+            VK_RESOLVE_MODE_NONE,
+            VK_NULL_HANDLE,
+            VK_IMAGE_LAYOUT_UNDEFINED,
+            VK_ATTACHMENT_LOAD_OP_LOAD,
+            VK_ATTACHMENT_STORE_OP_NONE,
+            {.depthStencil = {1.0f, 0}}
         };
 
         VkRenderingInfo renderingInfo{
@@ -614,7 +672,8 @@ void VkRenderer::Draw(const VkCommandBuffer &commandBuffer, uint32_t imageIndex,
             1,
             0,
             1,
-            &colorAttachment
+            &colorAttachment,
+            &depthAttachment
         };
 
         vkCmdBeginRendering(commandBuffer, &renderingInfo);
@@ -674,34 +733,11 @@ void VkRenderer::Draw(const VkCommandBuffer &commandBuffer, uint32_t imageIndex,
         stats.triangleCount += r.indexCount / 3;
     }
 
+    ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), commandBuffer);
     if (dynamicRendering) {
         vkCmdEndRendering(commandBuffer);
-
-        // ImGui Render
-        VkRenderingAttachmentInfo renderingAttachmentInfo{
-            VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
-            VK_NULL_HANDLE,
-            swapChainImageViews[imageIndex],
-            VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
-        };
-
-        VkRenderingInfo renderingInfo{
-            VK_STRUCTURE_TYPE_RENDERING_INFO,
-            VK_NULL_HANDLE,
-            {},
-            {0, 0, swapChainExtent.width, swapChainExtent.height},
-            1,
-            0,
-            1,
-            &renderingAttachmentInfo
-        };
-
-        vkCmdBeginRendering(commandBuffer, &renderingInfo);
-        ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), commandBuffer);
-        vkCmdEndRendering(commandBuffer);
+        TransitionImage(commandBuffer, swapChainImage, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT, VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, VK_ACCESS_2_MEMORY_READ_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
     } else {
-        ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), commandBuffer);
-
         vkCmdEndRenderPass(commandBuffer);
     }
 
@@ -1396,7 +1432,10 @@ void VkRenderer::CreateGraphicsPipeline() {
     builder.SetCullingMode(VK_CULL_MODE_BACK_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE);
     builder.EnableDepthTest(true, VK_COMPARE_OP_LESS);
 
-    depthPrepassPipeline = builder.Build(false, device, pipelineCache, depthPrepassRenderPass);
+    if (dynamicRendering)
+        builder.SetDepthFormat(VK_FORMAT_D32_SFLOAT);
+
+    depthPrepassPipeline = builder.Build(dynamicRendering, device, pipelineCache, depthPrepassRenderPass);
 
     builder.DestroyShaderModules(device);
 
@@ -1408,7 +1447,12 @@ void VkRenderer::CreateGraphicsPipeline() {
     builder.SetCullingMode(VK_CULL_MODE_BACK_BIT, VK_FRONT_FACE_CLOCKWISE);
     builder.EnableDepthTest(false, VK_COMPARE_OP_LESS);
 
-    skyboxPipeline = builder.Build(false, device, pipelineCache, renderPass);
+    if (dynamicRendering) {
+        builder.SetColorAttachmentFormat(surfaceFormat.format);
+        builder.SetDepthFormat(VK_FORMAT_D32_SFLOAT);
+    }
+
+    skyboxPipeline = builder.Build(dynamicRendering, device, pipelineCache, renderPass);
 
     builder.DestroyShaderModules(device);
 }

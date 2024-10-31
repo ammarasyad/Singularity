@@ -152,6 +152,10 @@ public:
         return surfaceFormat;
     }
 
+    [[nodiscard]] VkFormat depth_format() const {
+        return depthImage.format;
+    }
+
     [[nodiscard]] VkDescriptorSetLayout main_descriptor_set_layout() const {
         return mainDescriptorSetLayout;
     }
@@ -182,6 +186,10 @@ public:
 
     [[nodiscard]] VkPhysicalDeviceProperties device_properties() const {
         return deviceProperties;
+    }
+
+    [[nodiscard]] bool is_dynamic_rendering() const {
+        return dynamicRendering;
     }
 
     [[nodiscard]] bool is_integrated_gpu() const {
