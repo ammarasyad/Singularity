@@ -32,7 +32,7 @@ void main() {
 
     gl_Position = sceneData.worldMatrix * pos;
 
-    fragPos = (pushConstants.worldMatrix * vec4(v.position, 1.0)).xyz;
+    fragPos = pos.xyz;
     fragNormal = v.normal;
     fragUV = vec2(v.uv_X, v.uv_Y);
 }
