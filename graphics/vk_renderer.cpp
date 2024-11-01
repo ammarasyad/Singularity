@@ -981,7 +981,7 @@ void VkRenderer::CreateLogicalDevice() {
     }
 
     for (uint32_t queueFamily: uniqueQueueFamilies) {
-        queueCreateInfos.emplace_back(VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,VK_NULL_HANDLE, 0, queueFamily, queueCount,
+        queueCreateInfos.emplace_back(VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,VK_NULL_HANDLE, 0, queueFamily, 1,
                                       queuePriorities);
     }
 
