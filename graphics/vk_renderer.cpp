@@ -110,7 +110,7 @@ VkRenderer::VkRenderer(GLFWwindow *window, Camera *camera, const bool dynamicRen
 
     assert(structureFile.has_value());
 
-    loadedScenes["structure"] = structureFile.value();
+    loadedScene = structureFile.value();
 
     sceneDataBuffer = memoryManager->createManagedBuffer(
             {sizeof(SceneData), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
@@ -741,8 +741,7 @@ void VkRenderer::Shutdown() {
 
     vkDeviceWaitIdle(device);
 
-    loadedScenes["structure"].Clear();
-    loadedScenes.clear();
+    loadedScene.Clear();
 
     for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
         vkDestroySemaphore(device, frames[i].renderFinishedSemaphore, nullptr);
@@ -1835,7 +1834,7 @@ void VkRenderer::UpdateScene(EngineStats &stats) {
     memcpy(data, totalLights.get(), sizeof(Light));
     memoryManager->unmapBuffer(lightUniformBuffer);
 
-    loadedScenes["structure"].Draw(glm::mat4{1.f}, mainDrawContext);
+    loadedScene.Draw(glm::mat4{1.f}, mainDrawContext);
 }
 
 #ifndef NDEBUG

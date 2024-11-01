@@ -402,7 +402,7 @@ private:
     VkGLTFMetallic_Roughness metalRoughMaterial{};
 
     VkDrawContext mainDrawContext{};
-    std::unordered_map<std::string, LoadedGLTF> loadedScenes{};
+    LoadedGLTF loadedScene{};
     SceneData sceneData{};
 
     std::unique_ptr<VkMemoryManager> memoryManager;
