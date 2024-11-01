@@ -982,7 +982,7 @@ void VkRenderer::CreateLogicalDevice() {
     }
 
     for (uint32_t queueFamily: uniqueQueueFamilies) {
-        queueCreateInfos.emplace_back(VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,VK_NULL_HANDLE, 0, queueFamily, 1,
+        queueCreateInfos.emplace_back(VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,VK_NULL_HANDLE, 0, queueFamily, queueCount,
                                       queuePriorities);
     }
 
@@ -996,6 +996,7 @@ void VkRenderer::CreateLogicalDevice() {
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
         .pNext = &vulkan11Features,
         .shaderFloat16 = VK_TRUE,
+        .descriptorIndexing = VK_TRUE,
         .bufferDeviceAddress = VK_TRUE,
     };
 
@@ -1012,17 +1013,19 @@ void VkRenderer::CreateLogicalDevice() {
         {.multiDrawIndirect = VK_TRUE, .samplerAnisotropy = VK_TRUE, .shaderInt16 = VK_TRUE}
     };
 
-    deviceExtensions.reserve(13);
+    std::array<const char *, 13> deviceExtensions{
+        VK_KHR_SWAPCHAIN_EXTENSION_NAME,
+        VK_KHR_PIPELINE_LIBRARY_EXTENSION_NAME,
+        VK_EXT_GRAPHICS_PIPELINE_LIBRARY_EXTENSION_NAME,
+        VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME,
+        VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME,
+        VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME
+    };
 
-    deviceExtensions.push_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
-    deviceExtensions.push_back(VK_KHR_PIPELINE_LIBRARY_EXTENSION_NAME);
-    deviceExtensions.push_back(VK_EXT_GRAPHICS_PIPELINE_LIBRARY_EXTENSION_NAME);
+    uint32_t offset = 6;
 
     if (dynamicRendering)
-        deviceExtensions.push_back(VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME);
-
-    deviceExtensions.push_back(VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME);
-    deviceExtensions.push_back(VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME);
+        deviceExtensions[offset++] = VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME;
 
     VkPhysicalDeviceRayQueryFeaturesKHR rayQueryFeatures{
             VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR,
@@ -1047,15 +1050,12 @@ void VkRenderer::CreateLogicalDevice() {
     };
 
     if (raytracingCapable) {
-        deviceExtensions.push_back(VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME);
-        deviceExtensions.push_back(VK_KHR_RAY_QUERY_EXTENSION_NAME);
-        deviceExtensions.push_back(VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME);
-        deviceExtensions.push_back(VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME);
-        deviceExtensions.push_back(VK_KHR_SHADER_FLOAT_CONTROLS_EXTENSION_NAME);
-        deviceExtensions.push_back(VK_KHR_SPIRV_1_4_EXTENSION_NAME);
-        deviceExtensions.push_back(VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME);
-
-        vulkan12Features.descriptorIndexing = VK_TRUE;
+        deviceExtensions[offset++] = VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME;
+        deviceExtensions[offset++] = VK_KHR_RAY_QUERY_EXTENSION_NAME;
+        deviceExtensions[offset++] = VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME;
+        deviceExtensions[offset++] = VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME;
+        deviceExtensions[offset++] = VK_KHR_SHADER_FLOAT_CONTROLS_EXTENSION_NAME;
+        deviceExtensions[offset++] = VK_KHR_SPIRV_1_4_EXTENSION_NAME;
 
         vulkan11Features.pNext = &rayTracingPipelineFeatures;
     }

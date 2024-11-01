@@ -275,8 +275,6 @@ private:
         std::vector<VkPresentModeKHR> presentModes;
     };
 
-    std::vector<const char *> deviceExtensions;
-
 #ifndef NDEBUG
     const std::array<const char *, 1> validationLayers = {
             "VK_LAYER_KHRONOS_validation"
