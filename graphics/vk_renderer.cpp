@@ -337,7 +337,7 @@ void VkRenderer::Render(EngineStats &stats) {
         };
 
         vkCmdPushConstants(computeCommandBuffer, computePipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pushConstants),&pushConstants);
-        vkCmdDispatch(computeCommandBuffer, 16, 9, 1); // TODO: Find the right work group size and local size
+        vkCmdDispatch(computeCommandBuffer, swapChainExtent.width / 32, swapChainExtent.height / 32, 1);
 
         VK_CHECK(vkEndCommandBuffer(computeCommandBuffer));
 
@@ -613,7 +613,7 @@ void VkRenderer::Draw(const VkCommandBuffer &commandBuffer, uint32_t imageIndex,
         };
 
         vkCmdPushConstants(commandBuffer, computePipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pushConstants),&pushConstants);
-        vkCmdDispatch(commandBuffer, 16, 9, 24);
+        vkCmdDispatch(computeCommandBuffer, swapChainExtent.width / 32, swapChainExtent.height / 32, 1);
     }
 
     VulkanImage swapChainImage{swapChainImages[imageIndex], swapChainImageViews[imageIndex], VK_NULL_HANDLE, {swapChainExtent.width, swapChainExtent.height, 1}, surfaceFormat.format};
@@ -1012,19 +1012,11 @@ void VkRenderer::CreateLogicalDevice() {
         {.multiDrawIndirect = VK_TRUE, .samplerAnisotropy = VK_TRUE, .shaderInt16 = VK_TRUE}
     };
 
-    std::array<const char *, 13> deviceExtensions{
+    std::array<const char *, 7> deviceExtensions{
         VK_KHR_SWAPCHAIN_EXTENSION_NAME,
         VK_KHR_PIPELINE_LIBRARY_EXTENSION_NAME,
         VK_EXT_GRAPHICS_PIPELINE_LIBRARY_EXTENSION_NAME,
-        VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME,
-        VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME,
-        VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME
     };
-
-    uint32_t offset = 6;
-
-    if (dynamicRendering)
-        deviceExtensions[offset++] = VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME;
 
     VkPhysicalDeviceRayQueryFeaturesKHR rayQueryFeatures{
             VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR,
@@ -1049,12 +1041,10 @@ void VkRenderer::CreateLogicalDevice() {
     };
 
     if (raytracingCapable) {
-        deviceExtensions[offset++] = VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME;
-        deviceExtensions[offset++] = VK_KHR_RAY_QUERY_EXTENSION_NAME;
-        deviceExtensions[offset++] = VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME;
-        deviceExtensions[offset++] = VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME;
-        deviceExtensions[offset++] = VK_KHR_SHADER_FLOAT_CONTROLS_EXTENSION_NAME;
-        deviceExtensions[offset++] = VK_KHR_SPIRV_1_4_EXTENSION_NAME;
+        deviceExtensions[3] = VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME;
+        deviceExtensions[4] = VK_KHR_RAY_QUERY_EXTENSION_NAME;
+        deviceExtensions[5] = VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME;
+        deviceExtensions[6] = VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME;
 
         vulkan11Features.pNext = &rayTracingPipelineFeatures;
     }
@@ -1824,15 +1814,15 @@ void VkRenderer::UpdateScene(EngineStats &stats) {
     sceneData.worldMatrix = proj * view;
     memoryManager->copyToBuffer(sceneDataBuffer, &sceneData, sizeof(SceneData));
 
-    auto rotation = glm::rotate(glm::mat4{1.f}, stats.frameTime / 1000.f, glm::vec3{0, 1, 0});
-    for (auto &light : totalLights->lights) {
-        light.position = {glm::vec3(rotation * hvec4(light.position.x, light.position.y, light.position.z, 1.0f)), light.position.w};
-    }
-
-    void *data;
-    memoryManager->mapBuffer(lightUniformBuffer, &data);
-    memcpy(data, totalLights.get(), sizeof(Light));
-    memoryManager->unmapBuffer(lightUniformBuffer);
+//    auto rotation = glm::rotate(glm::mat4{1.f}, stats.frameTime / 1000.f, glm::vec3{0, 1, 0});
+//    for (auto &light : totalLights->lights) {
+//        light.position = {glm::vec3(rotation * hvec4(light.position.x, light.position.y, light.position.z, 1.0f)), light.position.w};
+//    }
+//
+//    void *data;
+//    memoryManager->mapBuffer(lightUniformBuffer, &data);
+//    memcpy(data, totalLights.get(), sizeof(Light));
+//    memoryManager->unmapBuffer(lightUniformBuffer);
 
     loadedScene.Draw(glm::mat4{1.f}, mainDrawContext);
 }

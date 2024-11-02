@@ -75,7 +75,7 @@ struct alignas(16) LightVisibility {
     glm::vec4 minPoint;
     glm::vec4 maxPoint;
     uint16_t visibleLightCount;
-    uint16_t indices[MAX_LIGHTS];
+    uint16_t indices[256];
 };
 
 struct ComputePushConstants {

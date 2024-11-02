@@ -2,7 +2,7 @@
 
 #include "file.h"
 
-VkPipeline VkGraphicsPipelineBuilder::Build(const bool dynamicRendering, const VkDevice &device, const VkPipelineCache &pipelineCache, const VkRenderPass &renderPass) {
+VkPipeline VkGraphicsPipelineBuilder::Build(const bool dynamicRendering, const VkDevice &device, const VkPipelineCache &pipelineCache, const VkRenderPass &renderPass, const SpecializationInfoHelper &info) {
     if (!dynamicRendering && !renderPass)
         throw std::runtime_error("Render pass must be provided if not using dynamic rendering.");
 
@@ -12,7 +12,8 @@ VkPipeline VkGraphicsPipelineBuilder::Build(const bool dynamicRendering, const V
         0,
         VK_SHADER_STAGE_VERTEX_BIT,
         vertexShaderModule,
-        "main"
+        "main",
+        info.stageFlags & VK_SHADER_STAGE_VERTEX_BIT ? &info.specializationInfo : VK_NULL_HANDLE
     };
 
     const VkPipelineShaderStageCreateInfo fragmentShaderStageInfo{
@@ -21,7 +22,8 @@ VkPipeline VkGraphicsPipelineBuilder::Build(const bool dynamicRendering, const V
         0,
         VK_SHADER_STAGE_FRAGMENT_BIT,
         fragmentShaderModule,
-        "main"
+        "main",
+        info.stageFlags & VK_SHADER_STAGE_FRAGMENT_BIT ? &info.specializationInfo : VK_NULL_HANDLE
     };
 
 //    VkPipelineShaderStageCreateInfo shaderStages[] = {vertexShaderStageInfo, fragmentShaderStageInfo};
@@ -177,6 +179,10 @@ void VkGraphicsPipelineBuilder::SetPolygonMode(const VkPolygonMode polygonMode) 
 void VkGraphicsPipelineBuilder::SetCullingMode(const VkCullModeFlags cullMode, const VkFrontFace frontFace) {
     rasterizerCreateInfo.cullMode = cullMode;
     rasterizerCreateInfo.frontFace = frontFace;
+}
+
+void VkGraphicsPipelineBuilder::EnableClampMode() {
+    rasterizerCreateInfo.depthClampEnable = VK_TRUE;
 }
 
 void VkGraphicsPipelineBuilder::EnableDepthTest(const bool depthWrite, const VkCompareOp compareOp) {

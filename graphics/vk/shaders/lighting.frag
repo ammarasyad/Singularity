@@ -32,7 +32,7 @@ layout(push_constant) uniform PushConstants {
 layout(early_fragment_tests) in;
 
 void main() {
-    uint zTile = uint((log(abs(gl_FragCoord.z) / 0.1f) * TILE_Z) / log(10000.f));
+    uint zTile = uint(TILE_Z * log((-gl_FragCoord.z - 0.1f) / 10000.f));
     uvec3 tile = uvec3(gl_FragCoord.xy / (pushConstants.viewportSize / vec2(TILE_X, TILE_Y)), zTile);
 //    uvec3 tile = uvec3(gl_FragCoord.xyz) / uvec3(pushConstants.viewportSize, 1) ;
     uint tileIndex = tile.x + tile.y * TILE_X + tile.z * TILE_X * TILE_Y;
@@ -47,11 +47,11 @@ void main() {
     for (uint i = 0; i < numLightsInTile; i++) {
         Light light = lights[visibilities[tileIndex].indices[i]];
 
-        f16vec4 lightPosition = light.position;
+        f16vec3 lightPosition = light.position.xyz;
         f16vec4 lightColor = light.color;
 
-        float16_t lightDist = distance(lightPosition.xyz, position);
-        f16vec3 lightDir = (lightPosition.xyz - position) / lightDist;
+        float16_t lightDist = distance(lightPosition, position);
+        f16vec3 lightDir = (lightPosition - position) / lightDist;
 
         float16_t lambertian = max(dot(normal, lightDir), 0.0hf);
         float16_t distSquared = dot(lightDist, lightDist);

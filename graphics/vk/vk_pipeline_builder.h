@@ -3,8 +3,13 @@
 
 #include "vk/vk_common.h"
 
+struct SpecializationInfoHelper {
+    VkPipelineStageFlags stageFlags;
+    VkSpecializationInfo specializationInfo;
+};
+
 struct VkGraphicsPipelineBuilder {
-    VkPipeline Build(bool dynamicRendering, const VkDevice &device, const VkPipelineCache &pipelineCache, const VkRenderPass &renderPass = VK_NULL_HANDLE);
+    VkPipeline Build(bool dynamicRendering, const VkDevice &device, const VkPipelineCache &pipelineCache, const VkRenderPass &renderPass = VK_NULL_HANDLE, const SpecializationInfoHelper &info = {});
     void Clear();
 
     void CreateShaderModules(const VkDevice &device, const std::string &vertexShaderFilePath, const std::string &fragmentShaderFilePath);
@@ -15,6 +20,7 @@ struct VkGraphicsPipelineBuilder {
     void SetTopology(VkPrimitiveTopology topology);
     void SetPolygonMode(VkPolygonMode polygonMode);
     void SetCullingMode(VkCullModeFlags cullMode, VkFrontFace frontFace);
+    void EnableClampMode();
     void EnableDepthTest(bool depthWrite, VkCompareOp compareOp);
     void EnableBlendingAdditive();
     void EnableBlendingAlphaBlend();
@@ -37,6 +43,7 @@ struct VkGraphicsPipelineBuilder {
 
     std::vector<VkVertexInputBindingDescription> vertexInputBindingDescriptions{};
     std::vector<VkVertexInputAttributeDescription> vertexInputAttributeDescriptions{};
+
 };
 
 #endif //VK_PIPELINE_BUILDER_H

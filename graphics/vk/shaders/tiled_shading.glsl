@@ -1,7 +1,7 @@
 #define TILE_X 16
 #define TILE_Y 9
 #define TILE_Z 24
-#define MAX_LIGHTS 24
+#define MAX_LIGHTS 256
 
 #extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
 #extension GL_EXT_shader_16bit_storage : require
