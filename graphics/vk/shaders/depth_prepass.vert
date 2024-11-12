@@ -1,6 +1,5 @@
 #version 460
 
-#extension GL_GOOGLE_include_directive : require
 #extension GL_EXT_buffer_reference : require
 
 struct Vertex {
@@ -15,16 +14,23 @@ layout(set = 0, binding = 0) uniform SceneData {
     mat4 worldMatrix;
 } sceneData;
 
+layout(constant_id = 0) const uint MAX_CASCADES = 4;
+
+layout(set = 0, binding = 1) uniform CascadeData {
+    mat4 viewProjectionMatrix[MAX_CASCADES];
+} cascadeData;
+
 layout(buffer_reference, std430) readonly buffer VertexBuffer {
     Vertex vertices[];
 };
 
 layout(push_constant) uniform PushConstants {
-    mat4 worldMatrix;
     VertexBuffer vertexBuffer;
+    uint cascadeIndex;
 } pushConstants;
 
 void main() {
     Vertex v = pushConstants.vertexBuffer.vertices[gl_VertexIndex];
-    gl_Position = sceneData.worldMatrix * pushConstants.worldMatrix * vec4(v.position, 1.0);
+//    vec3 pos = (pushConstants.worldMatrix * vec4(v.position, 1.0)).xyz;
+    gl_Position = cascadeData.viewProjectionMatrix[pushConstants.cascadeIndex] * vec4(v.position, 1.0);
 }

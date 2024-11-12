@@ -1,10 +1,14 @@
 #ifndef RENDEROBJECT_H
 #define RENDEROBJECT_H
-#include <cstdint>
+
+#ifdef _WIN32
 #include <d3d12.h>
+#include <wrl/client.h>
+#endif
+
+#include <cstdint>
 #include <glm.hpp>
 #include <memory>
-#include <wrl/client.h>
 
 #include "vk/vk_common.h"
 #include "vk/memory/vk_mesh_assets.h"
@@ -68,10 +72,10 @@ struct Node {
                 for (auto &[startIndex, indexCount, bounds, material]: meshAsset.surfaces) {
                     switch (material.data.pass) {
                         case MaterialPass::MainColor:
-                            ctx.opaqueSurfaces.emplace_back(indexCount, startIndex, bounds, nodeMatrix,meshAsset.mesh.indexBuffer,meshAsset.mesh.vertexBufferDeviceAddress, &material.data);
+                            ctx.opaqueSurfaces.emplace_back(indexCount, startIndex, bounds, nodeMatrix, meshAsset.mesh.indexBuffer, meshAsset.mesh.vertexBufferDeviceAddress, &material.data);
                             break;
                         case MaterialPass::Transparent:
-                            ctx.transparentSurfaces.emplace_back(indexCount, startIndex, bounds, nodeMatrix,meshAsset.mesh.indexBuffer,meshAsset.mesh.vertexBufferDeviceAddress,&material.data);
+                            ctx.transparentSurfaces.emplace_back(indexCount, startIndex, bounds, nodeMatrix, meshAsset.mesh.indexBuffer, meshAsset.mesh.vertexBufferDeviceAddress,&material.data);
                             break;
                         default:
                             break;

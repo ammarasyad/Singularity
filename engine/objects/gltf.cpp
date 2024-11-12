@@ -1,6 +1,5 @@
 #include "gltf.h"
 
-#include <iostream>
 #include <fastgltf/core.hpp>
 #include <fastgltf/math.hpp>
 #include <fastgltf/tools.hpp>
@@ -13,24 +12,24 @@
 #include "gtc/quaternion.hpp"
 #include "threading/thread_pool.h"
 
-inline static std::optional<VulkanImage> loadImage(VkRenderer *renderer, fastgltf::Asset &asset, fastgltf::Image &image) {
+static std::optional<VulkanImage> loadImage(VkRenderer *renderer, fastgltf::Asset &asset, fastgltf::Image &image, const std::filesystem::path &assetPath) {
     VulkanImage vulkanImage{};
 
     int width, height, channels;
 
     std::visit(
         fastgltf::visitor {
-            [](auto &arg) {},
+            [](auto &) {},
             [&](fastgltf::sources::URI &filePath) {
                 assert(filePath.fileByteOffset == 0);
                 assert(filePath.uri.isLocalPath());
 
-                const std::string path = "../assets/main1_sponza/" + std::string(filePath.uri.path().begin(), filePath.uri.path().end());
-                uint8_t *data = stbi_load(path.c_str(), &width, &height, &channels, STBI_rgb_alpha);
+                const auto path = assetPath / std::filesystem::path(filePath.uri.path());
+                uint8_t *data = stbi_load(path.string().c_str(), &width, &height, &channels, STBI_rgb_alpha);
                 if (data) {
                     VkExtent3D size{static_cast<uint32_t>(width), static_cast<uint32_t>(height), 1};
 
-                    vulkanImage = renderer->memory_manager()->createTexture(data, renderer, size, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT, true);
+                    vulkanImage = renderer->memoryManager->createTexture(data, renderer, size, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT, true);
 
                     stbi_image_free(data);
                 }
@@ -40,7 +39,7 @@ inline static std::optional<VulkanImage> loadImage(VkRenderer *renderer, fastglt
                 if (data) {
                     VkExtent3D size{static_cast<uint32_t>(width), static_cast<uint32_t>(height), 1};
 
-                    vulkanImage = renderer->memory_manager()->createTexture(data, renderer, size, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT, true);
+                    vulkanImage = renderer->memoryManager->createTexture(data, renderer, size, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT, true);
 
                     stbi_image_free(data);
                 }
@@ -57,7 +56,7 @@ inline static std::optional<VulkanImage> loadImage(VkRenderer *renderer, fastglt
                         if (data) {
                             VkExtent3D size{static_cast<uint32_t>(width), static_cast<uint32_t>(height), 1};
 
-                            vulkanImage = renderer->memory_manager()->createTexture(data, renderer, size, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT, true);
+                            vulkanImage = renderer->memoryManager->createTexture(data, renderer, size, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT, true);
 
                             stbi_image_free(data);
                         }
@@ -69,20 +68,20 @@ inline static std::optional<VulkanImage> loadImage(VkRenderer *renderer, fastglt
     return vulkanImage.image == VK_NULL_HANDLE ? std::nullopt : std::make_optional(vulkanImage);
 }
 
-inline static void loadImageMultithreaded(fastgltf::Asset &asset, fastgltf::Image &image, uint32_t index, std::vector<LoadedImage> &loadedImages) {
+static void loadImageMultithreaded(fastgltf::Asset &asset, fastgltf::Image &image, uint32_t index, std::vector<LoadedImage> &loadedImages, const std::filesystem::path &assetPath) {
     thread_local int width, height, channels;
 
     thread_local uint8_t *data;
 
     std::visit(
     fastgltf::visitor {
-            [](auto &arg) {},
+            [](auto &) {},
             [&](fastgltf::sources::URI &filePath) {
                 assert(filePath.fileByteOffset == 0);
                 assert(filePath.uri.isLocalPath());
 
-                const std::string path = "../assets/main1_sponza/" + std::string(filePath.uri.path().begin(), filePath.uri.path().end());
-                data = stbi_load(path.c_str(), &width, &height, &channels, STBI_rgb_alpha);
+                const auto path = assetPath / std::filesystem::path(filePath.uri.path());
+                data = stbi_load(path.string().c_str(), &width, &height, &channels, STBI_rgb_alpha);
                 printf("Loading file: %s\n", filePath.uri.c_str());
             },
             [&](fastgltf::sources::Array &array) {
@@ -94,7 +93,7 @@ inline static void loadImageMultithreaded(fastgltf::Asset &asset, fastgltf::Imag
                 auto &buffer = asset.buffers[view.bufferIndex];
 
                 std::visit(fastgltf::visitor {
-                        [](auto &arg) {},
+                        [](auto &) {},
                         [&](fastgltf::sources::Array &array) {
                             data = stbi_load_from_memory(reinterpret_cast<const stbi_uc *>(array.bytes.data()) + view.byteOffset, static_cast<int>(view.byteLength), &width, &height, &channels, STBI_rgb_alpha);
                         }
@@ -102,12 +101,11 @@ inline static void loadImageMultithreaded(fastgltf::Asset &asset, fastgltf::Imag
             }
     }, image.data);
 
+    assert(data);
 
-    if (data) {
-        LoadedImage loadedImage{VkExtent3D{static_cast<uint32_t>(width), static_cast<uint32_t>(height), 1}, index, data};
-        LoadedImage::totalBytesSize.fetch_add(width * height * 4, std::memory_order_relaxed);
-        loadedImages[index] = loadedImage;
-    }
+    LoadedImage loadedImage{VkExtent3D{static_cast<uint32_t>(width), static_cast<uint32_t>(height), 1}, index, data};
+    LoadedImage::totalBytesSize.fetch_add(width * height * 4, std::memory_order_relaxed);
+    loadedImages[index] = loadedImage;
 }
 
 inline static VkFilter extractFilter(const fastgltf::Filter filter) {
@@ -140,7 +138,7 @@ inline static VkSamplerMipmapMode extractMipmapMode(const fastgltf::Filter filte
     }
 }
 
-std::optional<LoadedGLTF> LoadGLTF(VkRenderer *renderer, bool multithread, const std::filesystem::path &path) {
+std::optional<LoadedGLTF> LoadGLTF(VkRenderer *renderer, bool multithread, const std::filesystem::path &path, const std::filesystem::path &assetPath) {
     LoadedGLTF scene{};
     scene.renderer = renderer;
 
@@ -170,7 +168,7 @@ std::optional<LoadedGLTF> LoadGLTF(VkRenderer *renderer, bool multithread, const
         }
     };
 
-    scene.descriptorAllocator.InitPool(renderer->logical_device(), gltf.materials.size(), sizes);
+    scene.descriptorAllocator.InitPool(renderer->device, gltf.materials.size(), sizes);
 
     scene.samplers.reserve(gltf.samplers.size());
     for (const auto &[magFilter, minFilter, wrapS, wrapT, name] : gltf.samplers) {
@@ -184,8 +182,8 @@ std::optional<LoadedGLTF> LoadGLTF(VkRenderer *renderer, bool multithread, const
         samplerCreateInfo.mipmapMode = extractMipmapMode(minFilter.value_or(fastgltf::Filter::Nearest));
 
         VkSampler newSampler;
-        if (vkCreateSampler(renderer->logical_device(), &samplerCreateInfo, nullptr, &newSampler) != VK_SUCCESS) {
-            std::cerr << "Failed to create sampler" << std::endl;
+        if (vkCreateSampler(renderer->device, &samplerCreateInfo, nullptr, &newSampler) != VK_SUCCESS) {
+            fprintf(stderr, "Failed to create sampler: %s\n", name.c_str());
             return std::nullopt;
         }
 
@@ -201,58 +199,47 @@ std::optional<LoadedGLTF> LoadGLTF(VkRenderer *renderer, bool multithread, const
     std::vector<GLTFMaterial> materials;
     materials.reserve(gltf.materials.size());
 
-    std::vector<LoadedImage> loadedImages;
-    loadedImages.resize(gltf.images.size());
-
-    auto memoryManager = renderer->memory_manager();
-
     auto start = std::chrono::high_resolution_clock::now();
     if (multithread) {
-        auto start_loop = std::chrono::high_resolution_clock::now();
-#pragma omp parallel for ordered shared(gltf, loadedImages) default(none) num_threads(std::thread::hardware_concurrency())
+        std::vector<LoadedImage> loadedImages;
+        loadedImages.resize(gltf.images.size());
+#pragma omp parallel for ordered shared(gltf, loadedImages, assetPath) default(none) num_threads(std::thread::hardware_concurrency())
         for (uint32_t i = 0; i < gltf.images.size(); i++) {
             auto &image = gltf.images[i];
-            loadImageMultithreaded(gltf, image, i, loadedImages);
+            loadImageMultithreaded(gltf, image, i, loadedImages, assetPath);
         }
-        auto end_loop = std::chrono::high_resolution_clock::now();
 
-        std::cout << "Time to load images: " << std::chrono::duration_cast<std::chrono::milliseconds>(end_loop - start_loop).count() << "ms" << std::endl;
-
-        start_loop = std::chrono::high_resolution_clock::now();
-        images = memoryManager->createTexturesMultithreaded(loadedImages, renderer);
-        end_loop = std::chrono::high_resolution_clock::now();
-
-        std::cout << "Time to create textures: " << std::chrono::duration_cast<std::chrono::milliseconds>(end_loop - start_loop).count() << "ms" << std::endl;
-
-#pragma omp parallel for shared(loadedImages) default(none)
-        for (auto &loadedImage : loadedImages) {
-            stbi_image_free(loadedImage.data);
-        }
+        printf("Total bytes loaded: %llu MiB\n", LoadedImage::totalBytesSize.load(std::memory_order_relaxed) >> 20);
+        images = renderer->memoryManager->createTexturesMultithreaded(loadedImages, renderer);
+// #pragma omp parallel for shared(loadedImages) default(none)
+//         for (auto &loadedImage : loadedImages) {
+//             stbi_image_free(loadedImage.data);
+//         }
 
         loadedImages.clear();
     } else {
         images.reserve(gltf.images.size());
         for (auto &image: gltf.images) {
-            auto loadedImage = loadImage(renderer, gltf, image);
+            auto loadedImage = loadImage(renderer, gltf, image, assetPath);
             if (loadedImage.has_value()) {
                 images.push_back(loadedImage.value());
             } else {
-                std::cerr << "Failed to load image" << std::endl;
-                images.push_back(renderer->default_image());
+                fprintf(stderr, "Failed to load image: %s\n", image.name.c_str());
+                images.push_back(renderer->defaultImage);
             }
         }
     }
     auto end = std::chrono::high_resolution_clock::now();
 
-    std::cout << "Time to process images: " << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << "ms" << std::endl;
+    printf("Time to process images: %llu ms\n", std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count());
 
-    scene.materialDataBuffer = memoryManager->createManagedBuffer(
+    scene.materialDataBuffer = renderer->memoryManager->createManagedBuffer(
             {sizeof(VkGLTFMetallic_Roughness::MaterialConstants) * gltf.materials.size(),
              VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
              VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT});
 
     VkGLTFMetallic_Roughness::MaterialConstants *materialConstants;
-    memoryManager->mapBuffer(scene.materialDataBuffer, reinterpret_cast<void **>(&materialConstants));
+    renderer->memoryManager->mapBuffer(scene.materialDataBuffer, reinterpret_cast<void **>(&materialConstants));
 
     int dataIndex = 0;
 
@@ -275,28 +262,33 @@ std::optional<LoadedGLTF> LoadGLTF(VkRenderer *renderer, bool multithread, const
         VkGLTFMetallic_Roughness::MaterialResources materialResources{};
         if (material.pbrData.baseColorTexture.has_value()) {
             auto img = gltf.textures[material.pbrData.baseColorTexture.value().textureIndex].imageIndex.value();
-            auto sampler = gltf.textures[material.pbrData.baseColorTexture.value().textureIndex].samplerIndex.value();
-
             materialResources.colorImage = images[img];
-            materialResources.colorSampler = scene.samplers[sampler];
+
+            if (gltf.textures[material.pbrData.baseColorTexture.value().textureIndex].samplerIndex.has_value()) {
+                auto sampler = gltf.textures[material.pbrData.baseColorTexture.value().textureIndex].samplerIndex.value();
+                materialResources.colorSampler = scene.samplers[sampler];
+            } else {
+                materialResources.colorSampler = renderer->textureSamplerLinear;
+            }
+
         } else {
-            materialResources.colorImage = renderer->default_image();
-            materialResources.colorSampler = renderer->default_sampler_linear();
+            materialResources.colorImage = renderer->defaultImage;
+            materialResources.colorSampler = renderer->textureSamplerLinear;
         }
 
-        materialResources.metalRoughImage = renderer->default_image();
-        materialResources.metalRoughSampler = renderer->default_sampler_linear();
+        materialResources.metalRoughImage = renderer->defaultImage;
+        materialResources.metalRoughSampler = renderer->textureSamplerLinear;
 
         materialResources.dataBuffer = scene.materialDataBuffer.buffer;
         materialResources.offset = dataIndex * sizeof(VkGLTFMetallic_Roughness::MaterialConstants);
 
-        auto device = renderer->logical_device();
-        newMaterial.data = renderer->metal_rough_material().writeMaterial(device, passType, materialResources, scene.descriptorAllocator);
+        auto device = renderer->device;
+        newMaterial.data = renderer->metalRoughMaterial.writeMaterial(device, passType, materialResources, scene.descriptorAllocator);
         dataIndex++;
         materials.emplace_back(newMaterial);
     }
 
-    memoryManager->unmapBuffer(scene.materialDataBuffer);
+    renderer->memoryManager->unmapBuffer(scene.materialDataBuffer);
 
     std::vector<uint32_t> indices;
     std::vector<VkVertex> vertices;
@@ -389,6 +381,7 @@ std::optional<LoadedGLTF> LoadGLTF(VkRenderer *renderer, bool multithread, const
         meshes.push_back(std::move(meshAsset));
     }
 
+    constexpr glm::mat4 identity = glm::mat4{1.f};
     for (auto &node : gltf.nodes) {
         std::shared_ptr<Node> newNode = std::make_shared<Node>();
 
@@ -405,9 +398,9 @@ std::optional<LoadedGLTF> LoadGLTF(VkRenderer *renderer, bool multithread, const
                 glm::quat rot{trs.rotation[3], trs.rotation[0], trs.rotation[1], trs.rotation[2]};
                 glm::vec3 sc{trs.scale[0], trs.scale[1], trs.scale[2]};
 
-                glm::mat4 transform = glm::translate(glm::mat4{1.f}, tl);
+                glm::mat4 transform = glm::translate(identity, tl);
                 glm::mat4 rotation = glm::mat4_cast(rot);
-                glm::mat4 scale = glm::scale(glm::mat4{1.f}, sc);
+                glm::mat4 scale = glm::scale(identity, sc);
 
                 newNode->localTransform = transform * rotation * scale;
             }
@@ -430,7 +423,7 @@ std::optional<LoadedGLTF> LoadGLTF(VkRenderer *renderer, bool multithread, const
     for (auto &node : nodes) {
         if (!node->parent.lock()) {
             scene.rootNodes.push_back(node);
-            node->RefreshTransform(glm::mat4{1.f});
+            node->RefreshTransform(identity);
         }
     }
 
@@ -447,8 +440,8 @@ void LoadedGLTF::Clear() {
     // Buffers and images are automatically cleared by the memory manager
     // TODO: But it may be a good idea to clear them manually if scenes are dynamically loaded and unloaded
     for (auto &sampler : samplers) {
-        vkDestroySampler(renderer->logical_device(), sampler, nullptr);
+        vkDestroySampler(renderer->device, sampler, nullptr);
     }
 
-    descriptorAllocator.Destroy(renderer->logical_device());
+    descriptorAllocator.Destroy(renderer->device);
 }

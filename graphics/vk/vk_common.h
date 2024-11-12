@@ -2,8 +2,11 @@
 #ifndef D3D12_STUFF_VK_COMMON_H
 #define D3D12_STUFF_VK_COMMON_H
 
+#define GLM_FORCE_AVX2
+
 #include <cassert>
-#include <vulkan/vulkan.hpp>
+#include <vulkan/vulkan.h>
+#include <memory>
 #include <vk_mem_alloc.h>
 #include <glm.hpp>
 
@@ -23,6 +26,7 @@ struct MeshPushConstants {
 struct FragmentPushConstants {
     alignas(16) glm::vec3 cameraPosition;
     alignas(16) glm::ivec2 viewportSize;
+    alignas(16) glm::vec4 cascadeSplits;
 };
 
 struct VulkanImage {
@@ -96,7 +100,7 @@ struct VkVertex {
 };
 
 inline void TransitionImage(VkCommandBuffer commandBuffer, VulkanImage image, VkPipelineStageFlags srcStageMask, VkPipelineStageFlags srcAccessMask, VkPipelineStageFlags dstStageMask, VkPipelineStageFlags dstAccessMask, VkImageLayout oldLayout, VkImageLayout newLayout, uint32_t mipLevels = -1, uint32_t layerCount = -1) {
-    const auto aspectMask = image.format == VK_FORMAT_D32_SFLOAT ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
+    const auto aspectMask = image.format == VK_FORMAT_D16_UNORM ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
 
     VkImageMemoryBarrier2 imageBarrier{
         VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,

@@ -1,13 +1,11 @@
 #include "vk_memory.h"
 #include <ranges>
-#include <thread>
-#include <iostream>
 
-#include "../../vk_renderer.h"
+#include "vk_renderer.h"
 
-VkMemoryManager::VkMemoryManager(const VkInstance &instance, const VkPhysicalDevice &physicalDevice, const VkDevice &device, const bool isIntegratedGPU, const bool customPool) : allocator(), device(device), isIntegratedGPU(isIntegratedGPU), pool(VK_NULL_HANDLE) {
+VkMemoryManager::VkMemoryManager(const VkInstance &instance, const VkPhysicalDevice &physicalDevice, const VkDevice &device, const bool isIntegratedGPU, const bool customPool) : allocator(), device(device), pool(VK_NULL_HANDLE), isIntegratedGPU(isIntegratedGPU) {
     const VmaAllocatorCreateInfo vmaAllocatorCreateInfo{
-        VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT,
+        VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT | VMA_ALLOCATOR_CREATE_EXT_MEMORY_PRIORITY_BIT,
         physicalDevice,
         device,
         0,
@@ -64,9 +62,7 @@ VkMemoryManager::~VkMemoryManager() {
     trackedBuffers.clear();
     trackedImages.clear();
 
-    if (pool)
-        vmaDestroyPool(allocator, pool);
-
+    vmaDestroyPool(allocator, pool);
     vmaDestroyAllocator(allocator);
 }
 
@@ -90,12 +86,11 @@ void VkMemoryManager::stagingBuffer(VkDeviceSize bufferSize, const std::function
 
     VmaAllocationCreateInfo allocationCreateInfo{
             allocationFlags,
-            VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE,
-            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+            VMA_MEMORY_USAGE_AUTO_PREFER_HOST,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
     };
 
-    if (pool)
-        allocationCreateInfo.pool = pool;
+    allocationCreateInfo.pool = pool;
 
     VK_CHECK(vmaCreateBuffer(allocator, &bufferCreateInfo, &allocationCreateInfo, &stagingBuffer, &allocation, &allocationInfo));
 
@@ -153,8 +148,7 @@ VulkanBuffer VkMemoryManager::createUnmanagedBuffer(const VulkanBufferCreateInfo
             requiredFlags
     };
 
-    if (pool)
-        allocationCreateInfo.pool = pool;
+    allocationCreateInfo.pool = pool;
 
     VK_CHECK(vmaCreateBuffer(allocator, &bufferCreateInfo, &allocationCreateInfo, &buffer, &allocation, &allocationInfo));
 
@@ -177,7 +171,7 @@ VulkanImage VkMemoryManager::createUnmanagedImage(const VulkanImageCreateInfo &i
         imageFormat,
         imageExtent,
         mipmapped ? static_cast<uint32_t>(std::floor(std::log2(std::max(imageExtent.width, imageExtent.height)))) : 1,
-        1,
+        info.imageViewCreateInfo ? info.imageViewCreateInfo->subresourceRange.layerCount : 1,
         VK_SAMPLE_COUNT_1_BIT, // might need to take msaaSamples from VkRenderer
         imageTiling,
         imageUsage,
@@ -193,8 +187,8 @@ VulkanImage VkMemoryManager::createUnmanagedImage(const VulkanImageCreateInfo &i
         requiredFlags
     };
 
-    if (pool)
-        allocationCreateInfo.pool = pool;
+    allocationCreateInfo.pool = pool;
+    allocationCreateInfo.priority = 1.0f;
 
     VK_CHECK(vmaCreateImage(allocator, &imageCreateInfo, &allocationCreateInfo, &image, &allocation, &allocationInfo));
 
@@ -224,27 +218,24 @@ VulkanImage VkMemoryManager::createTexture(VkExtent3D size, VkFormat format, VkI
         VK_IMAGE_VIEW_TYPE_2D,
         format,
         {VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY},
-        {VK_IMAGE_ASPECT_COLOR_BIT, 0, mipmapped ? static_cast<uint32_t>(std::floor(std::log2(std::max(size.width, size.height)))) : 1, 0, 1}
+        {format == VK_FORMAT_D16_UNORM ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT, 0, mipmapped ? static_cast<uint32_t>(std::floor(std::log2(std::max(size.width, size.height)))) : 1, 0, 1}
     };
-
-    if (format == VK_FORMAT_D32_SFLOAT)
-        imageViewCreateInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
 
     return createManagedImage({0, format, size, VK_IMAGE_TILING_OPTIMAL, usage, VK_IMAGE_LAYOUT_UNDEFINED, 0,
                                VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, mipmapped,
                                &imageViewCreateInfo});
 }
 
-void generateMipmaps(const VkCommandBuffer &commandBuffer, VulkanImage &image, VkExtent2D size) {
+void generateMipmaps(const VkCommandBuffer &commandBuffer, const VulkanImage &image, VkExtent2D size) {
     // TODO: Generate this with a compute shader later
     auto mipLevels = static_cast<uint32_t>(std::floor(std::log2(std::max(size.width, size.height))));
     for (int mip = 0; mip < mipLevels; mip++) {
         VkExtent2D halfSize = {std::max(1u, size.width >> 1), std::max(1u, size.height >> 1)};
 
         VkImageMemoryBarrier2 imageBarrier{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
-        imageBarrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT;
+        imageBarrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
         imageBarrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-        imageBarrier.dstStageMask = VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT;
+        imageBarrier.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
         imageBarrier.dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
 
         imageBarrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
@@ -311,10 +302,10 @@ void generateMipmaps(const VkCommandBuffer &commandBuffer, VulkanImage &image, V
         }
     }
 
-    TransitionImage(commandBuffer, image, VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_READ_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    TransitionImage(commandBuffer, image, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_READ_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 }
 
-VulkanImage VkMemoryManager::createTexture(void *data, VkRenderer *renderer, VkExtent3D size, VkFormat format, VkImageUsageFlags usage, bool mipmapped) {
+VulkanImage VkMemoryManager::createTexture(const void *data, VkRenderer *renderer, VkExtent3D size, const VkFormat format, const VkImageUsageFlags usage, const bool mipmapped) {
     VulkanImage newTexture{};
 
     const auto dataSize = size.width * size.height * size.depth * 4;
@@ -325,7 +316,7 @@ VulkanImage VkMemoryManager::createTexture(void *data, VkRenderer *renderer, VkE
 
         renderer->ImmediateSubmit([&](auto &commandBuffer) {
             // TODO: Find the right pipeline stages
-            TransitionImage(commandBuffer, newTexture, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, 0, VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+            TransitionImage(commandBuffer, newTexture, VK_PIPELINE_STAGE_2_TRANSFER_BIT, 0, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 
             VkBufferImageCopy copyRegion{
                 0,
@@ -338,10 +329,10 @@ VulkanImage VkMemoryManager::createTexture(void *data, VkRenderer *renderer, VkE
 
             vkCmdCopyBufferToImage(commandBuffer, buffer, newTexture.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copyRegion);
 
-            if (mipmapped) {
+            if (mipmapped) [[likely]] {
                 generateMipmaps(commandBuffer, newTexture, {size.width, size.height});
             } else {
-                TransitionImage(commandBuffer, newTexture, VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                TransitionImage(commandBuffer, newTexture, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
             }
         });
     };
@@ -351,13 +342,15 @@ VulkanImage VkMemoryManager::createTexture(void *data, VkRenderer *renderer, VkE
 }
 
 std::vector<VulkanImage> VkMemoryManager::createTexturesMultithreaded(const std::vector<LoadedImage> &loadedImages, VkRenderer *renderer) {
-//    std::vector<VkCommandBuffer> tempCommandBuffers(std::thread::hardware_concurrency());
     uint64_t maxImageSize = 0;
     for (const auto &loadedImage : loadedImages) {
         maxImageSize = std::max(maxImageSize, static_cast<uint64_t>(loadedImage.size.width * loadedImage.size.height * 4));
     }
 
-    auto imageBuffer = createUnmanagedBuffer({
+    std::vector<VulkanImage> textures;
+    textures.reserve(loadedImages.size());
+
+    const auto imageBuffer = createUnmanagedBuffer({
          maxImageSize,
          VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
          VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
@@ -368,48 +361,27 @@ std::vector<VulkanImage> VkMemoryManager::createTexturesMultithreaded(const std:
     uint8_t *mappedData;
     mapBuffer(imageBuffer, reinterpret_cast<void **>(&mappedData));
 
-    std::vector<VulkanImage> images;
-    images.reserve(loadedImages.size());
-
-//    for (size_t i = 0; i < tempCommandBuffers.size(); i++) {
-//        const VkCommandBufferAllocateInfo allocateInfo{
-//            VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
-//            VK_NULL_HANDLE,
-//            renderer->threaded_command_pools()[i],
-//            VK_COMMAND_BUFFER_LEVEL_PRIMARY,
-//            1
-//        };
-//
-//        VK_CHECK(vkAllocateCommandBuffers(device, &allocateInfo, &tempCommandBuffers[i]));
-//
-//        constexpr VkCommandBufferBeginInfo beginInfo{
-//                VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-//                VK_NULL_HANDLE,
-//                VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT
-//        };
-//
-//        VK_CHECK(vkBeginCommandBuffer(tempCommandBuffers[i], &beginInfo));
-//    }
+    VkBufferImageCopy copyRegion{
+        0,
+        0,
+        0,
+        {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
+        {0, 0, 0}
+    };
 
     for (const auto &loadedImage : loadedImages) {
-        auto texture = createTexture(loadedImage.size, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, true);
-        auto size = loadedImage.size;
+        const auto texture = createTexture(loadedImage.size, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, true);
+        const auto size = loadedImage.size;
 
         memcpy(mappedData, loadedImage.data, size.width * size.height * 4);
+        free(loadedImage.data);
 
         renderer->ImmediateSubmit([&](auto &commandBuffer){
-            TransitionImage(commandBuffer, texture, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, 0,
-                            VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT,
+            TransitionImage(commandBuffer, texture, VK_PIPELINE_STAGE_2_TRANSFER_BIT, 0,
+                            VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT,
                             VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 
-            VkBufferImageCopy copyRegion{
-                    0,
-                    0,
-                    0,
-                    {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
-                    {0, 0, 0},
-                    size
-            };
+            copyRegion.imageExtent = size;
 
             vkCmdCopyBufferToImage(commandBuffer, imageBuffer.buffer, texture.image,
                                    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copyRegion);
@@ -417,79 +389,13 @@ std::vector<VulkanImage> VkMemoryManager::createTexturesMultithreaded(const std:
             generateMipmaps(commandBuffer, texture, {size.width, size.height});
         });
 
-        images.emplace_back(texture);
+        textures.emplace_back(texture);
     }
-
-//#pragma omp parallel for ordered shared(renderer, loadedImages, imageBuffer, images, tempCommandBuffers, mappedData) default(none) num_threads(std::thread::hardware_concurrency())
-//    for (uint32_t i = 0; i < loadedImages.size(); i++) {
-//        const auto &loadedImage = loadedImages[i];
-//        auto texture = createTexture(loadedImage.size, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, true);
-//        auto size = loadedImage.size;
-//        auto &commandBuffer = tempCommandBuffers[omp_get_thread_num()];
-//
-//        constexpr VkCommandBufferBeginInfo beginInfo{
-//                VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-//                VK_NULL_HANDLE,
-//                VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT
-//        };
-//
-//#pragma omp ordered
-//        {
-//            printf("Thread %d processing image %d\n", omp_get_thread_num(), i);
-//            VK_CHECK(vkBeginCommandBuffer(commandBuffer, &beginInfo));
-//
-//            TransitionImage(commandBuffer, texture, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, 0,
-//                            VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT,
-//                            VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-//
-//            VkBufferImageCopy copyRegion{
-//                    0,
-//                    0,
-//                    0,
-//                    {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
-//                    {0, 0, 0},
-//                    size
-//            };
-//
-////#pragma omp critical
-////        {
-//            memcpy(mappedData, loadedImage.data, size.width * size.height * 4);
-////        }
-//
-//            vkCmdCopyBufferToImage(commandBuffer, imageBuffer.buffer, texture.image,
-//                                   VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copyRegion);
-//            generateMipmaps(commandBuffer, texture, {size.width, size.height});
-//
-//            VK_CHECK(vkEndCommandBuffer(commandBuffer));
-//
-////#pragma omp ordered
-////        {
-//            const VkSubmitInfo submitInfo{
-//                    .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-//                    .pNext = VK_NULL_HANDLE,
-//                    .commandBufferCount = 1,
-//                    .pCommandBuffers = &commandBuffer
-//            };
-//
-//            VK_CHECK(vkQueueSubmit(renderer->graphics_queue(), 1, &submitInfo, VK_NULL_HANDLE));
-//            VK_CHECK(vkQueueWaitIdle(renderer->graphics_queue()));
-//
-//            images.emplace_back(texture);
-//        }
-////        }
-//    }
-
-//    for (const auto &commandBuffer : tempCommandBuffers) {
-//        VK_CHECK(vkEndCommandBuffer(commandBuffer));
-//    }
-
-//    renderer->SubmitMultithreadedCommandBuffers(tempCommandBuffers);
-//    tempCommandBuffers.clear();
 
     unmapBuffer(imageBuffer);
     destroyBuffer(imageBuffer, false);
 
-    return images;
+    return textures;
 }
 
 VulkanImage VkMemoryManager::createKtxCubemap(ktxTexture *texture, VkRenderer *renderer, VkFormat format) {
@@ -525,8 +431,7 @@ VulkanImage VkMemoryManager::createKtxCubemap(ktxTexture *texture, VkRenderer *r
             VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
     };
 
-    if (pool)
-        allocationCreateInfo.pool = pool;
+    allocationCreateInfo.pool = pool;
 
     VkImage image;
     VmaAllocation allocation{};
@@ -558,11 +463,11 @@ VulkanImage VkMemoryManager::createKtxCubemap(ktxTexture *texture, VkRenderer *r
                 }
             }
 
-            TransitionImage(commandBuffer, {image, VK_NULL_HANDLE, allocation, imageSize, format}, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, 0, VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, mipLevels, 6);
+            TransitionImage(commandBuffer, {image, VK_NULL_HANDLE, allocation, imageSize, format}, VK_PIPELINE_STAGE_2_TRANSFER_BIT, 0, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, mipLevels, 6);
 
             vkCmdCopyBufferToImage(commandBuffer, stagingBuffer, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, copyRegions.size(), copyRegions.data());
 
-            TransitionImage(commandBuffer, {image, VK_NULL_HANDLE, allocation, imageSize, format}, VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, mipLevels, 6);
+            TransitionImage(commandBuffer, {image, VK_NULL_HANDLE, allocation, imageSize, format}, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, mipLevels, 6);
         });
     });
 
@@ -591,7 +496,7 @@ VulkanImage VkMemoryManager::createKtxCubemap(ktxTexture *texture, VkRenderer *r
             .addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
             .mipLodBias = 0.0f,
             .anisotropyEnable = VK_TRUE,
-            .maxAnisotropy = renderer->device_properties().limits.maxSamplerAnisotropy,
+            .maxAnisotropy = renderer->deviceProperties.limits.maxSamplerAnisotropy,
             .compareOp = VK_COMPARE_OP_NEVER,
             .minLod = 0.0f,
             .maxLod = static_cast<float>(mipLevels),
@@ -608,19 +513,19 @@ void VkMemoryManager::copyToBuffer(const VulkanBuffer &buffer, const void *data,
     VK_CHECK(vmaCopyMemoryToAllocation(allocator, data, buffer.allocation, offset, size));
 }
 
-void VkMemoryManager::mapBuffer(const VulkanBuffer &buffer, void **data) {
+void VkMemoryManager::mapBuffer(const VulkanBuffer &buffer, void **data) const {
     VK_CHECK(vmaMapMemory(allocator, buffer.allocation, data));
 }
 
-void VkMemoryManager::mapImage(const VulkanImage &image, void **data) {
+void VkMemoryManager::mapImage(const VulkanImage &image, void **data) const {
     VK_CHECK(vmaMapMemory(allocator, image.allocation, data));
 }
 
-void VkMemoryManager::unmapBuffer(const VulkanBuffer &buffer) {
+void VkMemoryManager::unmapBuffer(const VulkanBuffer &buffer) const {
     vmaUnmapMemory(allocator, buffer.allocation);
 }
 
-void VkMemoryManager::unmapImage(const VulkanImage &image) {
+void VkMemoryManager::unmapImage(const VulkanImage &image) const {
     vmaUnmapMemory(allocator, image.allocation);
 }
 
@@ -641,4 +546,19 @@ void VkMemoryManager::destroyImage(const VulkanImage &image, const bool tracked)
 
     if (tracked)
         trackedImages.erase(image);
+}
+
+VmaVirtualBlock VkMemoryManager::createVirtualBuffer(const VkDeviceSize size)
+{
+    const VmaVirtualBlockCreateInfo blockCreateInfo{size, VMA_VIRTUAL_BLOCK_CREATE_LINEAR_ALGORITHM_BIT};
+
+    VmaVirtualBlock block;
+    VK_CHECK(vmaCreateVirtualBlock(&blockCreateInfo, &block));
+    return block;
+}
+
+void VkMemoryManager::destroyVirtualBuffer(const VmaVirtualBlock &buffer)
+{
+    vmaClearVirtualBlock(buffer);
+    vmaDestroyVirtualBlock(buffer);
 }

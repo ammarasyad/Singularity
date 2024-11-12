@@ -9,8 +9,6 @@ struct LoadedGLTF {
     void Draw(const glm::mat4 &topMatrix, VkDrawContext &ctx);
     void Clear();
 
-    std::unordered_map<std::string, std::shared_ptr<Node>> nodes;
-
     std::vector<std::shared_ptr<Node>> rootNodes;
     std::vector<VkSampler> samplers;
 
@@ -19,6 +17,6 @@ struct LoadedGLTF {
     VkRenderer *renderer;
 };
 
-std::optional<LoadedGLTF> LoadGLTF(VkRenderer *renderer, bool multithread, const std::filesystem::path &path);
+std::optional<LoadedGLTF> LoadGLTF(VkRenderer *renderer, bool multithread, const std::filesystem::path &path, const std::filesystem::path &assetPath);
 
 #endif //GLTF_H

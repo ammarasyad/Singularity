@@ -2,7 +2,7 @@
 #define D3D12_STUFF_VK_DESCRIPTOR_LAYOUT_H
 
 #include <deque>
-
+#include <vector>
 #include "vk/vk_common.h"
 
 struct DescriptorLayoutBuilder {

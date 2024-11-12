@@ -1,4 +1,7 @@
 #include "camera.h"
+
+#include <bits/stl_algo.h>
+
 #include "ext/matrix_clip_space.hpp"
 #include <ext/matrix_transform.hpp>
 
@@ -26,74 +29,65 @@ glm::mat4 Camera::ProjectionMatrix() {
 
 void Camera::ProcessKeyboardInput(const int key, const int action, const float deltaTime) {
     if (action == GLFW_PRESS) {
+        constexpr float sensitivity = 0.01f;
         if (key == GLFW_KEY_W)
-            position += front /** 0.1f * deltaTime*/;
+            position += front * sensitivity * deltaTime;
 
         if (key == GLFW_KEY_S)
-            position -= front /** 0.1f * deltaTime*/;
+            position -= front * sensitivity * deltaTime;
 
         if (key == GLFW_KEY_A)
-            position -= right /** 0.1f * deltaTime*/;
+            position -= right * sensitivity * deltaTime;
 
         if (key == GLFW_KEY_D)
-            position += right /** 0.1f * deltaTime*/;
+            position += right * sensitivity * deltaTime;
 
         if (key == GLFW_KEY_SPACE)
-            position += worldUp /** 0.1f * deltaTime*/;
+            position += worldUp * sensitivity * deltaTime;
 
         if (key == GLFW_KEY_LEFT_CONTROL)
-            position -= worldUp /** 0.1f * deltaTime*/;
+            position -= worldUp * sensitivity * deltaTime;
 
-        if (key == GLFW_KEY_RIGHT) {
-            yaw += 15.0f;
-            if (yaw >= 360.0f)
-                yaw -= 360.0f;
-            UpdateVectors();
-        }
-
-        if (key == GLFW_KEY_LEFT) {
-            yaw -= 15.0f;
-            if (yaw < 0.0f)
-                yaw += 360.0f;
-            UpdateVectors();
-        }
-
-        if (key == GLFW_KEY_UP) {
-            pitch += 15.0f;
-            if (pitch > 90.0f)
-                pitch = 90.0f;
-            UpdateVectors();
-        }
-
-        if (key == GLFW_KEY_DOWN) {
-            pitch -= 15.0f;
-            if (pitch < -90.0f)
-                pitch = -90.0f;
-            UpdateVectors();
-        }
+        // if (key == GLFW_KEY_RIGHT) {
+        //     yaw += 15.0f;
+        //     if (yaw >= 360.0f)
+        //         yaw -= 360.0f;
+        //     UpdateVectors();
+        // }
+        //
+        // if (key == GLFW_KEY_LEFT) {
+        //     yaw -= 15.0f;
+        //     if (yaw < 0.0f)
+        //         yaw += 360.0f;
+        //     UpdateVectors();
+        // }
+        //
+        // if (key == GLFW_KEY_UP) {
+        //     pitch += 15.0f;
+        //     if (pitch > 90.0f)
+        //         pitch = 90.0f;
+        //     UpdateVectors();
+        // }
+        //
+        // if (key == GLFW_KEY_DOWN) {
+        //     pitch -= 15.0f;
+        //     if (pitch < -90.0f)
+        //         pitch = -90.0f;
+        //     UpdateVectors();
+        // }
     }
-
-    // if (action == GLFW_RELEASE) {
-    //     if (key == GLFW_KEY_W || key == GLFW_KEY_S)
-    //         position.z = 0;
-    //
-    //     if (key == GLFW_KEY_A || key == GLFW_KEY_D)
-    //         position.x = 0;
-    // }
 }
 
 void Camera::ProcessMouseInput(double xpos, double ypos) {
-//    static constexpr float SENSITIVITY = 0.005f;
-//
-//    yaw += xpos * SENSITIVITY;
-//    pitch += ypos * SENSITIVITY;
-//
-//    if (pitch > 89.0f)
-//        pitch = 89.0f;
-//    else if (pitch < -89.0f)
-//        pitch = -89.0f;
-//
-//    UpdateVectors();
+    static constexpr float SENSITIVITY = 0.05f;
+
+    yaw += xpos * SENSITIVITY;
+    pitch += ypos * SENSITIVITY;
+
+    pitch = std::clamp(pitch, -90.0, 90.0);
+    yaw = fmod(yaw, 360.0);
+
+    UpdateVectors();
 }
 
 void Camera::UpdateVectors() {

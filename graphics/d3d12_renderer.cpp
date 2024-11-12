@@ -1,3 +1,4 @@
+#ifdef _WIN32
 #include "d3d12_renderer.h"
 
 D3D12Renderer::D3D12Renderer(FLOAT width, FLOAT height) :
@@ -319,3 +320,4 @@ void D3D12Renderer::WaitForPreviousFrame() {
 
     frameIndex = swapChain->GetCurrentBackBufferIndex();
 }
+#endif

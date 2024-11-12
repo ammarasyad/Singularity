@@ -4,7 +4,6 @@
 #include "vk_mem_alloc.h"
 #include "vk/vk_common.h"
 #include <functional>
-#include <unordered_map>
 #include <unordered_set>
 #include <ktx.h>
 #include <atomic>
@@ -72,17 +71,17 @@ public:
 
     // All textures are tracked.
     VulkanImage createTexture(VkExtent3D size, VkFormat format, VkImageUsageFlags usage, bool mipmapped = false);
-    VulkanImage createTexture(void *data, VkRenderer *renderer, VkExtent3D size, VkFormat format, VkImageUsageFlags usage, bool mipmapped = false);
+    VulkanImage createTexture(const void *data, VkRenderer *renderer, VkExtent3D size, VkFormat format, VkImageUsageFlags usage, bool mipmapped = false);
     std::vector<VulkanImage> createTexturesMultithreaded(const std::vector<LoadedImage> &loadedImages, VkRenderer *renderer);
     VulkanImage createKtxCubemap(ktxTexture *texture, VkRenderer *renderer, VkFormat format);
 
     void copyToBuffer(const VulkanBuffer &buffer, const void *data, VkDeviceSize size, VkDeviceSize offset = 0) const;
 
-    void mapBuffer(const VulkanBuffer &buffer, void **data);
-    void mapImage(const VulkanImage &vkImage, void **data);
+    void mapBuffer(const VulkanBuffer &buffer, void **data) const;
+    void mapImage(const VulkanImage &vkImage, void **data) const;
 
-    void unmapBuffer(const VulkanBuffer &buffer);
-    void unmapImage(const VulkanImage &vkImage);
+    void unmapBuffer(const VulkanBuffer &buffer) const;
+    void unmapImage(const VulkanImage &vkImage) const;
 
     void destroyBuffer(const VulkanBuffer &buffer, bool tracked = true);
     void destroyImage(const VulkanImage &vkImage, bool tracked = true);
@@ -92,6 +91,8 @@ public:
     }
 
 private:
+    static VmaVirtualBlock createVirtualBuffer(VkDeviceSize size) ;
+    static inline void destroyVirtualBuffer(const VmaVirtualBlock &block);
     VmaAllocator allocator;
     VkDevice device;
     VmaPool pool;

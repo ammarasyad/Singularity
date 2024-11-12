@@ -17,6 +17,10 @@ layout(buffer_reference, std430) readonly buffer VertexBuffer {
     Vertex vertices[];
 };
 
+layout(set = 0, binding = 3) uniform ViewMatrix {
+    mat4 viewMatrix;
+};
+
 layout(push_constant) uniform PushConstants {
     mat4 worldMatrix;
     VertexBuffer vertexBuffer;
@@ -25,6 +29,7 @@ layout(push_constant) uniform PushConstants {
 layout(location = 0) out vec3 fragNormal;
 layout(location = 1) out vec2 fragUV;
 layout(location = 2) out vec3 fragPos;
+layout(location = 3) out vec3 fragViewPos;
 
 void main() {
     Vertex v = pushConstants.vertexBuffer.vertices[gl_VertexIndex];
@@ -35,4 +40,5 @@ void main() {
     fragPos = pos.xyz;
     fragNormal = v.normal;
     fragUV = vec2(v.uv_X, v.uv_Y);
+    fragViewPos = (viewMatrix * vec4(v.position, 1.0)).xyz;
 }

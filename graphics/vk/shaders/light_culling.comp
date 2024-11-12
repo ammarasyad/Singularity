@@ -22,6 +22,10 @@ layout(std430, set = 0, binding = 1) restrict buffer visibleLightBuffer {
     LightVisibility visibleLightIndices[];
 };
 
+layout(set = 0, binding = 2) buffer writeonly lightCountUniform {
+    uint16_t visibleLightCount[MAX_LIGHTS_VISIBLE];
+};
+
 layout(push_constant) uniform PushConstants {
     mat4 viewMatrix;
 } pushConstants;
@@ -50,6 +54,6 @@ void main() {
         count += uint16_t(intersects);
     }
 
-    visibleLightIndex.count = count;
+    visibleLightCount[tileIndex] = count;
     visibleLightIndices[tileIndex] = visibleLightIndex;
 }

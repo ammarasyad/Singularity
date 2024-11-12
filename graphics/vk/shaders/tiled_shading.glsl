@@ -1,7 +1,10 @@
 #define TILE_X 16
 #define TILE_Y 9
 #define TILE_Z 24
-#define MAX_LIGHTS 256
+#define MAX_LIGHTS_VISIBLE 256
+
+#define Z_NEAR 0.1f
+#define Z_FAR 1000.0f
 
 #extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
 #extension GL_EXT_shader_16bit_storage : require
@@ -16,7 +19,10 @@ struct FrustumAABB {
     vec4 maxPoint;
 };
 
-struct LightVisibility {
+struct LightCount {
     uint16_t count;
-    uint16_t indices[MAX_LIGHTS];
+};
+
+struct LightVisibility {
+    uint16_t indices[MAX_LIGHTS_VISIBLE];
 };

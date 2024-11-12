@@ -1,3 +1,4 @@
+#ifdef _WIN32
 #ifndef D3D12_STUFF_D3D12_RENDERER_H
 #define D3D12_STUFF_D3D12_RENDERER_H
 
@@ -133,3 +134,4 @@ private:
 };
 
 #endif //D3D12_STUFF_D3D12_RENDERER_H
+#endif

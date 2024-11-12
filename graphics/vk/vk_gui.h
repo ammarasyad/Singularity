@@ -2,7 +2,12 @@
 #define D3D12_STUFF_VK_GUI_H
 
 #include <memory>
+#ifdef _WIN32
 #include <glfw/glfw3.h>
+#else
+// use system glfw
+#include <GLFW/glfw3.h>
+#endif
 
 #include "camera.h"
 
@@ -27,10 +32,14 @@ private:
     static void errorCallback(int error, const char *description);
     static void FramebufferResizeCallback(GLFWwindow *window, int width, int height);
     static void MouseButtonCallback(GLFWwindow *window, int button, int action, int mods);
+    static void MouseCursorCallback(GLFWwindow *window, double xpos, double ypos);
     static void KeyboardCallback(GLFWwindow *window, int key, int scancode, int action, int mods);
     void CreateImGuiDescriptorPool();
 
     bool mouseHeldDown = false;
+
+    bool isKeyPressed = false;
+    int pressedKeys = 0;
 
     float deltaTime = 0;
 

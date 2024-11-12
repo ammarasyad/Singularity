@@ -14,7 +14,7 @@ namespace ImGui {
         float temp = getter();
         float newValue = temp;
 
-        ImGui::SliderFloat(label, &newValue, min, max, format, flags);
+        SliderFloat(label, &newValue, min, max, format, flags);
 
         if (newValue != temp) {
             setter(newValue);
@@ -38,10 +38,11 @@ VkGui::VkGui(const int width, const int height, const bool dynamicRendering, con
     if (glfwRawMouseMotionSupported())
         glfwSetInputMode(window, GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
 
-    glfwSetInputMode(window, GLFW_STICKY_MOUSE_BUTTONS, GLFW_TRUE);
+    glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
     glfwSetWindowUserPointer(window, this);
     glfwSetFramebufferSizeCallback(window, FramebufferResizeCallback);
-    glfwSetMouseButtonCallback(window, MouseButtonCallback);
+    // glfwSetMouseButtonCallback(window, MouseButtonCallback);
+    glfwSetCursorPosCallback(window, MouseCursorCallback);
     glfwSetKeyCallback(window, KeyboardCallback);
     glfwSetWindowCloseCallback(window, [](GLFWwindow *window) {
         glfwSetWindowShouldClose(window, GLFW_TRUE);
@@ -53,17 +54,17 @@ VkGui::VkGui(const int width, const int height, const bool dynamicRendering, con
     // VkRenderer initialization
     renderer = std::make_unique<VkRenderer>(window, &camera, dynamicRendering, asyncCompute);
 
-    const auto instance = renderer->vk_instance();
-    const auto physicalDevice = renderer->physical_device();
-    const auto logicalDevice = renderer->logical_device();
-    const auto queueFamily = renderer->queue_family_indices().graphicsFamily.value();
-    const auto queue = renderer->graphics_queue();
-    const auto renderPass = renderer->render_pass();
-    const auto msaaSamples = renderer->msaa_samples();
-    const auto pipelineCache = renderer->pipeline_cache();
+    const auto instance = renderer->instance;
+    const auto physicalDevice = renderer->physicalDevice;
+    const auto logicalDevice = renderer->device;
+    const auto pipelineCache = renderer->pipelineCache;
+    const auto queue = renderer->graphicsQueue;
+    const auto format = renderer->surfaceFormat.format;
+    const auto renderPass = renderer->renderPass;
+    const auto depthFormat = renderer->depthImage.format;
+    const auto queueFamily = renderer->queueFamilyIndices.graphicsFamily.value();
 
-    const auto format = renderer->surface_format().format;
-    const auto depthFormat = renderer->depth_format();
+    constexpr auto msaaSamples = VkRenderer::msaaSamples;
 
     CreateImGuiDescriptorPool();
 
@@ -108,15 +109,13 @@ void VkGui::Loop() {
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
 
-        if (renderer->needs_resizing()) {
+        if (renderer->framebufferResized) {
             renderer->RecreateSwapChain();
             continue;
         }
 
-        if (mouseHeldDown) {
-            double xpos, ypos;
-            glfwGetCursorPos(window, &xpos, &ypos);
-            camera.ProcessMouseInput(xpos, ypos);
+        if (isKeyPressed) {
+            camera.ProcessKeyboardInput(pressedKeys, GLFW_PRESS, deltaTime);
         }
 
         auto start = std::chrono::high_resolution_clock::now();
@@ -134,11 +133,15 @@ void VkGui::Loop() {
             ImGui::Text("Draw call count: %d", stats.drawCallCount);
             ImGui::Text("Triangle count: %d", stats.triangleCount);
 
-            const auto position = camera.Position();
+            const auto position = camera.position;
             ImGui::Text("Camera Position: %.2f, %.2f, %.2f", position.x, position.y, position.z);
             ImGui::Text("Camera Pitch: %.2f, Yaw: %.2f", camera.pitch, camera.yaw);
 
-            ImGui::SliderFloat("FOV", [&](){ return camera.Fov(); }, [&](float &newValue){ camera.setFov(newValue); }, 30.f, 120.f, "%.1f", ImGuiSliderFlags_AlwaysClamp);
+            ImGui::SliderFloat("FOV", [&] { return camera.Fov(); }, [&](const float &newValue){ camera.setFov(newValue); }, 30.f, 120.f, "%.1f", ImGuiSliderFlags_AlwaysClamp);
+            ImGui::Checkbox("Display Shadow Map", &renderer->displayShadowMap);
+            if (renderer->displayShadowMap) {
+                ImGui::SliderInt("Cascade Index", &renderer->cascadeIndex, 0, SHADOW_MAP_CASCADE_COUNT - 1);
+            }
             ImGui::End();
         }
 
@@ -153,11 +156,16 @@ void VkGui::Loop() {
 }
 
 void VkGui::Shutdown() const {
-    vkDeviceWaitIdle(renderer->logical_device());
+// #ifdef _WIN32
+    VK_CHECK(vkDeviceWaitIdle(renderer->device));
+// #else // Fix for Linux NVIDIA drivers I guess?
+//     const auto fences = renderer->get_fences();
+//     vkWaitForFences(renderer->logical_device(), fences.size(), fences.data(), VK_TRUE, UINT64_MAX);
+// #endif
 
     ImGui_ImplVulkan_Shutdown();
 
-    vkDestroyDescriptorPool(renderer->logical_device(), imguiDescriptorPool, nullptr);
+    vkDestroyDescriptorPool(renderer->device, imguiDescriptorPool, nullptr);
 
     ImGui_ImplGlfw_Shutdown();
     ImGui::DestroyContext();
@@ -175,34 +183,67 @@ void VkGui::errorCallback(const int error, const char *description) {
 
 void VkGui::FramebufferResizeCallback(GLFWwindow *window, int, int) {
     const auto gui = static_cast<VkGui *>(glfwGetWindowUserPointer(window));
-    gui->renderer->FramebufferNeedsResizing();
+    gui->renderer->framebufferResized = true;
 }
 
 void VkGui::MouseButtonCallback(GLFWwindow *window, int button, int action, int mods) {
     const auto gui = static_cast<VkGui *>(glfwGetWindowUserPointer(window));
 
-    if (button == GLFW_MOUSE_BUTTON_LEFT) {
-        if (action == GLFW_PRESS) {
-            gui->mouseHeldDown = true;
-        } else if (action == GLFW_RELEASE) {
-            gui->mouseHeldDown = false;
-        }
-    }
+    gui->mouseHeldDown = button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS;
+
+    // if (button == GLFW_MOUSE_BUTTON_LEFT) {
+    //     if (action == GLFW_PRESS) {
+    //         gui->mouseHeldDown = true;
+    //     } else if (action == GLFW_RELEASE) {
+    //         gui->mouseHeldDown = false;
+    //     }
+    // }
 }
+
+void VkGui::MouseCursorCallback(GLFWwindow *window, double xpos, double ypos) {
+    static double lastX = xpos;
+    static double lastY = ypos;
+    const auto gui = static_cast<VkGui *>(glfwGetWindowUserPointer(window));
+
+    // if (!gui->mouseHeldDown) return;
+
+    const double xOffset = xpos - lastX;
+    const double yOffset = lastY - ypos;
+
+    lastX = xpos;
+    lastY = ypos;
+
+    gui->camera.ProcessMouseInput(xOffset, yOffset);
+}
+
+bool mouseDisabled = true;
 
 void VkGui::KeyboardCallback(GLFWwindow *window, int key, int scancode, int action, int mods) {
     const auto gui = static_cast<VkGui *>(glfwGetWindowUserPointer(window));
     if (action == GLFW_PRESS) {
-        if (key == GLFW_KEY_ESCAPE) {
-            glfwSetWindowShouldClose(window, GLFW_TRUE);
+        switch (key) {
+            case GLFW_KEY_ESCAPE:
+                glfwSetWindowShouldClose(window, GLFW_TRUE);
+                break;
+            case GLFW_KEY_F2:
+                gui->renderer->Screenshot();
+                break;
+            case GLFW_KEY_V:
+                mouseDisabled = !mouseDisabled;
+                glfwSetInputMode(window, GLFW_CURSOR, mouseDisabled ? GLFW_CURSOR_DISABLED : GLFW_CURSOR_NORMAL);
+                glfwSetCursorPosCallback(window, mouseDisabled ? MouseCursorCallback : nullptr);
+                break;
+            default:
+                gui->isKeyPressed = true;
+                gui->pressedKeys = key;
+                break;
         }
-
-        if (key == GLFW_KEY_F2) {
-            gui->renderer->Screenshot();
-        }
+    } else if (action == GLFW_RELEASE) {
+        gui->isKeyPressed = false;
+        gui->pressedKeys = 0;
     }
 
-    gui->camera.ProcessKeyboardInput(key, action, gui->deltaTime);
+    // gui->camera.ProcessKeyboardInput(key, action, gui->deltaTime);
 }
 
 void VkGui::CreateImGuiDescriptorPool() {
@@ -220,5 +261,5 @@ void VkGui::CreateImGuiDescriptorPool() {
         poolSizes.data()
     };
 
-    VK_CHECK(vkCreateDescriptorPool(renderer->logical_device(), &poolinfo, nullptr, &imguiDescriptorPool));
+    VK_CHECK(vkCreateDescriptorPool(renderer->device, &poolinfo, nullptr, &imguiDescriptorPool));
 }

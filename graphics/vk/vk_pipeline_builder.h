@@ -1,6 +1,7 @@
 #ifndef VK_PIPELINE_BUILDER_H
 #define VK_PIPELINE_BUILDER_H
 
+#include <vector>
 #include "vk/vk_common.h"
 
 struct SpecializationInfoHelper {
@@ -43,7 +44,6 @@ struct VkGraphicsPipelineBuilder {
 
     std::vector<VkVertexInputBindingDescription> vertexInputBindingDescriptions{};
     std::vector<VkVertexInputAttributeDescription> vertexInputAttributeDescriptions{};
-
 };
 
 #endif //VK_PIPELINE_BUILDER_H

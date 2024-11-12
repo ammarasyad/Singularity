@@ -4,12 +4,17 @@
 #define GLFW_INCLUDE_VULKAN
 #define GLM_FORCE_RADIANS
 
+#ifdef _WIN32
 #include <glfw/glfw3.h>
+#else
+// use system glfw
+#include <GLFW/glfw3.h>
+#endif
+
 #include <memory>
 #include <optional>
 #include <vector>
 #include <detail/type_half.hpp>
-#include <omp.h>
 
 #include "camera.h"
 #include "objects/material.h"
@@ -17,6 +22,9 @@
 #include "vk/memory/vk_memory.h"
 #include "vk/vk_descriptor_layout.h"
 #include "objects/gltf.h"
+
+static constexpr uint32_t SHADOW_MAP_CASCADE_COUNT = 4;
+static constexpr uint32_t SHADOW_MAP_SIZE = 4096;
 
 struct EngineStats;
 struct MeshAsset;
@@ -46,22 +54,27 @@ namespace glm {
 }
 
 struct FrameData {
-    VkSemaphore imageAvailableSemaphore;
-    VkSemaphore renderFinishedSemaphore;
-    VkFence inFlightFence;
+    VkSemaphore imageAvailableSemaphore{};
+    VkSemaphore renderFinishedSemaphore{};
+    VkFence inFlightFence{};
 
-    VkCommandPool commandPool;
-    VkCommandBuffer commandBuffer;
+    VkCommandPool commandPool{};
+    VkCommandBuffer commandBuffer{};
 
     DescriptorAllocator frameDescriptors;
-    std::vector<std::function<void()>> frameCallbacks;
 };
 
 struct SceneData {
     glm::mat4 worldMatrix;
 };
 
+struct DepthPassPushConstants {
+    VkDeviceAddress vertexBufferDeviceAddress;
+    uint32_t cascadeIndex;
+};
+
 #define MAX_LIGHTS 1
+#define MAX_LIGHTS_VISIBLE 256
 
 struct Light {
     uint32_t lightCount;
@@ -71,11 +84,10 @@ struct Light {
     } lights[MAX_LIGHTS];
 };
 
-struct alignas(16) LightVisibility {
-    glm::vec4 minPoint;
-    glm::vec4 maxPoint;
-    uint16_t visibleLightCount;
-    uint16_t indices[256];
+struct LightVisibility {
+    glm::vec4 minPoints;
+    glm::vec4 maxPoints;
+    uint16_t indices[MAX_LIGHTS_VISIBLE];
 };
 
 struct ComputePushConstants {
@@ -89,16 +101,6 @@ struct FrustumPushConstants {
 
 // TODO: Replace error handling with a dialog box
 class VkRenderer {
-    struct QueueFamilyIndices {
-        std::optional<uint32_t> graphicsFamily;
-        std::optional<uint32_t> transferFamily;
-        std::optional<uint32_t> computeFamily;
-        std::optional<uint32_t> presentFamily;
-
-        [[nodiscard]] bool IsComplete() const {
-            return graphicsFamily.has_value() && transferFamily.has_value() && computeFamily.has_value() && presentFamily.has_value();
-        }
-    } queueFamilyIndices;
 public:
     explicit VkRenderer(GLFWwindow *window, Camera *camera, bool dynamicRendering = true, bool asyncCompute = true);
     ~VkRenderer();
@@ -112,99 +114,20 @@ public:
     void Shutdown();
     void RecreateSwapChain();
 
-    Mesh CreateMesh(const std::span<VkVertex> &vertices, const std::span<uint32_t> &indices);
+    Mesh CreateMesh(const std::span<VkVertex> &vertices, const std::span<uint32_t> &indices) const;
 
     static inline void BlitImage(const VkCommandBuffer &commandBuffer, const VulkanImage &srcImage, const VulkanImage &dstImage, VkImageLayout srcLayout, VkImageLayout dstLayout, VkImageAspectFlags aspectFlags);
 
-    [[nodiscard]] const QueueFamilyIndices &queue_family_indices() const {
-        return queueFamilyIndices;
-    }
-
-    [[nodiscard]] VkInstance vk_instance() const {
-        return instance;
-    }
-
-    [[nodiscard]] VkPhysicalDevice physical_device() const {
-        return physicalDevice;
-    }
-
-    [[nodiscard]] VkDevice logical_device() const {
-        return device;
-    }
-
-    [[nodiscard]] VkPipelineCache pipeline_cache() const {
-        return pipelineCache;
-    }
-
-    [[nodiscard]] VkRenderPass render_pass() const {
-        return renderPass;
-    }
-
-    [[nodiscard]] VkQueue graphics_queue() const {
-        return graphicsQueue;
-    }
-
-    [[nodiscard]] VkQueue transfer_queue() const {
-        return transferQueue;
-    }
-
-    [[nodiscard]] VkSurfaceFormatKHR surface_format() const {
-        return surfaceFormat;
-    }
-
-    [[nodiscard]] VkFormat depth_format() const {
-        return depthImage.format;
-    }
-
-    [[nodiscard]] VkDescriptorSetLayout main_descriptor_set_layout() const {
-        return mainDescriptorSetLayout;
-    }
-
-    [[nodiscard]] VkDescriptorSetLayout scene_descriptor_set_layout() const {
-        return sceneDescriptorSetLayout;
-    }
-
-    [[nodiscard]] VkSampleCountFlagBits msaa_samples() const {
-        return msaaSamples;
-    }
-
-    [[nodiscard]] VkMemoryManager *memory_manager() const {
-        return memoryManager.get();
-    }
-
-    [[nodiscard]] VulkanImage default_image() const {
-        return defaultImage;
-    }
-
-    [[nodiscard]] VkSampler default_sampler_linear() const  {
-        return textureSamplerLinear;
-    }
-
-    [[nodiscard]] VkGLTFMetallic_Roughness metal_rough_material() const {
-        return metalRoughMaterial;
-    }
-
-    [[nodiscard]] VkPhysicalDeviceProperties device_properties() const {
-        return deviceProperties;
-    }
-
-    [[nodiscard]] bool is_dynamic_rendering() const {
-        return dynamicRendering;
-    }
-
-    [[nodiscard]] bool is_integrated_gpu() const {
-        return isIntegratedGPU;
-    }
-
-    [[nodiscard]] bool needs_resizing() const {
-        return framebufferResized;
+    [[nodiscard]] std::array<VkFence, 3> get_fences() const
+    {
+        return {frames[currentFrame].inFlightFence, depthPrepassFence, computeFinishedFence};
     }
 
     void ImmediateSubmit(std::function<void(const VkCommandBuffer &)> &&callback) const {
         const VkCommandBufferAllocateInfo allocInfo{
             VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
             VK_NULL_HANDLE,
-            immediateCommandPool,
+            graphicsCommandPool,
             VK_COMMAND_BUFFER_LEVEL_PRIMARY,
             1
         };
@@ -233,7 +156,43 @@ public:
         VK_CHECK(vkQueueSubmit(graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE));
         VK_CHECK(vkQueueWaitIdle(graphicsQueue));
 
-        vkFreeCommandBuffers(device, immediateCommandPool, 1, &commandBuffer);
+        vkFreeCommandBuffers(device, graphicsCommandPool, 1, &commandBuffer);
+    }
+
+    void TransferSubmit(std::function<void(const VkCommandBuffer &)> &&callback) const {
+        const VkCommandBufferAllocateInfo allocInfo{
+            VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+            VK_NULL_HANDLE,
+            transferCommandPool,
+            VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+            1
+        };
+
+        VkCommandBuffer commandBuffer;
+        VK_CHECK(vkAllocateCommandBuffers(device, &allocInfo, &commandBuffer));
+
+        constexpr VkCommandBufferBeginInfo beginInfo{
+            VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+            VK_NULL_HANDLE,
+            VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
+            VK_NULL_HANDLE
+        };
+
+        VK_CHECK(vkBeginCommandBuffer(commandBuffer, &beginInfo));
+        callback(commandBuffer);
+        VK_CHECK(vkEndCommandBuffer(commandBuffer));
+
+        const VkSubmitInfo submitInfo{
+            .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+            .pNext = VK_NULL_HANDLE,
+            .commandBufferCount = 1,
+            .pCommandBuffers = &commandBuffer
+        };
+
+        VK_CHECK(vkQueueSubmit(transferQueue, 1, &submitInfo, VK_NULL_HANDLE));
+        VK_CHECK(vkQueueWaitIdle(transferQueue));
+
+        vkFreeCommandBuffers(device, transferCommandPool, 1, &commandBuffer);
     }
 
 //    const std::vector<VkCommandPool> &threaded_command_pools() {
@@ -256,18 +215,30 @@ public:
 //        }
 //    }
 
-    void FramebufferNeedsResizing();
     void Screenshot();
-private:
-    uint32_t currentFrame = 0;
 
-    bool dynamicRendering = true;
-    bool asyncCompute = true;
-    bool raytracingCapable = false;
-    bool framebufferResized = false;
-    bool isIntegratedGPU = false;
+    uint8_t currentFrame = 0;
+    bool displayShadowMap = false;
+    int32_t cascadeIndex = 0;
 
-    VkSampleCountFlagBits msaaSamples = VK_SAMPLE_COUNT_1_BIT;
+    union {
+        struct {
+            bool dynamicRendering : 1;
+            bool asyncCompute : 1;
+            bool raytracingCapable : 1;
+            bool framebufferResized : 1;
+            bool isIntegratedGPU : 1;
+        };
+        uint32_t flags;
+    };
+
+    // bool dynamicRendering = true;
+    // bool asyncCompute = true;
+    // bool raytracingCapable = false;
+    // bool framebufferResized = false;
+    // bool isIntegratedGPU = false;
+
+    static constexpr VkSampleCountFlagBits msaaSamples = VK_SAMPLE_COUNT_1_BIT;
 
     struct SwapChainSupportDetails {
         VkSurfaceCapabilitiesKHR capabilities;
@@ -275,8 +246,129 @@ private:
         std::vector<VkPresentModeKHR> presentModes;
     };
 
+    GLFWwindow *glfwWindow;
+    Camera *camera;
+
+    VkViewport viewport{};
+    VkRect2D scissor{};
+
+    VkInstance instance{};
+    VkSurfaceKHR surface{};
+    VkPhysicalDevice physicalDevice{};
+    VkDevice device{};
+    VkPipelineCache pipelineCache{};
+    VkQueue graphicsQueue{};
+    VkQueue computeQueue{};
+    VkQueue transferQueue{};
+    VkQueue presentQueue{};
+    VkSwapchainKHR swapChain{};
+    VkSurfaceFormatKHR surfaceFormat{};
+    VkRenderPass renderPass{};
+
+    VkPhysicalDeviceProperties deviceProperties{};
+    VkDeviceSize maxMemoryAllocationSize{};
+    // VkPhysicalDeviceMemoryProperties memoryProperties{};
+
+    VulkanImage depthImage{};
+    VulkanImage shadowCascadeImage{};
+
+    DescriptorAllocator mainDescriptorAllocator{};
+    VkDescriptorSet mainDescriptorSet{};
+    VkDescriptorSetLayout mainDescriptorSetLayout{};
+    VkDescriptorSetLayout sceneDescriptorSetLayout{};
+
+    VkDescriptorSet sceneDescriptorSet{};
+    VulkanBuffer sceneDataBuffer{};
+
+    VkPipeline depthPrepassPipeline{};
+    VkPipelineLayout depthPrepassPipelineLayout{};
+    VkRenderPass depthPrepassRenderPass{};
+    VkFramebuffer depthPrepassFramebuffer{};
+    VkSemaphore depthPrepassSemaphore{};
+    VkFence depthPrepassFence{};
+    VkCommandBuffer depthPrepassCommandBuffer{};
+
+    VkPipeline shadowMapPipeline{};
+
+    VkPipeline skyboxPipeline{};
+    VkPipelineLayout skyboxPipelineLayout{};
+    VkDescriptorSetLayout skyboxDescriptorSetLayout{};
+    VkDescriptorSet skyboxDescriptorSet{};
+
+    VkPipeline computePipeline{};
+    VkPipelineLayout computePipelineLayout{};
+
+    VkPipeline frustumPipeline{};
+    VkPipelineLayout frustumPipelineLayout{};
+    VkDescriptorSetLayout frustumDescriptorSetLayout{};
+
+    VkSemaphore computeFinishedSemaphore{};
+    VkFence computeFinishedFence{};
+    VkCommandBuffer computeCommandBuffer{};
+
+    std::array<FrameData, MAX_FRAMES_IN_FLIGHT> frames;
+    VkCommandPool graphicsCommandPool{};
+    VkCommandPool transferCommandPool{};
+//    std::vector<VkCommandPool> commandPools{};
+    VkCommandPool computeCommandPool{};
+
+    std::vector<VkFramebuffer> swapChainFramebuffers{};
+    std::vector<VkImage> swapChainImages{};
+    std::vector<VkImageView> swapChainImageViews{};
+
+    VkPresentModeKHR presentMode{};
+    VkExtent2D swapChainExtent{};
+
+    VulkanImage defaultImage{};
+    VulkanImage skyboxImage{};
+
+    VulkanBuffer lightBuffer{};
+    VulkanBuffer visibleLightBuffer{};
+    VulkanBuffer lightCountUniform{};
+    VulkanBuffer viewMatrix{};
+
+    VkSampler textureSamplerLinear{};
+    VkSampler textureSamplerNearest{};
+
+    VkGLTFMetallic_Roughness metalRoughMaterial{};
+
+    VkDrawContext mainDrawContext{};
+    LoadedGLTF loadedScene{};
+    SceneData sceneData{};
+
+    std::unique_ptr<VkMemoryManager> memoryManager;
+    std::unique_ptr<Light> totalLights;
+
+    struct ShadowCascade {
+        VkImageView shadowImageView;
+        VkFramebuffer shadowMapFramebuffer;
+        float splitDepth;
+    };
+
+    std::array<ShadowCascade, SHADOW_MAP_CASCADE_COUNT> shadowCascades{};
+    VulkanBuffer cascadeViewProjectionBuffer{};
+    std::array<glm::mat4, SHADOW_MAP_CASCADE_COUNT> cascadeViewProjections{};
+    // std::array<float, SHADOW_MAP_CASCADE_COUNT> cascadeSplits{};
+    union
+    {
+        std::array<float, SHADOW_MAP_CASCADE_COUNT> arr;
+        glm::vec4 vec4;
+    } cascadeSplits{};
+
+    struct QueueFamilyIndices {
+        std::optional<uint32_t> graphicsFamily;
+        std::optional<uint32_t> transferFamily;
+        std::optional<uint32_t> computeFamily;
+        std::optional<uint32_t> presentFamily;
+
+        [[nodiscard]] bool IsComplete() const {
+            return graphicsFamily.has_value() && transferFamily.has_value() && computeFamily.has_value() && presentFamily.has_value();
+        }
+    } queueFamilyIndices;
+
+private:
 #ifndef NDEBUG
-    const std::array<const char *, 1> validationLayers = {
+    static constexpr std::array<const char *, 1> validationLayers = {
             "VK_LAYER_KHRONOS_validation"
     };
 
@@ -320,98 +412,13 @@ private:
     inline void ComputeFrustum();
 
     inline void CreateSkybox();
-
-    GLFWwindow *glfwWindow;
-    Camera *camera;
-
-    VkViewport viewport{};
-    VkRect2D scissor{};
-
-    VkInstance instance{};
-    VkSurfaceKHR surface{};
-    VkPhysicalDevice physicalDevice{};
-    VkDevice device{};
-    VkPipelineCache pipelineCache{};
-    VkQueue graphicsQueue{};
-    VkQueue computeQueue{};
-    VkQueue transferQueue{};
-    VkQueue presentQueue{};
-    VkSwapchainKHR swapChain{};
-    VkSurfaceFormatKHR surfaceFormat{};
-    VkRenderPass renderPass{};
-
-    VulkanImage depthImage{};
-
-    DescriptorAllocator mainDescriptorAllocator{};
-    VkDescriptorSet mainDescriptorSet{};
-    VkDescriptorSetLayout mainDescriptorSetLayout{};
-    VkDescriptorSetLayout sceneDescriptorSetLayout{};
-
-    VkDescriptorSet sceneDescriptorSet{};
-    VulkanBuffer sceneDataBuffer{};
-
-    VkPipeline depthPrepassPipeline{};
-    VkPipelineLayout depthPrepassPipelineLayout{};
-    VkDescriptorSet depthPrepassDescriptorSet{};
-    VkRenderPass depthPrepassRenderPass{};
-    VkFramebuffer depthPrepassFramebuffer{};
-    VkSemaphore depthPrepassSemaphore{};
-    VkFence depthPrepassFence{};
-    VkCommandBuffer depthPrepassCommandBuffer{};
-
-    VkPipeline skyboxPipeline{};
-    VkPipelineLayout skyboxPipelineLayout{};
-    VkDescriptorSetLayout skyboxDescriptorSetLayout{};
-    VkDescriptorSet skyboxDescriptorSet{};
-
-    VkPipeline computePipeline{};
-    VkPipelineLayout computePipelineLayout{};
-
-    VkPipeline frustumPipeline{};
-    VkPipelineLayout frustumPipelineLayout{};
-    VkDescriptorSetLayout frustumDescriptorSetLayout{};
-
-    VkSemaphore computeFinishedSemaphore{};
-    VkFence computeFinishedFence{};
-    VkCommandBuffer computeCommandBuffer{};
-
-    std::array<FrameData, MAX_FRAMES_IN_FLIGHT> frames;
-    VkCommandPool immediateCommandPool{};
-//    std::vector<VkCommandPool> commandPools{};
-    VkCommandPool computeCommandPool{};
-
-    std::vector<VkFramebuffer> swapChainFramebuffers{};
-    std::vector<VkImage> swapChainImages{};
-    std::vector<VkImageView> swapChainImageViews{};
-
-    VkPresentModeKHR presentMode{};
-    VkExtent2D swapChainExtent{};
-
-    VkPhysicalDeviceProperties deviceProperties{};
-    VkPhysicalDeviceMemoryProperties memoryProperties{};
-
-    VulkanImage defaultImage{};
-    VulkanImage skyboxImage{};
-
-    VulkanBuffer lightUniformBuffer{};
-    VulkanBuffer visibleLightBuffer{};
-
-    VkSampler textureSamplerLinear{};
-    VkSampler textureSamplerNearest{};
-
-    VkGLTFMetallic_Roughness metalRoughMaterial{};
-
-    VkDrawContext mainDrawContext{};
-    LoadedGLTF loadedScene{};
-    SceneData sceneData{};
-
-    std::unique_ptr<VkMemoryManager> memoryManager;
-
-    std::unique_ptr<Light> totalLights;
+    inline void CreateShadowCascades();
 
     inline void CreateDepthImage();
 
     inline void UpdateDepthComputeDescriptorSets();
+
+    void UpdateCascades();
 };
 
 

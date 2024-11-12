@@ -9,16 +9,7 @@ public:
     Camera();
     Camera(float posX, float posY, float posZ);
 
-
-    double pitch{0.};
-    double yaw{180.};
-
     [[nodiscard]] glm::mat4 ViewMatrix() const;
-    [[nodiscard]] glm::vec3 Position() const { return position; }
-    [[nodiscard]] glm::vec3 Front() const { return front; }
-    [[nodiscard]] glm::vec3 Right() const { return right; }
-    [[nodiscard]] glm::vec3 Up() const { return up; }
-    [[nodiscard]] glm::vec3 WorldUp() const { return worldUp; }
     [[nodiscard]] glm::mat4 ProjectionMatrix();
     [[nodiscard]] float Fov() const { return fov; }
 
@@ -32,18 +23,23 @@ public:
         needsUpdate = true;
     }
 
-private:
-    glm::mat4 projectionMatrix;
+    double pitch{0.};
+    double yaw{180.};
+
     glm::vec3 position;
     glm::vec3 worldUp;
     glm::vec3 front{};
     glm::vec3 right{};
     glm::vec3 up{};
 
-    float fov{90.f};
-    float aspectRatio{16.f / 9.f};
     float nearPlane{0.1f};
     float farPlane{1000.f};
+private:
+    glm::mat4 projectionMatrix;
+
+    float fov{90.f};
+    float aspectRatio{16.f / 9.f};
+
     bool needsUpdate{true};
 };
 

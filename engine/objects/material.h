@@ -1,8 +1,10 @@
 #ifndef MATERIAL_H
 #define MATERIAL_H
 
+#ifdef _WIN32
 #include <d3d12.h>
 #include <wrl/client.h>
+#endif
 
 #include "vk/vk_descriptor_layout.h"
 #include "vk/vk_common.h"
@@ -34,6 +36,7 @@ struct VkMaterialInstance {
     }
 };
 
+#ifdef _WIN32
 struct D3D12MaterialPipeline {
     Microsoft::WRL::ComPtr<ID3D12PipelineState> pipeline;
     Microsoft::WRL::ComPtr<ID3D12RootSignature> rootSignature;
@@ -44,6 +47,7 @@ struct D3D12MaterialInstance {
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> descriptorHeap;
     MaterialPass pass;
 };
+#endif
 
 struct VkGLTFMetallic_Roughness {
     struct MaterialConstants {

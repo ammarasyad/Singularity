@@ -4,7 +4,7 @@
 #include "vk/vk_pipeline_builder.h"
 
 void VkGLTFMetallic_Roughness::buildPipelines(const VkRenderer *renderer) {
-    const auto device = renderer->logical_device();
+    const auto device = renderer->device;
     constexpr VkPushConstantRange pushConstantRange{
         VK_SHADER_STAGE_VERTEX_BIT,
         0,
@@ -25,8 +25,8 @@ void VkGLTFMetallic_Roughness::buildPipelines(const VkRenderer *renderer) {
 
     materialLayout = layoutBuilder.Build(device);
 
-    std::array setLayouts = {renderer->scene_descriptor_set_layout(), materialLayout, renderer->main_descriptor_set_layout()};
-    std::array pushConstantRanges = {pushConstantRange, fragmentPushConstantRange};
+    std::array setLayouts = {renderer->sceneDescriptorSetLayout, materialLayout, renderer->mainDescriptorSetLayout};
+    constexpr std::array pushConstantRanges = {pushConstantRange, fragmentPushConstantRange};
     const VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo{
         VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
         VK_NULL_HANDLE,
@@ -49,18 +49,33 @@ void VkGLTFMetallic_Roughness::buildPipelines(const VkRenderer *renderer) {
     builder.SetTopology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
     builder.SetPolygonMode(VK_POLYGON_MODE_FILL);
     builder.SetCullingMode(VK_CULL_MODE_BACK_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE);
-    builder.EnableDepthTest(false, VK_COMPARE_OP_EQUAL);
+    builder.EnableDepthTest(true, VK_COMPARE_OP_LESS_OR_EQUAL);
 
-    bool dynamicRendering = renderer->is_dynamic_rendering();
+    static constexpr std::array<VkSpecializationMapEntry, 2> entries = {{
+         {0, 0, sizeof(uint32_t)},
+         {1, sizeof(uint32_t), sizeof(uint32_t)}
+    }};
+
+    static constexpr uint32_t data[] = {1, SHADOW_MAP_CASCADE_COUNT};
+
+    VkSpecializationInfo specializationInfo{
+            entries.size(),
+            entries.data(),
+            sizeof(uint32_t) * 2,
+            data
+    };
+
+    bool dynamicRendering = renderer->dynamicRendering;
     if (dynamicRendering) {
-         builder.SetColorAttachmentFormat(renderer->surface_format().format);
-         builder.SetDepthFormat(renderer->depth_format());
+         builder.SetColorAttachmentFormat(renderer->surfaceFormat.format);
+         builder.SetDepthFormat(renderer->depthImage.format);
     }
 
-    opaquePipeline.pipeline = builder.Build(dynamicRendering, device, renderer->pipeline_cache(), renderer->render_pass());
+    opaquePipeline.pipeline = builder.Build(dynamicRendering, device, renderer->pipelineCache, renderer->renderPass, {VK_SHADER_STAGE_FRAGMENT_BIT, specializationInfo});
 
-    builder.EnableBlendingAdditive();
-    transparentPipeline.pipeline = builder.Build(dynamicRendering, device, renderer->pipeline_cache(), renderer->render_pass());
+    builder.EnableBlendingAlphaBlend();
+    builder.EnableDepthTest(false, VK_COMPARE_OP_LESS_OR_EQUAL);
+    transparentPipeline.pipeline = builder.Build(dynamicRendering, device, renderer->pipelineCache, renderer->renderPass, {VK_SHADER_STAGE_FRAGMENT_BIT, specializationInfo});
 
     builder.DestroyShaderModules(device);
 }
