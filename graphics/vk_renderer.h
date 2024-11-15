@@ -102,7 +102,7 @@ struct FrustumPushConstants {
 // TODO: Replace error handling with a dialog box
 class VkRenderer {
 public:
-    explicit VkRenderer(GLFWwindow *window, Camera *camera, bool dynamicRendering = true, bool asyncCompute = true);
+    explicit VkRenderer(GLFWwindow *window, Camera *camera, bool dynamicRendering = true, bool asyncCompute = true, bool meshShader = false);
     ~VkRenderer();
     VkRenderer(const VkRenderer &) = delete;
     VkRenderer &operator=(const VkRenderer &) = delete;
@@ -224,6 +224,7 @@ public:
             bool raytracingCapable : 1;
             bool framebufferResized : 1;
             bool isIntegratedGPU : 1;
+            bool meshShader : 1;
         };
         uint16_t flags;
     };

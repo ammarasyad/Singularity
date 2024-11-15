@@ -16,9 +16,10 @@
 #include "ext/matrix_transform.hpp"
 #include "ext/matrix_clip_space.inl"
 
-VkRenderer::VkRenderer(GLFWwindow *window, Camera *camera, const bool dynamicRendering, const bool asyncCompute)
+VkRenderer::VkRenderer(GLFWwindow *window, Camera *camera, const bool dynamicRendering, const bool asyncCompute, const bool meshShader)
     : dynamicRendering(dynamicRendering),
       asyncCompute(asyncCompute),
+      meshShader(meshShader),
       glfwWindow(window),
       camera(camera)
 {
@@ -983,8 +984,16 @@ void VkRenderer::CreateLogicalDevice() {
                                       queuePriorities);
     }
 
+    VkPhysicalDeviceMeshShaderFeaturesEXT meshShaderFeatures{
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_FEATURES_EXT,
+        VK_NULL_HANDLE,
+        VK_TRUE,
+        VK_TRUE
+    };
+
     VkPhysicalDeviceVulkan11Features vulkan11Features{
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES,
+        .pNext = &meshShaderFeatures,
         .storageBuffer16BitAccess = VK_TRUE,
         .uniformAndStorageBuffer16BitAccess = VK_TRUE
     };
@@ -1010,10 +1019,11 @@ void VkRenderer::CreateLogicalDevice() {
         {.multiDrawIndirect = VK_TRUE, .depthClamp = VK_TRUE, .samplerAnisotropy = VK_TRUE, .shaderInt16 = VK_TRUE }
     };
 
-    std::array<const char *, 7> deviceExtensions{
+    std::array<const char *, 8> deviceExtensions{
         VK_KHR_SWAPCHAIN_EXTENSION_NAME,
         VK_KHR_PIPELINE_LIBRARY_EXTENSION_NAME,
         VK_EXT_GRAPHICS_PIPELINE_LIBRARY_EXTENSION_NAME,
+        VK_EXT_MESH_SHADER_EXTENSION_NAME
     };
 
     VkPhysicalDeviceRayQueryFeaturesKHR rayQueryFeatures{
@@ -1039,12 +1049,12 @@ void VkRenderer::CreateLogicalDevice() {
     };
 
     if (raytracingCapable) {
-        deviceExtensions[3] = VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME;
-        deviceExtensions[4] = VK_KHR_RAY_QUERY_EXTENSION_NAME;
-        deviceExtensions[5] = VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME;
-        deviceExtensions[6] = VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME;
+        deviceExtensions[4] = VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME;
+        deviceExtensions[5] = VK_KHR_RAY_QUERY_EXTENSION_NAME;
+        deviceExtensions[6] = VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME;
+        deviceExtensions[7] = VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME;
 
-        vulkan11Features.pNext = &rayTracingPipelineFeatures;
+        meshShaderFeatures.pNext = &rayTracingPipelineFeatures;
     }
 
     VkDeviceCreateInfo createInfo{
