@@ -917,44 +917,6 @@ Mesh VkRenderer::CreateMesh(const std::span<VkVertex> &vertices, const std::span
     return mesh;
 }
 
-void VkRenderer::BlitImage(const VkCommandBuffer &commandBuffer, const VulkanImage &srcImage,
-                           const VulkanImage &dstImage, const VkImageLayout srcLayout, const VkImageLayout dstLayout,
-                           const VkImageAspectFlags aspectFlags) {
-    VkImageBlit2 blitRegion{VK_STRUCTURE_TYPE_IMAGE_BLIT_2};
-
-    blitRegion.srcOffsets[1].x = static_cast<int32_t>(srcImage.extent.width);
-    blitRegion.srcOffsets[1].y = static_cast<int32_t>(srcImage.extent.height);
-    blitRegion.srcOffsets[1].z = 1;
-
-    blitRegion.dstOffsets[1].x = static_cast<int32_t>(dstImage.extent.width);
-    blitRegion.dstOffsets[1].y = static_cast<int32_t>(dstImage.extent.height);
-    blitRegion.dstOffsets[1].z = 1;
-
-    blitRegion.srcSubresource.aspectMask = aspectFlags;
-    blitRegion.srcSubresource.mipLevel = 0;
-    blitRegion.srcSubresource.baseArrayLayer = 0;
-    blitRegion.srcSubresource.layerCount = 1;
-
-    blitRegion.dstSubresource.aspectMask = aspectFlags;
-    blitRegion.dstSubresource.mipLevel = 0;
-    blitRegion.dstSubresource.baseArrayLayer = 0;
-    blitRegion.dstSubresource.layerCount = 1;
-
-    const VkBlitImageInfo2 blitInfo{
-        VK_STRUCTURE_TYPE_BLIT_IMAGE_INFO_2,
-        VK_NULL_HANDLE,
-        srcImage.image,
-        srcLayout,
-        dstImage.image,
-        dstLayout,
-        1,
-        &blitRegion,
-        srcImage.format == VK_FORMAT_D16_UNORM ? VK_FILTER_NEAREST : VK_FILTER_LINEAR
-    };
-
-    vkCmdBlitImage2(commandBuffer, &blitInfo);
-}
-
 void VkRenderer::PickPhysicalDevice() {
     uint32_t deviceCount = 0;
     vkEnumeratePhysicalDevices(instance, &deviceCount, VK_NULL_HANDLE);
@@ -970,7 +932,7 @@ void VkRenderer::PickPhysicalDevice() {
         uint32_t score = 0;
         vkGetPhysicalDeviceProperties(gpu, &deviceProperties);
 
-        if (this->deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
+        if (deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
             score += 1000;
         }
 

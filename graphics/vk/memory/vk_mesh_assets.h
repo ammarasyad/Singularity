@@ -4,7 +4,6 @@
 #include <cstdint>
 #include <filesystem>
 #include <memory>
-#include <string>
 #include <vector>
 #include "vk/vk_common.h"
 #include "objects/material.h"
@@ -28,7 +27,6 @@ struct GeoSurface {
 
 struct MeshAsset {
     std::vector<GeoSurface> surfaces;
-    std::string name;
     Mesh mesh;
 };
 

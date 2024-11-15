@@ -31,7 +31,6 @@ std::optional<std::vector<std::shared_ptr<MeshAsset>>> LoadGltfMeshes(VkRenderer
 
     for (auto &[primitives, weights, name] : gltf.meshes) {
         MeshAsset meshAsset;
-        meshAsset.name = name;
 
         indices.clear();
         vertices.clear();

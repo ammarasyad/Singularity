@@ -116,8 +116,6 @@ public:
 
     Mesh CreateMesh(const std::span<VkVertex> &vertices, const std::span<uint32_t> &indices) const;
 
-    static inline void BlitImage(const VkCommandBuffer &commandBuffer, const VulkanImage &srcImage, const VulkanImage &dstImage, VkImageLayout srcLayout, VkImageLayout dstLayout, VkImageAspectFlags aspectFlags);
-
     [[nodiscard]] std::array<VkFence, 3> get_fences() const
     {
         return {frames[currentFrame].inFlightFence, depthPrepassFence, computeFinishedFence};
@@ -219,8 +217,6 @@ public:
 
     uint8_t currentFrame = 0;
     bool displayShadowMap = false;
-    int32_t cascadeIndex = 0;
-
     union {
         struct {
             bool dynamicRendering : 1;
@@ -229,8 +225,9 @@ public:
             bool framebufferResized : 1;
             bool isIntegratedGPU : 1;
         };
-        uint32_t flags;
+        uint16_t flags;
     };
+    int32_t cascadeIndex = 0;
 
     // bool dynamicRendering = true;
     // bool asyncCompute = true;

@@ -1,7 +1,5 @@
 #ifndef GLTF_H
 #define GLTF_H
-#include <unordered_map>
-
 #include "render_object.h"
 
 struct LoadedGLTF {

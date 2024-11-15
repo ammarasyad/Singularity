@@ -201,8 +201,7 @@ std::optional<LoadedGLTF> LoadGLTF(VkRenderer *renderer, bool multithread, const
 
     auto start = std::chrono::high_resolution_clock::now();
     if (multithread) {
-        std::vector<LoadedImage> loadedImages;
-        loadedImages.resize(gltf.images.size());
+        std::vector<LoadedImage> loadedImages(gltf.images.size());
 #pragma omp parallel for ordered shared(gltf, loadedImages, assetPath) default(none) num_threads(std::thread::hardware_concurrency())
         for (uint32_t i = 0; i < gltf.images.size(); i++) {
             auto &image = gltf.images[i];
@@ -295,7 +294,6 @@ std::optional<LoadedGLTF> LoadGLTF(VkRenderer *renderer, bool multithread, const
 
     for (auto &[primitives, weights, name] : gltf.meshes) {
         MeshAsset meshAsset{};
-        meshAsset.name = name;
 
         indices.clear();
         vertices.clear();
