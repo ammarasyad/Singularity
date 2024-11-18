@@ -17,6 +17,9 @@
 #include "ext/matrix_transform.hpp"
 #include "ext/matrix_clip_space.inl"
 
+static constexpr uint32_t MAX_MESHLET_PRIMITIVES = 124;
+static constexpr uint32_t MAX_MESHLET_VERTICES = 64;
+
 PFN_vkCmdDrawMeshTasksEXT fn_vkCmdDrawMeshTasksEXT = nullptr;
 
 VkRenderer::VkRenderer(GLFWwindow *window, Camera *camera, const bool dynamicRendering, const bool asyncCompute, const bool meshShader)
@@ -766,6 +769,8 @@ void VkRenderer::DrawMesh(const VkCommandBuffer &commandBuffer, const uint32_t i
 
     vkCmdPushConstants(commandBuffer, metalRoughMaterial.opaquePipeline.layout, VK_SHADER_STAGE_MESH_BIT_EXT, 0, sizeof(MeshShaderPushConstants), &pushConstants);
     fn_vkCmdDrawMeshTasksEXT(commandBuffer, meshletStats.meshletCount / 32 + 1, 1, 1);
+    stats.drawCallCount++;
+    stats.triangleCount += meshletStats.primitiveCount;
 
     EndDraw(commandBuffer, imageIndex);
 }

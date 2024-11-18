@@ -22,7 +22,6 @@
 #include "vk/memory/vk_memory.h"
 #include "vk/vk_descriptor_layout.h"
 #include "objects/gltf.h"
-#include "objects/meshlets.h"
 
 static constexpr uint32_t SHADOW_MAP_CASCADE_COUNT = 4;
 static constexpr uint32_t SHADOW_MAP_SIZE = 4096;
@@ -364,7 +363,6 @@ public:
         }
     } queueFamilyIndices;
 
-    std::vector<Meshlet> meshlets;
     struct {
         uint32_t positionCount;
         uint32_t meshletCount;

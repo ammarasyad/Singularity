@@ -82,8 +82,6 @@ add_executable(Singularity main.cpp
         engine/objects/gltf.cpp
         engine/objects/gltf.h
         common/stbi_image.cpp
-        engine/objects/meshlets.cpp
-        engine/objects/meshlets.h
 )
 
 set_target_properties(Singularity PROPERTIES WIN32_EXECUTABLE $<PLATFORM_ID:Windows>)
