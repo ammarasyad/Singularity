@@ -62,9 +62,8 @@ std::optional<std::vector<std::shared_ptr<MeshAsset>>> LoadGltfMeshes(VkRenderer
                     vertices[initialVerticesSize + index] = {
                         value,
                         {1, 0, 0},
-                        glm::vec3 {1.f},
-                        0.f,
-                        0.f,
+                        {1.f, 1.f, 1.f, 1.f},
+                        {0.f, 1.f}
                     };
                 });
             }
@@ -79,14 +78,13 @@ std::optional<std::vector<std::shared_ptr<MeshAsset>>> LoadGltfMeshes(VkRenderer
             // Load tex coords
             if (auto uv = primitive.findAttribute("TEXCOORD_0"); uv != primitive.attributes.end()) {
                 fastgltf::iterateAccessorWithIndex<glm::vec2>(gltf, gltf.accessors[uv->accessorIndex], [&](auto value, const size_t index) {
-                    vertices[initialVerticesSize + index].uv_X = value.x;
-                    vertices[initialVerticesSize + index].uv_Y = value.y;
+                    vertices[initialVerticesSize + index].uv = value;
                 });
             }
 
             // Load vertex colors
             if (auto color = primitive.findAttribute("COLOR_0"); color != primitive.attributes.end()) {
-                fastgltf::iterateAccessorWithIndex<glm::vec3>(gltf, gltf.accessors[color->accessorIndex], [&](auto value, const size_t index) {
+                fastgltf::iterateAccessorWithIndex<glm::vec4>(gltf, gltf.accessors[color->accessorIndex], [&](auto value, const size_t index) {
                     vertices[initialVerticesSize + index].color = value;
                 });
             }
@@ -95,8 +93,8 @@ std::optional<std::vector<std::shared_ptr<MeshAsset>>> LoadGltfMeshes(VkRenderer
         }
         constexpr bool OverrideColors = false;
         if (OverrideColors) {
-            for (auto &[pos, normal, color, uv_X, uv_Y] : vertices) {
-                color = glm::vec3(normal);
+            for (auto &[pos, normal, color, uv] : vertices) {
+                color = glm::vec4{normal, 1.f};
             }
         }
 

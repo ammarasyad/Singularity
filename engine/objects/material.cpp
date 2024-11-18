@@ -11,6 +11,12 @@ void VkGLTFMetallic_Roughness::buildPipelines(const VkRenderer *renderer) {
         sizeof(MeshPushConstants)
     };
 
+    constexpr VkPushConstantRange meshShaderPushConstantRange {
+        VK_SHADER_STAGE_MESH_BIT_EXT,
+        0,
+        sizeof(MeshShaderPushConstants)
+    };
+
     constexpr VkPushConstantRange fragmentPushConstantRange{
         VK_SHADER_STAGE_FRAGMENT_BIT,
         sizeof(MeshPushConstants),
@@ -19,7 +25,7 @@ void VkGLTFMetallic_Roughness::buildPipelines(const VkRenderer *renderer) {
 
     DescriptorLayoutBuilder layoutBuilder;
 
-    layoutBuilder.AddBinding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT);
+    layoutBuilder.AddBinding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_MESH_BIT_EXT);
     layoutBuilder.AddBinding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT);
     layoutBuilder.AddBinding(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT);
 
@@ -33,8 +39,8 @@ void VkGLTFMetallic_Roughness::buildPipelines(const VkRenderer *renderer) {
         0,
         setLayouts.size(),
         setLayouts.data(),
-        pushConstantRanges.size(),
-        pushConstantRanges.data(),
+        renderer->meshShader ? 1 : static_cast<uint32_t>(pushConstantRanges.size()),
+        renderer->meshShader ? &meshShaderPushConstantRange : pushConstantRanges.data(),
     };
 
     VkPipelineLayout pipelineLayout;
@@ -43,12 +49,18 @@ void VkGLTFMetallic_Roughness::buildPipelines(const VkRenderer *renderer) {
     opaquePipeline.layout = pipelineLayout;
     transparentPipeline.layout = pipelineLayout;
 
-    VkGraphicsPipelineBuilder builder;
+    VkGraphicsPipelineBuilder builder{.isMeshShader = renderer->meshShader};
     builder.SetPipelineLayout(pipelineLayout);
-    builder.CreateShaderModules(device, "shaders/mesh.vert.spv", "shaders/lighting.frag.spv");
+
+    if (builder.isMeshShader) {
+        builder.CreateShaderModules(device, "shaders/meshshader.mesh.spv", "shaders/meshshader.frag.spv", "shaders/meshshader.task.spv");
+    } else {
+        builder.CreateShaderModules(device, "shaders/mesh.vert.spv", "shaders/lighting.frag.spv");
+    }
+
     builder.SetTopology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
     builder.SetPolygonMode(VK_POLYGON_MODE_FILL);
-    builder.SetCullingMode(VK_CULL_MODE_BACK_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE);
+    builder.SetCullingMode(VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE);
     builder.EnableDepthTest(true, VK_COMPARE_OP_LESS_OR_EQUAL);
 
     static constexpr std::array<VkSpecializationMapEntry, 2> entries = {{

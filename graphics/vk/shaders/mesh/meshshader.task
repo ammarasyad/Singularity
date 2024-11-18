@@ -1,0 +1,14 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#extension GL_EXT_mesh_shader : require
+
+#include "meshshader.include.glsl"
+
+layout(local_size_x = 32) in;
+
+taskPayloadSharedEXT Payload payload;
+
+void main() {
+    payload.meshletPrimitives[gl_LocalInvocationID.x] = gl_GlobalInvocationID.x;
+    EmitMeshTasksEXT(32, 1, 1);
+}

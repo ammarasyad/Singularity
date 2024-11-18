@@ -23,6 +23,10 @@ struct MeshPushConstants {
     alignas(16) VkDeviceAddress vertexBufferDeviceAddress;
 };
 
+struct MeshShaderPushConstants {
+    glm::mat4 mvp;
+};
+
 struct FragmentPushConstants {
     alignas(16) glm::vec3 cameraPosition;
     alignas(16) glm::ivec2 viewportSize;
@@ -53,14 +57,14 @@ struct VulkanBuffer {
 
 template<>
 struct std::hash<VulkanImage> {
-    std::size_t operator()(const VulkanImage &image) const {
+    std::size_t operator()(const VulkanImage &image) const noexcept {
         return std::hash<VkImage>{}(image.image);
     }
 };
 
 template<>
 struct std::hash<VulkanBuffer> {
-    std::size_t operator()(const VulkanBuffer &buffer) const {
+    std::size_t operator()(const VulkanBuffer &buffer) const noexcept {
         return std::hash<VkBuffer>{}(buffer.buffer);
     }
 };
@@ -68,35 +72,8 @@ struct std::hash<VulkanBuffer> {
 struct VkVertex {
     alignas(16) glm::vec3 pos;
     alignas(16) glm::vec3 normal;
-    alignas(16) glm::vec3 color;
-    float uv_X;
-    float uv_Y;
-
-    static std::array<VkVertexInputAttributeDescription, 1> getVertexInputAttributeDescriptions() {
-        std::array<VkVertexInputAttributeDescription, 1> attributeDescriptions{};
-
-        attributeDescriptions[0].location = 0;
-        attributeDescriptions[0].binding = 0;
-        attributeDescriptions[0].format = VK_FORMAT_R32G32B32_SFLOAT;
-        attributeDescriptions[0].offset = offsetof(VkVertex, pos);
-
-        // attributeDescriptions[1].location = 1;
-        // attributeDescriptions[1].binding = 0;
-        // attributeDescriptions[1].format = VK_FORMAT_R32G32B32_SFLOAT;
-        // attributeDescriptions[1].offset = offsetof(VkVertex, color);
-
-        return attributeDescriptions;
-    }
-
-    static VkVertexInputBindingDescription getVertexInputBindingDescription() {
-        constexpr VkVertexInputBindingDescription bindingDescription{
-            0,
-            sizeof(VkVertex),
-            VK_VERTEX_INPUT_RATE_VERTEX
-        };
-
-        return bindingDescription;
-    }
+    alignas(16) glm::vec4 color;
+    alignas(16) glm::vec2 uv;
 };
 
 inline void TransitionImage(VkCommandBuffer commandBuffer, VulkanImage image, VkPipelineStageFlags srcStageMask, VkPipelineStageFlags srcAccessMask, VkPipelineStageFlags dstStageMask, VkPipelineStageFlags dstAccessMask, VkImageLayout oldLayout, VkImageLayout newLayout, uint32_t mipLevels = -1, uint32_t layerCount = -1) {

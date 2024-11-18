@@ -52,7 +52,7 @@ VkGui::VkGui(const int width, const int height, const bool dynamicRendering, con
     // });
 
     // VkRenderer initialization
-    renderer = std::make_unique<VkRenderer>(window, &camera, dynamicRendering, asyncCompute);
+    renderer = std::make_unique<VkRenderer>(window, &camera, dynamicRendering, asyncCompute, true);
 
     const auto instance = renderer->instance;
     const auto physicalDevice = renderer->physicalDevice;
@@ -138,10 +138,10 @@ void VkGui::Loop() {
             ImGui::Text("Camera Pitch: %.2f, Yaw: %.2f", camera.pitch, camera.yaw);
 
             ImGui::SliderFloat("FOV", [&] { return camera.Fov(); }, [&](const float &newValue){ camera.setFov(newValue); }, 30.f, 120.f, "%.1f", ImGuiSliderFlags_AlwaysClamp);
-            ImGui::Checkbox("Display Shadow Map", &renderer->displayShadowMap);
-            if (renderer->displayShadowMap) {
-                ImGui::SliderInt("Cascade Index", &renderer->cascadeIndex, 0, SHADOW_MAP_CASCADE_COUNT - 1);
-            }
+            // ImGui::Checkbox("Display Shadow Map", &renderer->displayShadowMap);
+            // if (renderer->displayShadowMap) {
+            //     ImGui::SliderInt("Cascade Index", &renderer->cascadeIndex, 0, SHADOW_MAP_CASCADE_COUNT - 1);
+            // }
             ImGui::End();
         }
 

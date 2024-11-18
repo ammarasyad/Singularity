@@ -4,6 +4,7 @@
 #include <ktx.h>
 #include <thread>
 #include <imgui_impl_vulkan.h>
+#include <meshoptimizer.h>
 
 #include "vk_renderer.h"
 
@@ -16,6 +17,8 @@
 #include "ext/matrix_transform.hpp"
 #include "ext/matrix_clip_space.inl"
 
+PFN_vkCmdDrawMeshTasksEXT fn_vkCmdDrawMeshTasksEXT = nullptr;
+
 VkRenderer::VkRenderer(GLFWwindow *window, Camera *camera, const bool dynamicRendering, const bool asyncCompute, const bool meshShader)
     : dynamicRendering(dynamicRendering),
       asyncCompute(asyncCompute),
@@ -24,6 +27,8 @@ VkRenderer::VkRenderer(GLFWwindow *window, Camera *camera, const bool dynamicRen
       camera(camera)
 {
     InitializeInstance();
+
+    fn_vkCmdDrawMeshTasksEXT = reinterpret_cast<PFN_vkCmdDrawMeshTasksEXT>(vkGetInstanceProcAddr(instance, "vkCmdDrawMeshTasksEXT"));
 
 #ifndef NDEBUG
     constexpr VkDebugUtilsMessengerCreateInfoEXT debugCreateInfo{
@@ -118,7 +123,7 @@ VkRenderer::VkRenderer(GLFWwindow *window, Camera *camera, const bool dynamicRen
     CreateRandomLights();
     CreateSkybox();
     ComputeFrustum();
-    UpdateDepthComputeDescriptorSets();
+    UpdateDescriptorSets();
 
     UpdateCascades();
     isVkRunning = true;
@@ -301,7 +306,7 @@ bool isObjectVisible(const VkRenderObject &obj, const glm::mat4 &viewProjection)
     return min.z < 1.f && max.z > 0.f && min.x < 1.f && max.x > -1.f && min.y < 1.f && max.y > -1.f;
 }
 
-static std::vector<size_t> drawIndices;
+// static std::vector<size_t> drawIndices;
 
 void VkRenderer::Render(EngineStats &stats) {
     stats.drawCallCount = 0;
@@ -309,7 +314,7 @@ void VkRenderer::Render(EngineStats &stats) {
 
     UpdateScene(stats);
 
-    const std::array fences = get_fences();
+    const std::array fences = {frames[currentFrame].inFlightFence/*, depthPrepassFence*/, computeFinishedFence};
     const auto size = fences.size() - !asyncCompute;
     VK_CHECK(vkWaitForFences(device, size, fences.data(), VK_TRUE, UINT64_MAX));
 
@@ -370,31 +375,35 @@ void VkRenderer::Render(EngineStats &stats) {
 
     const auto start = std::chrono::high_resolution_clock::now();
 
-    drawIndices.reserve(mainDrawContext.opaqueSurfaces.size());
-    for (size_t i = 0; i < mainDrawContext.opaqueSurfaces.size(); i++) {
-        if (isObjectVisible(mainDrawContext.opaqueSurfaces[i], sceneData.worldMatrix))
-            drawIndices.push_back(i);
+    // drawIndices.reserve(mainDrawContext.opaqueSurfaces.size());
+    // for (size_t i = 0; i < mainDrawContext.opaqueSurfaces.size(); i++) {
+    //     if (isObjectVisible(mainDrawContext.opaqueSurfaces[i], sceneData.worldMatrix))
+    //         drawIndices.push_back(i);
+    // }
+    //
+    // std::ranges::sort(drawIndices, [&](const uint16_t &a, const uint16_t &b) {
+    //     const auto &surfaceA = mainDrawContext.opaqueSurfaces[a];
+    //     const auto &surfaceB = mainDrawContext.opaqueSurfaces[b];
+    //     if (surfaceA.materialInstance == surfaceB.materialInstance) {
+    //         return surfaceA.indexBuffer < surfaceB.indexBuffer;
+    //     }
+    //
+    //     return surfaceA.materialInstance < surfaceB.materialInstance;
+    // });
+
+    if (meshShader) {
+        DrawMesh(frames[currentFrame].commandBuffer, imageIndex, stats);
+    } else {
+        DrawDepthPrepass(/*drawIndices*/);
+        Draw(frames[currentFrame].commandBuffer, imageIndex, stats);
     }
-
-    std::ranges::sort(drawIndices, [&](const uint16_t &a, const uint16_t &b) {
-        const auto &surfaceA = mainDrawContext.opaqueSurfaces[a];
-        const auto &surfaceB = mainDrawContext.opaqueSurfaces[b];
-        if (surfaceA.materialInstance == surfaceB.materialInstance) {
-            return surfaceA.indexBuffer < surfaceB.indexBuffer;
-        }
-
-        return surfaceA.materialInstance < surfaceB.materialInstance;
-    });
-
-    DrawDepthPrepass(drawIndices);
-    Draw(frames[currentFrame].commandBuffer, imageIndex, stats);
 
     const auto end = std::chrono::high_resolution_clock::now();
     const auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
     stats.meshDrawTime = static_cast<float>(elapsed) / 1000.f;
 
-    VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT};
-    std::array waitSemaphores = {frames[currentFrame].imageAvailableSemaphore, depthPrepassSemaphore, computeFinishedSemaphore};
+    VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT, VK_PIPELINE_STAGE_MESH_SHADER_BIT_EXT};
+    std::array waitSemaphores = {frames[currentFrame].imageAvailableSemaphore/*, depthPrepassSemaphore*/, computeFinishedSemaphore};
     VkSubmitInfo submitInfo{
         VK_STRUCTURE_TYPE_SUBMIT_INFO,
         VK_NULL_HANDLE,
@@ -467,7 +476,7 @@ void VkRenderer::DrawObject(const VkCommandBuffer &commandBuffer, const VkRender
     vkCmdDrawIndexed(commandBuffer, draw.indexCount, 1, draw.firstIndex, 0, 0);
 }
 
-void VkRenderer::DrawDepthPrepass(const std::vector<size_t> &drawIndices) {
+void VkRenderer::DrawDepthPrepass(/*const std::vector<size_t> &drawIndices*/) {
     static constexpr VkCommandBufferBeginInfo beginInfo{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO, VK_NULL_HANDLE, VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT};
 
     VK_CHECK(vkBeginCommandBuffer(depthPrepassCommandBuffer, &beginInfo));
@@ -598,7 +607,25 @@ void VkRenderer::DrawDepthPrepass(const std::vector<size_t> &drawIndices) {
     VK_CHECK(vkQueueSubmit(graphicsQueue, 1, &submitInfo, depthPrepassFence));
 }
 
-void VkRenderer::Draw(const VkCommandBuffer &commandBuffer, uint32_t imageIndex, EngineStats &stats) {
+void VkRenderer::DrawSkybox(const VkCommandBuffer &commandBuffer, EngineStats &stats) const {
+    vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, skyboxPipeline);
+    vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, skyboxPipelineLayout, 0, 1, &skyboxDescriptorSet, 0, VK_NULL_HANDLE);
+    const struct {
+        alignas(16) glm::vec3 front;
+        alignas(16) glm::vec3 right;
+        alignas(16) glm::vec3 up;
+    } skyboxPushConstant{
+        camera->front,
+        camera->right,
+        camera->up
+    };
+    vkCmdPushConstants(commandBuffer, skyboxPipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(glm::vec4) * 3, &skyboxPushConstant);
+    vkCmdDraw(commandBuffer, 6, 1, 0, 0);
+    stats.drawCallCount++;
+    stats.triangleCount += 12;
+}
+
+void VkRenderer::BeginDraw(const VkCommandBuffer &commandBuffer, const uint32_t imageIndex) const {
     static constexpr VkCommandBufferBeginInfo beginInfo{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO, VK_NULL_HANDLE, VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT};
 
     VK_CHECK(vkBeginCommandBuffer(commandBuffer, &beginInfo));
@@ -682,70 +709,12 @@ void VkRenderer::Draw(const VkCommandBuffer &commandBuffer, uint32_t imageIndex,
 
     vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
     vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
+}
 
-    if (displayShadowMap) {
-        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, shadowMapPipeline);
-        vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, depthPrepassPipelineLayout, 0, 1, &sceneDescriptorSet, 0, VK_NULL_HANDLE);
-
-        DepthPassPushConstants pushConstants{
-            0,
-            static_cast<uint32_t>(cascadeIndex)
-        };
-
-        vkCmdPushConstants(commandBuffer, depthPrepassPipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(DepthPassPushConstants), &pushConstants);
-        vkCmdDraw(commandBuffer, 3, 1, 0, 0);
-
-        ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), commandBuffer);
-        if (dynamicRendering) {
-            vkCmdEndRendering(commandBuffer);
-            TransitionImage(commandBuffer, swapChainImage, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT, VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, 0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
-        } else {
-            vkCmdEndRenderPass(commandBuffer);
-        }
-
-        VK_CHECK(vkEndCommandBuffer(commandBuffer));
-
-        mainDrawContext.opaqueSurfaces.clear();
-        mainDrawContext.transparentSurfaces.clear();
-        drawIndices.clear();
-
-        return;
-    }
-
-    vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, skyboxPipeline);
-    vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, skyboxPipelineLayout, 0, 1, &skyboxDescriptorSet, 0, VK_NULL_HANDLE);
-    struct {
-        alignas(16) glm::vec3 front;
-        alignas(16) glm::vec3 right;
-        alignas(16) glm::vec3 up;
-    } skyboxPushConstant{
-        camera->front,
-        camera->right,
-        camera->up
-    };
-    vkCmdPushConstants(commandBuffer, skyboxPipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(glm::vec4) * 3, &skyboxPushConstant);
-    vkCmdDraw(commandBuffer, 6, 1, 0, 0);
-    stats.drawCallCount++;
-    stats.triangleCount += 12;
-
-    VkMaterialPipeline lastPipeline{};
-    VkMaterialInstance lastMaterialInstance{};
-    VkBuffer lastIndexBuffer = VK_NULL_HANDLE;
-
-    for (const auto &i : drawIndices) {
-        const VkRenderObject &draw = mainDrawContext.opaqueSurfaces[i];
-        DrawObject(commandBuffer, draw, lastPipeline, lastMaterialInstance, lastIndexBuffer);
-        stats.drawCallCount++;
-        stats.triangleCount += draw.indexCount / 3;
-    }
-
-    for (const auto &r : std::ranges::reverse_view(mainDrawContext.transparentSurfaces)) {
-        DrawObject(commandBuffer, r, lastPipeline, lastMaterialInstance, lastIndexBuffer);
-        stats.drawCallCount++;
-        stats.triangleCount += r.indexCount / 3;
-    }
-
+void VkRenderer::EndDraw(const VkCommandBuffer &commandBuffer, const uint32_t imageIndex) {
     ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), commandBuffer);
+
+    const VulkanImage swapChainImage{swapChainImages[imageIndex], swapChainImageViews[imageIndex], VK_NULL_HANDLE, {swapChainExtent.width, swapChainExtent.height, 1}, surfaceFormat.format};
     if (dynamicRendering) {
         vkCmdEndRendering(commandBuffer);
         TransitionImage(commandBuffer, swapChainImage, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT, VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, 0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
@@ -757,7 +726,48 @@ void VkRenderer::Draw(const VkCommandBuffer &commandBuffer, uint32_t imageIndex,
 
     mainDrawContext.opaqueSurfaces.clear();
     mainDrawContext.transparentSurfaces.clear();
-    drawIndices.clear();
+    // drawIndices.clear();
+}
+
+void VkRenderer::Draw(const VkCommandBuffer &commandBuffer, uint32_t imageIndex, EngineStats &stats) {
+    BeginDraw(commandBuffer, imageIndex);
+    DrawSkybox(commandBuffer, stats);
+
+    VkMaterialPipeline lastPipeline{};
+    VkMaterialInstance lastMaterialInstance{};
+    VkBuffer lastIndexBuffer = VK_NULL_HANDLE;
+
+    for (const auto &draw : mainDrawContext.opaqueSurfaces) {
+        DrawObject(commandBuffer, draw, lastPipeline, lastMaterialInstance, lastIndexBuffer);
+        stats.drawCallCount++;
+        stats.triangleCount += draw.indexCount / 3;
+    }
+
+    for (const auto &r : std::ranges::reverse_view(mainDrawContext.transparentSurfaces)) {
+        DrawObject(commandBuffer, r, lastPipeline, lastMaterialInstance, lastIndexBuffer);
+        stats.drawCallCount++;
+        stats.triangleCount += r.indexCount / 3;
+    }
+
+    EndDraw(commandBuffer, imageIndex);
+}
+
+void VkRenderer::DrawMesh(const VkCommandBuffer &commandBuffer, const uint32_t imageIndex, EngineStats &stats) {
+    BeginDraw(commandBuffer, imageIndex);
+    DrawSkybox(commandBuffer, stats);
+
+    vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, metalRoughMaterial.opaquePipeline.pipeline);
+    vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, metalRoughMaterial.opaquePipeline.layout, 0, 1, &sceneDescriptorSet, 0, VK_NULL_HANDLE);
+    vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, metalRoughMaterial.opaquePipeline.layout, 2, 1, &mainDescriptorSet, 0, VK_NULL_HANDLE);
+
+    MeshShaderPushConstants pushConstants{
+        loadedScene.rootNodes[0]->worldTransform,
+    };
+
+    vkCmdPushConstants(commandBuffer, metalRoughMaterial.opaquePipeline.layout, VK_SHADER_STAGE_MESH_BIT_EXT, 0, sizeof(MeshShaderPushConstants), &pushConstants);
+    fn_vkCmdDrawMeshTasksEXT(commandBuffer, meshletStats.meshletCount / 32 + 1, 1, 1);
+
+    EndDraw(commandBuffer, imageIndex);
 }
 
 void VkRenderer::DrawIndirect(VkCommandBuffer const &commandBuffer, uint32_t imageIndex, EngineStats &stats) {
@@ -770,7 +780,7 @@ void VkRenderer::Shutdown() {
 
     VK_CHECK(vkDeviceWaitIdle(device));
 
-    loadedScene.Clear();
+    loadedScene.Clear(this);
 
     for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
         vkDestroySemaphore(device, frames[i].renderFinishedSemaphore, nullptr);
@@ -861,7 +871,7 @@ void VkRenderer::RecreateSwapChain() {
         CreateSwapChain();
         CreateDepthImage();
         CreateFramebuffers();
-        UpdateDepthComputeDescriptorSets();
+        UpdateDescriptorSets();
 
         viewport.width = static_cast<float>(swapChainExtent.width);
         viewport.height = static_cast<float>(swapChainExtent.height);
@@ -916,6 +926,127 @@ Mesh VkRenderer::CreateMesh(const std::span<VkVertex> &vertices, const std::span
     memoryManager->stagingBuffer(verticesSize + indicesSize, stagingBufferMappedTask, stagingBufferUnmappedTask);
 
     return mesh;
+}
+
+void VkRenderer::CreateFromMeshlets(const std::vector<VkVertex> &vertices, const std::vector<uint32_t> &indices) {
+    std::vector<meshopt_Meshlet> meshlets;
+    std::vector<uint32_t> meshletVertices;
+    std::vector<uint8_t> meshletPrimitives;
+
+    const auto maxMeshlets = meshopt_buildMeshletsBound(indices.size(), MAX_MESHLET_VERTICES, MAX_MESHLET_PRIMITIVES);
+
+    meshlets.resize(maxMeshlets);
+    meshletVertices.resize(maxMeshlets * MAX_MESHLET_VERTICES);
+    meshletPrimitives.resize(maxMeshlets * MAX_MESHLET_PRIMITIVES);
+
+    std::vector<float> vertexPositionData;
+    vertexPositionData.reserve(vertices.size() * 3);
+
+    for (const auto &[pos, normal, color, uv] : vertices) {
+        vertexPositionData.push_back(pos.x);
+        vertexPositionData.push_back(pos.y);
+        vertexPositionData.push_back(pos.z);
+        vertexPositionData.push_back(1.f);
+    }
+
+    constexpr float coneWeight = 0.0f;
+    const auto meshletCount = meshopt_buildMeshlets(meshlets.data(), meshletVertices.data(), meshletPrimitives.data(),
+                                              indices.data(), indices.size(), vertexPositionData.data(),
+                                              vertices.size(), sizeof(glm::vec3), MAX_MESHLET_VERTICES,
+                                              MAX_MESHLET_PRIMITIVES, coneWeight);
+
+    const auto &[vertex_offset, triangle_offset, vertex_count, triangle_count] = meshlets[meshletCount - 1];
+    meshletVertices.resize(vertex_offset + vertex_count);
+    meshletPrimitives.resize(triangle_offset + (triangle_count * 3 + 3 & ~3));
+    meshlets.resize(meshletCount);
+
+    std::vector<uint32_t> meshletPrimitivesU32;
+    for (auto &[vertex_offset, triangle_offset, vertex_count, triangle_count] : meshlets) {
+        const auto primitiveOffset = static_cast<uint32_t>(meshletPrimitivesU32.size());
+
+        for (uint32_t i = 0; i < triangle_count; i++) {
+            const auto i1 = i * 3 + 0 + triangle_offset;
+            const auto i2 = i * 3 + 1 + triangle_offset;
+            const auto i3 = i * 3 + 2 + triangle_offset;
+
+            // const auto vIdx0 = meshletVertices[i1];
+            // const auto vIdx1 = meshletVertices[i2];
+            // const auto vIdx2 = meshletVertices[i3];
+            const auto vIdx0 = meshletPrimitives[i1];
+            const auto vIdx1 = meshletPrimitives[i2];
+            const auto vIdx2 = meshletPrimitives[i3];
+
+            const auto packed = vIdx0 & 0xFF | (vIdx1 & 0xFF) << 8 | (vIdx2 & 0xFF) << 16;
+
+            meshletPrimitivesU32.push_back(packed);
+        }
+
+        triangle_offset = primitiveOffset;
+    }
+
+    meshletStats.positionCount = vertexPositionData.size();
+    meshletStats.meshletCount = meshletCount;
+    meshletStats.verticesCount = meshletVertices.size();
+    meshletStats.primitiveCount = meshletPrimitivesU32.size();
+
+    positionBuffer = memoryManager->createManagedBuffer({vertexPositionData.size() * sizeof(float), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, 0, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT});
+    meshletBuffer = memoryManager->createManagedBuffer({meshlets.size() * sizeof(meshopt_Meshlet), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, 0, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT});
+    meshletVerticesBuffer = memoryManager->createManagedBuffer({meshletVertices.size() * sizeof(uint32_t), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, 0, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT});
+    meshletPrimitivesBuffer = memoryManager->createManagedBuffer({meshletPrimitivesU32.size() * sizeof(uint32_t), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, 0, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT});
+
+    const auto stagingBufferSize = vertexPositionData.size() * sizeof(float)
+                                                + meshlets.size() * sizeof(meshopt_Meshlet)
+                                                + meshletVertices.size() * sizeof(uint32_t)
+                                                + meshletPrimitivesU32.size() * sizeof(uint32_t);
+
+    const auto stagingBufferMappedTask = [&](auto &, void *data) {
+        auto memory = static_cast<char *>(data);
+        memcpy(memory, vertexPositionData.data(), vertexPositionData.size() * sizeof(float));
+
+        memory += vertexPositionData.size() * sizeof(float);
+        memcpy(memory, meshlets.data(), meshlets.size() * sizeof(meshopt_Meshlet));
+
+        memory += meshlets.size() * sizeof(meshopt_Meshlet);
+        memcpy(memory, meshletVertices.data(), meshletVertices.size() * sizeof(uint32_t));
+
+        memory += meshletVertices.size() * sizeof(uint32_t);
+        memcpy(memory, meshletPrimitivesU32.data(), meshletPrimitivesU32.size() * sizeof(uint32_t));
+    };
+
+    const auto stagingBufferUnmappedTask = [&](auto &stagingBuffer) {
+        TransferSubmit([&](auto &commandBuffer) {
+            VkBufferCopy positionCopyRegion{
+                0,
+                0,
+                vertexPositionData.size() * sizeof(float)
+            };
+
+            VkBufferCopy meshletCopyRegion{
+                vertexPositionData.size() * sizeof(float),
+                0,
+                meshlets.size() * sizeof(meshopt_Meshlet)
+            };
+
+            VkBufferCopy meshletVerticesCopyRegion{
+                vertexPositionData.size() * sizeof(float) + meshlets.size() * sizeof(meshopt_Meshlet),
+                0,
+                meshletVertices.size() * sizeof(uint32_t)
+            };
+
+            VkBufferCopy meshletPrimitivesCopyRegion{
+                vertexPositionData.size() * sizeof(float) + meshlets.size() * sizeof(meshopt_Meshlet) + meshletVertices.size() * sizeof(uint32_t),
+                0,
+                meshletPrimitivesU32.size() * sizeof(uint32_t)
+            };
+
+            vkCmdCopyBuffer(commandBuffer, stagingBuffer, positionBuffer.buffer, 1, &positionCopyRegion);
+            vkCmdCopyBuffer(commandBuffer, stagingBuffer, meshletBuffer.buffer, 1, &meshletCopyRegion);
+            vkCmdCopyBuffer(commandBuffer, stagingBuffer, meshletVerticesBuffer.buffer, 1, &meshletVerticesCopyRegion);
+            vkCmdCopyBuffer(commandBuffer, stagingBuffer, meshletPrimitivesBuffer.buffer, 1, &meshletPrimitivesCopyRegion);
+        });
+    };
+
+    memoryManager->stagingBuffer(stagingBufferSize, stagingBufferMappedTask, stagingBufferUnmappedTask);
 }
 
 void VkRenderer::PickPhysicalDevice() {
@@ -1019,11 +1150,12 @@ void VkRenderer::CreateLogicalDevice() {
         {.multiDrawIndirect = VK_TRUE, .depthClamp = VK_TRUE, .samplerAnisotropy = VK_TRUE, .shaderInt16 = VK_TRUE }
     };
 
-    std::array<const char *, 8> deviceExtensions{
+    std::array<const char *, 9> deviceExtensions{
         VK_KHR_SWAPCHAIN_EXTENSION_NAME,
         VK_KHR_PIPELINE_LIBRARY_EXTENSION_NAME,
         VK_EXT_GRAPHICS_PIPELINE_LIBRARY_EXTENSION_NAME,
-        VK_EXT_MESH_SHADER_EXTENSION_NAME
+        VK_EXT_MESH_SHADER_EXTENSION_NAME,
+        VK_KHR_SPIRV_1_4_EXTENSION_NAME
     };
 
     VkPhysicalDeviceRayQueryFeaturesKHR rayQueryFeatures{
@@ -1049,10 +1181,10 @@ void VkRenderer::CreateLogicalDevice() {
     };
 
     if (raytracingCapable) {
-        deviceExtensions[4] = VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME;
-        deviceExtensions[5] = VK_KHR_RAY_QUERY_EXTENSION_NAME;
-        deviceExtensions[6] = VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME;
-        deviceExtensions[7] = VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME;
+        deviceExtensions[5] = VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME;
+        deviceExtensions[6] = VK_KHR_RAY_QUERY_EXTENSION_NAME;
+        deviceExtensions[7] = VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME;
+        deviceExtensions[8] = VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME;
 
         meshShaderFeatures.pNext = &rayTracingPipelineFeatures;
     }
@@ -1716,10 +1848,18 @@ void VkRenderer::CreateDescriptors() {
     mainDescriptorSetLayout = builder.Build(device);
 
     builder.Clear();
-    builder.AddBinding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT);
-    builder.AddBinding(1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
+    builder.AddBinding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_MESH_BIT_EXT);
+    builder.AddBinding(1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_FRAGMENT_BIT);
     builder.AddBinding(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT);
-    builder.AddBinding(3, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT);
+    builder.AddBinding(3, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_MESH_BIT_EXT);
+
+    if (meshShader) {
+        builder.AddBinding(4, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_MESH_BIT_EXT);
+        builder.AddBinding(5, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_MESH_BIT_EXT);
+        builder.AddBinding(6, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_MESH_BIT_EXT);
+        builder.AddBinding(7, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_MESH_BIT_EXT);
+    }
+
     sceneDescriptorSetLayout = builder.Build(device);
 
     builder.Clear();
@@ -2087,7 +2227,7 @@ void VkRenderer::CreateRandomLights() {
     });
 }
 
-void VkRenderer::UpdateDepthComputeDescriptorSets() {
+void VkRenderer::UpdateDescriptorSets() {
     DescriptorWriter writer;
     writer.WriteBuffer(0, lightBuffer.buffer, 0, sizeof(Light), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
     writer.WriteBuffer(1, visibleLightBuffer.buffer, 0, sizeof(LightVisibility) * multiplier, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
@@ -2103,6 +2243,14 @@ void VkRenderer::UpdateDepthComputeDescriptorSets() {
     writer.WriteBuffer(1, cascadeViewProjectionBuffer.buffer, 0, sizeof(glm::mat4) * SHADOW_MAP_CASCADE_COUNT, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
     writer.WriteImage(2, shadowCascadeImage.imageView, shadowCascadeImage.sampler, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
     writer.WriteBuffer(3, viewMatrix.buffer, 0, sizeof(glm::mat4), VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
+
+    if (meshShader) {
+        writer.WriteBuffer(4, positionBuffer.buffer, 0, sizeof(float) * meshletStats.positionCount, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+        writer.WriteBuffer(5, meshletBuffer.buffer, 0, sizeof(meshopt_Meshlet) * meshletStats.meshletCount, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+        writer.WriteBuffer(6, meshletVerticesBuffer.buffer, 0, sizeof(uint32_t) * meshletStats.verticesCount, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+        writer.WriteBuffer(7, meshletPrimitivesBuffer.buffer, 0, sizeof(uint32_t) * meshletStats.primitiveCount, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+    }
+
     writer.UpdateSet(device, sceneDescriptorSet);
 }
 

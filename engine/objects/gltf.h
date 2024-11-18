@@ -5,14 +5,13 @@
 struct LoadedGLTF {
 //    ~LoadedGLTF() override { clear(); }
     void Draw(const glm::mat4 &topMatrix, VkDrawContext &ctx);
-    void Clear();
+    void Clear(const VkRenderer *renderer);
 
     std::vector<std::shared_ptr<Node>> rootNodes;
     std::vector<VkSampler> samplers;
 
     DescriptorAllocator descriptorAllocator;
     VulkanBuffer materialDataBuffer;
-    VkRenderer *renderer;
 };
 
 std::optional<LoadedGLTF> LoadGLTF(VkRenderer *renderer, bool multithread, const std::filesystem::path &path, const std::filesystem::path &assetPath);

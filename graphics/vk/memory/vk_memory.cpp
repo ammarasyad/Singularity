@@ -341,7 +341,7 @@ VulkanImage VkMemoryManager::createTexture(const void *data, VkRenderer *rendere
     return newTexture;
 }
 
-std::vector<VulkanImage> VkMemoryManager::createTexturesMultithreaded(const std::vector<LoadedImage> &loadedImages, VkRenderer *renderer) {
+std::vector<VulkanImage> VkMemoryManager::createTexturesMultithreaded(const std::vector<LoadedImage> &loadedImages, const VkRenderer *renderer) {
     uint64_t maxImageSize = 0;
     for (const auto &loadedImage : loadedImages) {
         maxImageSize = std::max(maxImageSize, static_cast<uint64_t>(loadedImage.size.width * loadedImage.size.height * 4));

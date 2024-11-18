@@ -12,7 +12,7 @@ static inline std::vector<T> ReadFile(const std::filesystem::path &filename) {
 
     if (!file.is_open()) {
         // throw std::runtime_error("Failed to open file: " + filename);
-        fprintf(stderr, "Failed to open file: %s\n", filename.c_str());
+        fprintf(stderr, "Failed to open file: %ls\n", filename.c_str());
         return {};
     }
 
@@ -28,7 +28,7 @@ static inline std::vector<T> ReadFile(const std::filesystem::path &filename) {
 
 static inline void WriteFile(const std::filesystem::path &filename, const void *data, const std::streamsize size) {
     std::ofstream file(filename, std::ios::binary);
-    file.write(reinterpret_cast<const char *>(data), size);
+    file.write(static_cast<const char *>(data), size);
     file.close();
 }
 

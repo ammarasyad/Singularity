@@ -25,9 +25,8 @@ static std::optional<VulkanImage> loadImage(VkRenderer *renderer, fastgltf::Asse
                 assert(filePath.uri.isLocalPath());
 
                 const auto path = assetPath / std::filesystem::path(filePath.uri.path());
-                uint8_t *data = stbi_load(path.string().c_str(), &width, &height, &channels, STBI_rgb_alpha);
-                if (data) {
-                    VkExtent3D size{static_cast<uint32_t>(width), static_cast<uint32_t>(height), 1};
+                if (uint8_t *data = stbi_load(path.string().c_str(), &width, &height, &channels, STBI_rgb_alpha)) {
+                    const VkExtent3D size{static_cast<uint32_t>(width), static_cast<uint32_t>(height), 1};
 
                     vulkanImage = renderer->memoryManager->createTexture(data, renderer, size, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT, true);
 
@@ -35,9 +34,8 @@ static std::optional<VulkanImage> loadImage(VkRenderer *renderer, fastgltf::Asse
                 }
             },
             [&](fastgltf::sources::Array &array) {
-                uint8_t *data = stbi_load_from_memory(reinterpret_cast<const stbi_uc *>(&array.bytes), static_cast<int>(array.bytes.size_bytes()), &width, &height, &channels, STBI_rgb_alpha);
-                if (data) {
-                    VkExtent3D size{static_cast<uint32_t>(width), static_cast<uint32_t>(height), 1};
+                if (uint8_t *data = stbi_load_from_memory(reinterpret_cast<const stbi_uc *>(&array.bytes), static_cast<int>(array.bytes.size_bytes()), &width, &height, &channels, STBI_rgb_alpha)) {
+                    const VkExtent3D size{static_cast<uint32_t>(width), static_cast<uint32_t>(height), 1};
 
                     vulkanImage = renderer->memoryManager->createTexture(data, renderer, size, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT, true);
 
@@ -50,11 +48,10 @@ static std::optional<VulkanImage> loadImage(VkRenderer *renderer, fastgltf::Asse
                 auto &buffer = asset.buffers[view.bufferIndex];
 
                 std::visit(fastgltf::visitor {
-                    [](auto &arg) {},
+                    [](auto &) {},
                     [&](fastgltf::sources::Array &array) {
-                        uint8_t *data = stbi_load_from_memory(reinterpret_cast<const stbi_uc *>(array.bytes.data()) + view.byteOffset, static_cast<int>(view.byteLength), &width, &height, &channels, STBI_rgb_alpha);
-                        if (data) {
-                            VkExtent3D size{static_cast<uint32_t>(width), static_cast<uint32_t>(height), 1};
+                        if (uint8_t *data = stbi_load_from_memory(reinterpret_cast<const stbi_uc *>(array.bytes.data()) + view.byteOffset, static_cast<int>(view.byteLength), &width, &height, &channels, STBI_rgb_alpha)) {
+                            const VkExtent3D size{static_cast<uint32_t>(width), static_cast<uint32_t>(height), 1};
 
                             vulkanImage = renderer->memoryManager->createTexture(data, renderer, size, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT, true);
 
@@ -74,36 +71,36 @@ static void loadImageMultithreaded(fastgltf::Asset &asset, fastgltf::Image &imag
     thread_local uint8_t *data;
 
     std::visit(
-    fastgltf::visitor {
-            [](auto &) {},
-            [&](fastgltf::sources::URI &filePath) {
-                assert(filePath.fileByteOffset == 0);
-                assert(filePath.uri.isLocalPath());
+        fastgltf::visitor {
+                [](auto &) {},
+                [&](fastgltf::sources::URI &filePath) {
+                    assert(filePath.fileByteOffset == 0);
+                    assert(filePath.uri.isLocalPath());
 
-                const auto path = assetPath / std::filesystem::path(filePath.uri.path());
-                data = stbi_load(path.string().c_str(), &width, &height, &channels, STBI_rgb_alpha);
-                printf("Loading file: %s\n", filePath.uri.c_str());
-            },
-            [&](fastgltf::sources::Array &array) {
-                data = stbi_load_from_memory(reinterpret_cast<const stbi_uc *>(&array.bytes), static_cast<int>(array.bytes.size_bytes()), &width, &height, &channels, STBI_rgb_alpha);
-            },
-            [&](fastgltf::sources::BufferView &bufferView) {
-                assert(bufferView.bufferViewIndex < asset.bufferViews.size());
-                const auto &view = asset.bufferViews[bufferView.bufferViewIndex];
-                auto &buffer = asset.buffers[view.bufferIndex];
+                    const auto path = assetPath / std::filesystem::path(filePath.uri.path());
+                    data = stbi_load(path.string().c_str(), &width, &height, &channels, STBI_rgb_alpha);
+                    printf("Loading file: %s\n", filePath.uri.c_str());
+                },
+                [&](fastgltf::sources::Array &array) {
+                    data = stbi_load_from_memory(reinterpret_cast<const stbi_uc *>(&array.bytes), static_cast<int>(array.bytes.size_bytes()), &width, &height, &channels, STBI_rgb_alpha);
+                },
+                [&](fastgltf::sources::BufferView &bufferView) {
+                    assert(bufferView.bufferViewIndex < asset.bufferViews.size());
+                    const auto &view = asset.bufferViews[bufferView.bufferViewIndex];
+                    auto &buffer = asset.buffers[view.bufferIndex];
 
-                std::visit(fastgltf::visitor {
-                        [](auto &) {},
-                        [&](fastgltf::sources::Array &array) {
-                            data = stbi_load_from_memory(reinterpret_cast<const stbi_uc *>(array.bytes.data()) + view.byteOffset, static_cast<int>(view.byteLength), &width, &height, &channels, STBI_rgb_alpha);
-                        }
-                }, buffer.data);
-            }
-    }, image.data);
+                    std::visit(fastgltf::visitor {
+                            [](auto &) {},
+                            [&](fastgltf::sources::Array &array) {
+                                data = stbi_load_from_memory(reinterpret_cast<const stbi_uc *>(array.bytes.data()) + view.byteOffset, static_cast<int>(view.byteLength), &width, &height, &channels, STBI_rgb_alpha);
+                            }
+                    }, buffer.data);
+                }
+        }, image.data);
 
     assert(data);
 
-    LoadedImage loadedImage{VkExtent3D{static_cast<uint32_t>(width), static_cast<uint32_t>(height), 1}, index, data};
+    const LoadedImage loadedImage{VkExtent3D{static_cast<uint32_t>(width), static_cast<uint32_t>(height), 1}, index, data};
     LoadedImage::totalBytesSize.fetch_add(width * height * 4, std::memory_order_relaxed);
     loadedImages[index] = loadedImage;
 }
@@ -140,7 +137,6 @@ inline static VkSamplerMipmapMode extractMipmapMode(const fastgltf::Filter filte
 
 std::optional<LoadedGLTF> LoadGLTF(VkRenderer *renderer, bool multithread, const std::filesystem::path &path, const std::filesystem::path &assetPath) {
     LoadedGLTF scene{};
-    scene.renderer = renderer;
 
     fastgltf::Parser parser{};
 
@@ -191,12 +187,12 @@ std::optional<LoadedGLTF> LoadGLTF(VkRenderer *renderer, bool multithread, const
     }
 
     std::vector<MeshAsset> meshes;
-    meshes.reserve(gltf.meshes.size());
     std::vector<std::shared_ptr<Node>> nodes;
-    nodes.reserve(gltf.nodes.size());
     std::vector<VulkanImage> images;
-    images.reserve(gltf.images.size());
     std::vector<GLTFMaterial> materials;
+
+    meshes.reserve(gltf.meshes.size());
+    nodes.reserve(gltf.nodes.size());
     materials.reserve(gltf.materials.size());
 
     auto start = std::chrono::high_resolution_clock::now();
@@ -209,18 +205,14 @@ std::optional<LoadedGLTF> LoadGLTF(VkRenderer *renderer, bool multithread, const
         }
 
         printf("Total bytes loaded: %llu MiB\n", LoadedImage::totalBytesSize.load(std::memory_order_relaxed) >> 20);
-        images = renderer->memoryManager->createTexturesMultithreaded(loadedImages, renderer);
-// #pragma omp parallel for shared(loadedImages) default(none)
-//         for (auto &loadedImage : loadedImages) {
-//             stbi_image_free(loadedImage.data);
-//         }
+        if (!loadedImages.empty())
+            images = renderer->memoryManager->createTexturesMultithreaded(loadedImages, renderer);
 
         loadedImages.clear();
     } else {
         images.reserve(gltf.images.size());
         for (auto &image: gltf.images) {
-            auto loadedImage = loadImage(renderer, gltf, image, assetPath);
-            if (loadedImage.has_value()) {
+            if (auto loadedImage = loadImage(renderer, gltf, image, assetPath); loadedImage.has_value()) {
                 images.push_back(loadedImage.value());
             } else {
                 fprintf(stderr, "Failed to load image: %s\n", image.name.c_str());
@@ -325,9 +317,8 @@ std::optional<LoadedGLTF> LoadGLTF(VkRenderer *renderer, bool multithread, const
                     vertices[initialVerticesSize + index] = {
                             value,
                             {1, 0, 0},
-                            glm::vec3{1.f},
-                            0.f,
-                            0.f,
+                            {1.f, 1.f, 1.f, 1.f},
+                            {0.f, 1.f}
                     };
                 });
             }
@@ -344,8 +335,7 @@ std::optional<LoadedGLTF> LoadGLTF(VkRenderer *renderer, bool multithread, const
             if (auto uv = primitive.findAttribute("TEXCOORD_0"); uv != primitive.attributes.end()) {
                 fastgltf::iterateAccessorWithIndex<glm::vec2>(gltf, gltf.accessors[uv->accessorIndex],
                                                               [&](auto value, const size_t index) {
-                                                                  vertices[initialVerticesSize + index].uv_X = value.x;
-                                                                  vertices[initialVerticesSize + index].uv_Y = value.y;
+                                                                  vertices[initialVerticesSize + index].uv = value;
                                                               });
             }
 
@@ -353,9 +343,7 @@ std::optional<LoadedGLTF> LoadGLTF(VkRenderer *renderer, bool multithread, const
             if (auto color = primitive.findAttribute("COLOR_0"); color != primitive.attributes.end()) {
                 fastgltf::iterateAccessorWithIndex<glm::vec4>(gltf, gltf.accessors[color->accessorIndex],
                                                               [&](auto value, const size_t index) {
-                                                                  vertices[initialVerticesSize + index].color.x = value.x;
-                                                                  vertices[initialVerticesSize + index].color.y = value.y;
-                                                                  vertices[initialVerticesSize + index].color.z = value.z;
+                                                                  vertices[initialVerticesSize + index].color = value;
                                                               });
             }
 
@@ -364,41 +352,44 @@ std::optional<LoadedGLTF> LoadGLTF(VkRenderer *renderer, bool multithread, const
             glm::vec3 minPos = vertices[initialVerticesSize].pos;
             glm::vec3 maxPos = vertices[initialVerticesSize].pos;
             for (int i = static_cast<int>(initialVerticesSize); i < vertices.size(); i++) {
-                minPos = glm::min(minPos, vertices[i].pos);
-                maxPos = glm::max(maxPos, vertices[i].pos);
+                minPos = min(minPos, vertices[i].pos);
+                maxPos = max(maxPos, vertices[i].pos);
             }
 
             geoSurface.bounds.origin = (minPos + maxPos) * 0.5f;
             geoSurface.bounds.extents = (maxPos - minPos) * 0.5f;
-            geoSurface.bounds.sphereRadius = glm::length(geoSurface.bounds.extents);
+            geoSurface.bounds.sphereRadius = length(geoSurface.bounds.extents);
 
             meshAsset.surfaces.push_back(geoSurface);
         }
 
-        meshAsset.mesh = renderer->CreateMesh(vertices, indices);
+        if (renderer->meshShader) {
+            renderer->CreateFromMeshlets(vertices, indices);
+        } else {
+            meshAsset.mesh = renderer->CreateMesh(vertices, indices);
+        }
         meshes.push_back(std::move(meshAsset));
     }
 
-    constexpr glm::mat4 identity = glm::mat4{1.f};
+    constexpr auto identity = glm::mat4{1.f};
     for (auto &node : gltf.nodes) {
-        std::shared_ptr<Node> newNode = std::make_shared<Node>();
+        auto newNode = std::make_shared<Node>();
 
         newNode->type = static_cast<NodeType>(node.meshIndex.has_value());
-        if (static_cast<bool>(newNode->type))
-            newNode->meshAsset = meshes[node.meshIndex.value()];
+        newNode->meshAsset = static_cast<bool>(newNode->type) ? meshes[node.meshIndex.value()] : MeshAsset{};
 
         std::visit(fastgltf::visitor {
             [&](fastgltf::math::fmat4x4 &matrix) {
                 memcpy(&newNode->localTransform, matrix.data(), sizeof(matrix));
             },
             [&](fastgltf::TRS &trs) {
-                glm::vec3 tl{trs.translation[0], trs.translation[1], trs.translation[2]};
-                glm::quat rot{trs.rotation[3], trs.rotation[0], trs.rotation[1], trs.rotation[2]};
-                glm::vec3 sc{trs.scale[0], trs.scale[1], trs.scale[2]};
+                const glm::vec3 tl{trs.translation[0], trs.translation[1], trs.translation[2]};
+                const glm::quat rot{trs.rotation[3], trs.rotation[0], trs.rotation[1], trs.rotation[2]};
+                const glm::vec3 sc{trs.scale[0], trs.scale[1], trs.scale[2]};
 
-                glm::mat4 transform = glm::translate(identity, tl);
-                glm::mat4 rotation = glm::mat4_cast(rot);
-                glm::mat4 scale = glm::scale(identity, sc);
+                const glm::mat4 transform = translate(identity, tl);
+                const glm::mat4 rotation = mat4_cast(rot);
+                const glm::mat4 scale = glm::scale(identity, sc);
 
                 newNode->localTransform = transform * rotation * scale;
             }
@@ -434,7 +425,7 @@ void LoadedGLTF::Draw(const glm::mat4 &topMatrix, VkDrawContext &ctx) {
     }
 }
 
-void LoadedGLTF::Clear() {
+void LoadedGLTF::Clear(const VkRenderer *renderer) {
     // Buffers and images are automatically cleared by the memory manager
     // TODO: But it may be a good idea to clear them manually if scenes are dynamically loaded and unloaded
     for (auto &sampler : samplers) {

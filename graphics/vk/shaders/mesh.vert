@@ -9,8 +9,7 @@ struct Vertex {
     vec3 position;
     vec3 normal;
     vec3 color;
-    float uv_X;
-    float uv_Y;
+    vec2 uv;
 };
 
 layout(buffer_reference, std430) readonly buffer VertexBuffer {
@@ -39,6 +38,6 @@ void main() {
 
     fragPos = pos.xyz;
     fragNormal = v.normal;
-    fragUV = vec2(v.uv_X, v.uv_Y);
+    fragUV = v.uv;
     fragViewPos = (viewMatrix * vec4(v.position, 1.0)).xyz;
 }

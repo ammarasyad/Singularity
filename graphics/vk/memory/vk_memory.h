@@ -45,7 +45,7 @@ struct VulkanImageCreateInfo {
     ImageViewCreateInfo *imageViewCreateInfo = nullptr;
 };
 
-struct LoadedImage {
+struct alignas(64) LoadedImage {
     inline static std::atomic_uint64_t totalBytesSize{0};
     VkExtent3D size;
     uint32_t index;
@@ -72,7 +72,7 @@ public:
     // All textures are tracked.
     VulkanImage createTexture(VkExtent3D size, VkFormat format, VkImageUsageFlags usage, bool mipmapped = false);
     VulkanImage createTexture(const void *data, VkRenderer *renderer, VkExtent3D size, VkFormat format, VkImageUsageFlags usage, bool mipmapped = false);
-    std::vector<VulkanImage> createTexturesMultithreaded(const std::vector<LoadedImage> &loadedImages, VkRenderer *renderer);
+    std::vector<VulkanImage> createTexturesMultithreaded(const std::vector<LoadedImage> &loadedImages, const VkRenderer *renderer);
     VulkanImage createKtxCubemap(ktxTexture *texture, VkRenderer *renderer, VkFormat format);
 
     void copyToBuffer(const VulkanBuffer &buffer, const void *data, VkDeviceSize size, VkDeviceSize offset = 0) const;

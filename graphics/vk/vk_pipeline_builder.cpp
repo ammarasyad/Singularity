@@ -10,10 +10,10 @@ VkPipeline VkGraphicsPipelineBuilder::Build(const bool dynamicRendering, const V
         VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
         VK_NULL_HANDLE,
         0,
-        VK_SHADER_STAGE_VERTEX_BIT,
-        vertexShaderModule,
+        isMeshShader ? VK_SHADER_STAGE_MESH_BIT_EXT : VK_SHADER_STAGE_VERTEX_BIT,
+        vertexOrMeshShaderModule,
         "main",
-        info.stageFlags & VK_SHADER_STAGE_VERTEX_BIT ? &info.specializationInfo : VK_NULL_HANDLE
+        info.stageFlags & (VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_MESH_BIT_EXT) ? &info.specializationInfo : VK_NULL_HANDLE
     };
 
     const VkPipelineShaderStageCreateInfo fragmentShaderStageInfo{
@@ -26,11 +26,16 @@ VkPipeline VkGraphicsPipelineBuilder::Build(const bool dynamicRendering, const V
         info.stageFlags & VK_SHADER_STAGE_FRAGMENT_BIT ? &info.specializationInfo : VK_NULL_HANDLE
     };
 
-//    VkPipelineShaderStageCreateInfo shaderStages[] = {vertexShaderStageInfo, fragmentShaderStageInfo};
-    std::vector<VkPipelineShaderStageCreateInfo> shaderStages{vertexShaderStageInfo};
+    const VkPipelineShaderStageCreateInfo taskShaderStageInfo{
+        VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+        VK_NULL_HANDLE,
+        0,
+        VK_SHADER_STAGE_TASK_BIT_EXT,
+        taskShaderModule,
+        "main"
+    };
 
-    if (fragmentShaderModule != VK_NULL_HANDLE)
-        shaderStages.emplace_back(fragmentShaderStageInfo);
+    VkPipelineShaderStageCreateInfo shaderStages[] = {vertexShaderStageInfo, fragmentShaderStageInfo, taskShaderStageInfo};
 
     VkPipelineVertexInputStateCreateInfo vertexInputInfo{
         VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
@@ -90,10 +95,10 @@ VkPipeline VkGraphicsPipelineBuilder::Build(const bool dynamicRendering, const V
         VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
         dynamicRendering ? &renderingCreateInfo : VK_NULL_HANDLE,
         0,
-        static_cast<uint32_t>(shaderStages.size()),
-        shaderStages.data(),
-        &vertexInputInfo,
-        &inputAssemblyCreateInfo,
+        3u - (fragmentShaderModule == VK_NULL_HANDLE) - (taskShaderModule == VK_NULL_HANDLE),
+        shaderStages,
+        isMeshShader ? VK_NULL_HANDLE : &vertexInputInfo,
+        isMeshShader ? VK_NULL_HANDLE : &inputAssemblyCreateInfo,
         VK_NULL_HANDLE,
         &viewportState,
         &rasterizerCreateInfo,
@@ -115,42 +120,55 @@ void VkGraphicsPipelineBuilder::Clear() {
     inputAssemblyCreateInfo = {VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
     rasterizerCreateInfo = {VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO};
     depthStencilCreateInfo = {VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};
-    colorBlendAttachment = {VK_FALSE};
+    colorBlendAttachment = {};
     renderingCreateInfo = {VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
     colorAttachmentFormat = VK_FORMAT_UNDEFINED;
 }
 
-void VkGraphicsPipelineBuilder::CreateShaderModules(const VkDevice &device, const std::string &vertexShaderFilePath, const std::string &fragmentShaderFilePath) {
-    const auto vertexShaderCode = ReadFile<char>(vertexShaderFilePath);
-
-    std::vector<char> fragmentShaderCode{};
-    if (!fragmentShaderFilePath.empty())
-        fragmentShaderCode = ReadFile<char>(fragmentShaderFilePath);
+void VkGraphicsPipelineBuilder::CreateShaderModules(const VkDevice &device, const std::string &vertexOrMeshShaderFilePath, const std::string &fragmentShaderFilePath, const std::string &taskShaderFilePath) {
+    const auto vertexShaderCode = ReadFile<uint32_t>(vertexOrMeshShaderFilePath);
 
     const VkShaderModuleCreateInfo vertShaderModuleCreateInfo{
         VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
         VK_NULL_HANDLE,
         0,
         vertexShaderCode.size(),
-        reinterpret_cast<const uint32_t *>(vertexShaderCode.data())
+        vertexShaderCode.data()
     };
 
-    const VkShaderModuleCreateInfo fragShaderModuleCreateInfo{
-        VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
-        VK_NULL_HANDLE,
-        0,
-        fragmentShaderCode.size(),
-        reinterpret_cast<const uint32_t *>(fragmentShaderCode.data())
-    };
+    VK_CHECK(vkCreateShaderModule(device, &vertShaderModuleCreateInfo, VK_NULL_HANDLE, &vertexOrMeshShaderModule));
 
-    VK_CHECK(vkCreateShaderModule(device, &vertShaderModuleCreateInfo, VK_NULL_HANDLE, &vertexShaderModule));
+    if (!fragmentShaderFilePath.empty()) {
+        const auto fragmentShaderCode = ReadFile<uint32_t>(fragmentShaderFilePath);
+        const VkShaderModuleCreateInfo fragShaderModuleCreateInfo{
+            VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
+            VK_NULL_HANDLE,
+            0,
+            fragmentShaderCode.size(),
+            fragmentShaderCode.data()
+        };
 
-    if (!fragmentShaderFilePath.empty())
         VK_CHECK(vkCreateShaderModule(device, &fragShaderModuleCreateInfo, VK_NULL_HANDLE, &fragmentShaderModule));
+    }
+
+    if (!taskShaderFilePath.empty()) {
+        isMeshShader = true;
+
+        const auto taskShaderCode = ReadFile<uint32_t>(taskShaderFilePath);
+        const VkShaderModuleCreateInfo taskShaderModuleCreateInfo{
+            VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
+            VK_NULL_HANDLE,
+            0,
+            taskShaderCode.size(),
+            taskShaderCode.data()
+        };
+
+        VK_CHECK(vkCreateShaderModule(device, &taskShaderModuleCreateInfo, VK_NULL_HANDLE, &taskShaderModule));
+    }
 }
 
-void VkGraphicsPipelineBuilder::DestroyShaderModules(const VkDevice &device) {
-    vkDestroyShaderModule(device, vertexShaderModule, VK_NULL_HANDLE);
+void VkGraphicsPipelineBuilder::DestroyShaderModules(const VkDevice &device) const {
+    vkDestroyShaderModule(device, vertexOrMeshShaderModule, VK_NULL_HANDLE);
 
     if (fragmentShaderModule != VK_NULL_HANDLE)
         vkDestroyShaderModule(device, fragmentShaderModule, VK_NULL_HANDLE);

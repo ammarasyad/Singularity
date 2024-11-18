@@ -22,6 +22,7 @@
 #include "vk/memory/vk_memory.h"
 #include "vk/vk_descriptor_layout.h"
 #include "objects/gltf.h"
+#include "objects/meshlets.h"
 
 static constexpr uint32_t SHADOW_MAP_CASCADE_COUNT = 4;
 static constexpr uint32_t SHADOW_MAP_SIZE = 4096;
@@ -32,6 +33,8 @@ static bool isVkRunning = false;
 
 constexpr uint32_t MAX_FRAMES_IN_FLIGHT = 2;
 using hvec4 = glm::vec<4, glm::detail::hdata>;
+
+extern PFN_vkCmdDrawMeshTasksEXT fn_vkCmdDrawMeshTasksEXT;
 
 namespace glm {
     template<>
@@ -110,16 +113,13 @@ public:
 
     void Render(EngineStats &stats);
     void Draw(const VkCommandBuffer &commandBuffer, uint32_t imageIndex, EngineStats &stats);
+    void DrawMesh(const VkCommandBuffer &commandBuffer, uint32_t imageIndex, EngineStats &stats);
     void DrawIndirect(const VkCommandBuffer &commandBuffer, uint32_t imageIndex, EngineStats &stats);
     void Shutdown();
     void RecreateSwapChain();
 
     Mesh CreateMesh(const std::span<VkVertex> &vertices, const std::span<uint32_t> &indices) const;
-
-    [[nodiscard]] std::array<VkFence, 3> get_fences() const
-    {
-        return {frames[currentFrame].inFlightFence, depthPrepassFence, computeFinishedFence};
-    }
+    void CreateFromMeshlets(const std::vector<VkVertex> &vertices, const std::vector<uint32_t> &indices);
 
     void ImmediateSubmit(std::function<void(const VkCommandBuffer &)> &&callback) const {
         const VkCommandBufferAllocateInfo allocInfo{
@@ -364,6 +364,18 @@ public:
         }
     } queueFamilyIndices;
 
+    std::vector<Meshlet> meshlets;
+    struct {
+        uint32_t positionCount;
+        uint32_t meshletCount;
+        uint32_t verticesCount;
+        uint32_t primitiveCount;
+    } meshletStats;
+    VulkanBuffer positionBuffer{};
+    VulkanBuffer meshletBuffer{};
+    VulkanBuffer meshletVerticesBuffer{};
+    VulkanBuffer meshletPrimitivesBuffer{};
+
 private:
 #ifndef NDEBUG
     static constexpr std::array<const char *, 1> validationLayers = {
@@ -405,7 +417,10 @@ private:
     inline void UpdateScene(EngineStats &stats);
 
     inline void DrawObject(const VkCommandBuffer &commandBuffer, const VkRenderObject &draw, VkMaterialPipeline &lastPipeline, VkMaterialInstance &lastMaterialInstance, VkBuffer &lastIndexBuffer);
-    inline void DrawDepthPrepass(const std::vector<size_t> &drawIndices);
+    inline void DrawDepthPrepass(/*const std::vector<size_t> &drawIndices*/);
+    inline void DrawSkybox(const VkCommandBuffer &commandBuffer, EngineStats &stats) const;
+    inline void BeginDraw(const VkCommandBuffer &commandBuffer, uint32_t imageIndex) const;
+    inline void EndDraw(const VkCommandBuffer &commandBuffer, uint32_t imageIndex);
 
     inline void ComputeFrustum();
 
@@ -414,7 +429,7 @@ private:
 
     inline void CreateDepthImage();
 
-    inline void UpdateDepthComputeDescriptorSets();
+    inline void UpdateDescriptorSets();
 
     void UpdateCascades();
 };

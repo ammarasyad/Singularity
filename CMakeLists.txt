@@ -47,16 +47,7 @@ set(glm "third_party/glm")
 add_library(glm SHARED IMPORTED)
 
 add_subdirectory(third_party/fastgltf)
-#set(ZLIB_ROOT third_party/zlib)
-#set(ZLIB_LIBRARY zlibstatic)
-#
-#set(PNG_TOOLS OFF)
-#set(PNG_TESTS OFF)
-#set(SKIP_ALL_INSTALL ON)
-#add_subdirectory(third_party/libpng)
-#
-#file(GLOB PNG_FILES third_party/libpng/*.c)
-#add_library(png SHARED ${PNG_FILES})
+add_subdirectory(third_party/meshoptimizer)
 
 set(imgui "third_party/imgui")
 file(GLOB IMGUI_GLOB ${imgui}/*.cpp ${imgui}/backends/imgui_impl_glfw.cpp $<$<PLATFORM_ID:Windows>:${imgui}/backends/imgui_impl_dx12.cpp> ${imgui}/backends/imgui_impl_vulkan.cpp)
@@ -91,6 +82,8 @@ add_executable(Singularity main.cpp
         engine/objects/gltf.cpp
         engine/objects/gltf.h
         common/stbi_image.cpp
+        engine/objects/meshlets.cpp
+        engine/objects/meshlets.h
 )
 
 set_target_properties(Singularity PROPERTIES WIN32_EXECUTABLE $<PLATFORM_ID:Windows>)
@@ -100,6 +93,9 @@ add_custom_target(shaders)
 #file(GLOB SHADER_FILES graphics/vk/shaders/*.vert graphics/vk/shaders/*.frag graphics/vk/shaders/*.comp)
 set(VK_SHADER_FOLDER graphics/vk/shaders)
 set(SHADER_FILES
+        ${VK_SHADER_FOLDER}/mesh/meshshader.frag
+        ${VK_SHADER_FOLDER}/mesh/meshshader.mesh
+        ${VK_SHADER_FOLDER}/mesh/meshshader.task
         ${VK_SHADER_FOLDER}/depth_prepass.vert
         ${VK_SHADER_FOLDER}/frustum.comp
         ${VK_SHADER_FOLDER}/light_culling.comp
@@ -115,17 +111,17 @@ set(SHADER_FILES
 foreach (FILE ${SHADER_FILES})
     get_filename_component(FILE_NAME ${FILE} NAME)
     if (CMAKE_HOST_SYSTEM STREQUAL "Windows")
-    add_custom_command(
-            TARGET shaders
-            COMMAND third_party/shaderc/bin/glslc.exe ${FILE} -o ${CMAKE_CURRENT_BINARY_DIR}/shaders/${FILE_NAME}.spv -g
-            MAIN_DEPENDENCY ${FILE}
-            WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-            VERBATIM
-    )
+        add_custom_command(
+                TARGET shaders
+                COMMAND third_party/shaderc/bin/glslc.exe ${FILE} --target-spv=spv1.6 -o ${CMAKE_CURRENT_BINARY_DIR}/shaders/${FILE_NAME}.spv -g
+                MAIN_DEPENDENCY ${FILE}
+                WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+                VERBATIM
+        )
     else ()
         add_custom_command(
                 TARGET shaders
-                COMMAND glslc ${FILE} -o ${CMAKE_CURRENT_BINARY_DIR}/shaders/${FILE_NAME}.spv -g
+                COMMAND glslc ${FILE} --target-spv=spv1.6 -o ${CMAKE_CURRENT_BINARY_DIR}/shaders/${FILE_NAME}.spv -g
                 MAIN_DEPENDENCY ${FILE}
                 WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
                 VERBATIM
@@ -147,4 +143,4 @@ if (CMAKE_HOST_SYSTEM_NAME STREQUAL "Windows")
     target_link_libraries(Singularity PRIVATE d3d12.lib dxgi.lib d3dcompiler.lib D3D12MemoryAllocator)
 endif ()
 
-target_link_libraries(Singularity PRIVATE glfw fastgltf imgui Vulkan::Vulkan KTX::ktx GPUOpen::VulkanMemoryAllocator)
+target_link_libraries(Singularity PRIVATE glfw fastgltf imgui meshoptimizer Vulkan::Vulkan KTX::ktx GPUOpen::VulkanMemoryAllocator)

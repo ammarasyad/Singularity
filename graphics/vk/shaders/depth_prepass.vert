@@ -6,8 +6,7 @@ struct Vertex {
     vec3 position;
     vec3 normal;
     vec3 color;
-    float uv_X;
-    float uv_Y;
+    vec2 uv;
 };
 
 layout(set = 0, binding = 0) uniform SceneData {
@@ -31,6 +30,5 @@ layout(push_constant) uniform PushConstants {
 
 void main() {
     Vertex v = pushConstants.vertexBuffer.vertices[gl_VertexIndex];
-//    vec3 pos = (pushConstants.worldMatrix * vec4(v.position, 1.0)).xyz;
     gl_Position = cascadeData.viewProjectionMatrix[pushConstants.cascadeIndex] * vec4(v.position, 1.0);
 }
