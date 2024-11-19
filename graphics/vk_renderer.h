@@ -117,7 +117,7 @@ public:
     void Shutdown();
     void RecreateSwapChain();
 
-    Mesh CreateMesh(const std::span<VkVertex> &vertices, const std::span<uint32_t> &indices) const;
+    Mesh CreateMesh(std::span<VkVertex> vertices, std::span<uint32_t> indices) const;
     void CreateFromMeshlets(const std::vector<VkVertex> &vertices, const std::vector<uint32_t> &indices);
 
     void ImmediateSubmit(std::function<void(const VkCommandBuffer &)> &&callback) const {
@@ -243,6 +243,7 @@ public:
         std::vector<VkPresentModeKHR> presentModes;
     };
 
+
     GLFWwindow *glfwWindow;
     Camera *camera;
 
@@ -261,6 +262,8 @@ public:
     VkSwapchainKHR swapChain{};
     VkSurfaceFormatKHR surfaceFormat{};
     VkRenderPass renderPass{};
+
+    VkMemoryManager *memoryManager;
 
     VkPhysicalDeviceProperties deviceProperties{};
     VkDeviceSize maxMemoryAllocationSize{};
@@ -333,8 +336,7 @@ public:
     LoadedGLTF loadedScene{};
     SceneData sceneData{};
 
-    std::unique_ptr<VkMemoryManager> memoryManager;
-    std::unique_ptr<Light> totalLights;
+    Light *totalLights;
 
     struct ShadowCascade {
         VkImageView shadowImageView;

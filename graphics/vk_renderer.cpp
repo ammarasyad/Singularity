@@ -31,7 +31,8 @@ VkRenderer::VkRenderer(GLFWwindow *window, Camera *camera, const bool dynamicRen
 {
     InitializeInstance();
 
-    fn_vkCmdDrawMeshTasksEXT = reinterpret_cast<PFN_vkCmdDrawMeshTasksEXT>(vkGetInstanceProcAddr(instance, "vkCmdDrawMeshTasksEXT"));
+    fn_vkCmdDrawMeshTasksEXT = reinterpret_cast<PFN_vkCmdDrawMeshTasksEXT>(vkGetInstanceProcAddr(
+        instance, "vkCmdDrawMeshTasksEXT"));
 
 #ifndef NDEBUG
     constexpr VkDebugUtilsMessengerCreateInfoEXT debugCreateInfo{
@@ -53,11 +54,12 @@ VkRenderer::VkRenderer(GLFWwindow *window, Camera *camera, const bool dynamicRen
     CreateLogicalDevice();
     CreateCommandPool();
 
-    memoryManager = std::make_unique<VkMemoryManager>(instance, physicalDevice, device, static_cast<bool>(isIntegratedGPU));
+    memoryManager = new VkMemoryManager{instance, physicalDevice, device, static_cast<bool>(isIntegratedGPU)};
 
     // Reuse pipeline cache
     const auto pipelineCacheData = ReadFile<char>("pipeline_cache.bin");
-    if (!pipelineCacheData.empty()) {
+    if (!pipelineCacheData.empty())
+    {
         VkPipelineCacheCreateInfo pipelineCacheCreateInfo{
             VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO,
             VK_NULL_HANDLE,
@@ -67,7 +69,9 @@ VkRenderer::VkRenderer(GLFWwindow *window, Camera *camera, const bool dynamicRen
         };
 
         VK_CHECK(vkCreatePipelineCache(device, &pipelineCacheCreateInfo, VK_NULL_HANDLE, &pipelineCache));
-    } else {
+    }
+    else
+    {
         CreatePipelineCache();
     }
 
@@ -88,7 +92,8 @@ VkRenderer::VkRenderer(GLFWwindow *window, Camera *camera, const bool dynamicRen
         swapChainExtent
     };
 
-    if (!dynamicRendering) {
+    if (!dynamicRendering)
+    {
         CreateRenderPass();
     }
 
@@ -97,7 +102,8 @@ VkRenderer::VkRenderer(GLFWwindow *window, Camera *camera, const bool dynamicRen
     CreateGraphicsPipeline();
     CreateComputePipeline();
 
-    if (!dynamicRendering) {
+    if (!dynamicRendering)
+    {
         CreateFramebuffers();
     }
 
@@ -118,10 +124,13 @@ VkRenderer::VkRenderer(GLFWwindow *window, Camera *camera, const bool dynamicRen
     loadedScene = structureFile.value();
 
     sceneDataBuffer = memoryManager->createManagedBuffer(
-            {sizeof(SceneData), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
-             VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE,
-             VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-             VK_MEMORY_PROPERTY_HOST_COHERENT_BIT});
+        {
+            sizeof(SceneData), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+            VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
+            VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE,
+            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+            VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+        });
 
     CreateRandomLights();
     CreateSkybox();
@@ -317,8 +326,22 @@ void VkRenderer::Render(EngineStats &stats) {
 
     UpdateScene(stats);
 
-    const std::array fences = {frames[currentFrame].inFlightFence/*, depthPrepassFence*/, computeFinishedFence};
-    const auto size = fences.size() - !asyncCompute;
+    static std::array<VkFence, 3> fences;
+    fences[0] = frames[currentFrame].inFlightFence;
+
+    if (meshShader)
+    {
+        // fences = {frames[currentFrame].inFlightFence, computeFinishedFence};
+        fences[1] = computeFinishedFence;
+    }
+    else
+    {
+        fences[1] = depthPrepassFence;
+        fences[2] = computeFinishedFence;
+        // fences = {frames[currentFrame].inFlightFence, depthPrepassFence, computeFinishedFence};
+    }
+
+    const auto size = fences.size() - !asyncCompute - meshShader;
     VK_CHECK(vkWaitForFences(device, size, fences.data(), VK_TRUE, UINT64_MAX));
 
     uint32_t imageIndex;
@@ -405,12 +428,24 @@ void VkRenderer::Render(EngineStats &stats) {
     const auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
     stats.meshDrawTime = static_cast<float>(elapsed) / 1000.f;
 
-    VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT, VK_PIPELINE_STAGE_MESH_SHADER_BIT_EXT};
-    std::array waitSemaphores = {frames[currentFrame].imageAvailableSemaphore/*, depthPrepassSemaphore*/, computeFinishedSemaphore};
+    static constexpr VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT, VK_PIPELINE_STAGE_MESH_SHADER_BIT_EXT};
+    // std::array waitSemaphores = {frames[currentFrame].imageAvailableSemaphore/*, depthPrepassSemaphore*/, computeFinishedSemaphore};
+    static std::array<VkSemaphore, 3> waitSemaphores;
+    waitSemaphores[0] = frames[currentFrame].imageAvailableSemaphore;
+    if (meshShader)
+    {
+        waitSemaphores[1] = computeFinishedSemaphore;
+    }
+    else
+    {
+        waitSemaphores[1] = depthPrepassSemaphore;
+        waitSemaphores[2] = computeFinishedSemaphore;
+    }
+
     VkSubmitInfo submitInfo{
         VK_STRUCTURE_TYPE_SUBMIT_INFO,
         VK_NULL_HANDLE,
-        static_cast<uint32_t>(waitSemaphores.size() - !asyncCompute),
+        static_cast<uint32_t>(waitSemaphores.size() - !asyncCompute - meshShader),
         waitSemaphores.data(),
         waitStages,
         1,
@@ -488,7 +523,7 @@ void VkRenderer::DrawDepthPrepass(/*const std::vector<size_t> &drawIndices*/) {
         .depthStencil = {1.0f, 0}
     };
 
-    constexpr VkViewport depthViewport{
+    static constexpr VkViewport depthViewport{
         0.0f,
         0.0f,
         static_cast<float>(SHADOW_MAP_SIZE),
@@ -497,7 +532,7 @@ void VkRenderer::DrawDepthPrepass(/*const std::vector<size_t> &drawIndices*/) {
         1.0f
     };
 
-    constexpr VkRect2D depthScissor{
+    static constexpr VkRect2D depthScissor{
         {0, 0},
         {SHADOW_MAP_SIZE, SHADOW_MAP_SIZE}
     };
@@ -819,7 +854,9 @@ void VkRenderer::Shutdown() {
     vkDestroySampler(device, textureSamplerNearest, VK_NULL_HANDLE);
 
     // All buffers and images will be destroyed by the memory manager (EXCEPT UNMANAGED BUFFERS AND IMAGES), no need for manual management
-    memoryManager.reset();
+    // memoryManager->reset();
+    delete memoryManager;
+    delete totalLights;
 
     mainDescriptorAllocator.Destroy(device);
     vkDestroyDescriptorSetLayout(device, mainDescriptorSetLayout, nullptr);
@@ -886,7 +923,7 @@ void VkRenderer::RecreateSwapChain() {
     framebufferResized = false;
 }
 
-Mesh VkRenderer::CreateMesh(const std::span<VkVertex> &vertices, const std::span<uint32_t> &indices) const {
+Mesh VkRenderer::CreateMesh(const std::span<VkVertex> vertices, const std::span<uint32_t>indices) const {
     Mesh mesh{};
 
     const auto verticesSize = vertices.size() * sizeof(vertices[0]);
@@ -1082,7 +1119,8 @@ void VkRenderer::PickPhysicalDevice() {
         }
     }
 
-    VkPhysicalDeviceMaintenance3Properties maintenance3Properties{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_3_PROPERTIES};
+    VkPhysicalDeviceMeshShaderPropertiesEXT meshShaderProperties{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_PROPERTIES_EXT};
+    VkPhysicalDeviceMaintenance3Properties maintenance3Properties{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_3_PROPERTIES, &meshShaderProperties};
     VkPhysicalDeviceRayTracingPipelinePropertiesKHR raytracingProperties{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_PROPERTIES_KHR, &maintenance3Properties};
 
     VkPhysicalDeviceProperties2 deviceProperties2{
@@ -1096,8 +1134,12 @@ void VkRenderer::PickPhysicalDevice() {
     // vkGetPhysicalDeviceMemoryProperties(physicalDevice, &memoryProperties);
     raytracingCapable = raytracingProperties.shaderGroupHandleSize > 0;
     // Workaround for Intel Mesa drivers
-    raytracingCapable &= !isIntegratedGPU && strncmp(deviceProperties.deviceName, "Intel(R)", 8) != 0;
-    printf("Raytracing capable: %d\n", raytracingCapable);
+    const auto isIntelIGPU = isIntegratedGPU && strncmp(deviceProperties.deviceName, "Intel(R)", 8) == 0;
+    meshShader = !isIntelIGPU && meshShaderProperties.maxMeshWorkGroupCount[0] > 0;
+
+    !meshShader && printf("Mesh shader not supported, falling back to traditional rendering\n");
+
+    raytracingCapable = !isIntelIGPU && raytracingProperties.shaderGroupHandleSize > 0;
 }
 
 void VkRenderer::CreateLogicalDevice() {
@@ -1123,8 +1165,8 @@ void VkRenderer::CreateLogicalDevice() {
     VkPhysicalDeviceMeshShaderFeaturesEXT meshShaderFeatures{
         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_FEATURES_EXT,
         VK_NULL_HANDLE,
-        VK_TRUE,
-        VK_TRUE
+        meshShader,
+        meshShader
     };
 
     VkPhysicalDeviceVulkan11Features vulkan11Features{
@@ -1159,8 +1201,8 @@ void VkRenderer::CreateLogicalDevice() {
         VK_KHR_SWAPCHAIN_EXTENSION_NAME,
         VK_KHR_PIPELINE_LIBRARY_EXTENSION_NAME,
         VK_EXT_GRAPHICS_PIPELINE_LIBRARY_EXTENSION_NAME,
-        VK_EXT_MESH_SHADER_EXTENSION_NAME,
-        VK_KHR_SPIRV_1_4_EXTENSION_NAME
+        VK_KHR_SPIRV_1_4_EXTENSION_NAME,
+        VK_EXT_MESH_SHADER_EXTENSION_NAME
     };
 
     VkPhysicalDeviceRayQueryFeaturesKHR rayQueryFeatures{
@@ -1202,7 +1244,7 @@ void VkRenderer::CreateLogicalDevice() {
         queueCreateInfos.data(),
         0,
         VK_NULL_HANDLE,
-        static_cast<uint32_t>(deviceExtensions.size() - !raytracingCapable * 4),
+        static_cast<uint32_t>(deviceExtensions.size() - !raytracingCapable * 4 - !meshShader),
         deviceExtensions.data()
     };
 
@@ -1791,7 +1833,7 @@ void VkRenderer::CreateDefaultTexture() {
     // const uint32_t purple = packUnorm4x8(glm::vec4{1, 0, 1, 1});
 
     constexpr uint32_t textureSize = 16;
-    std::array<uint32_t, textureSize * textureSize> pixels{UINT32_MAX};
+    constexpr std::array<uint32_t, textureSize * textureSize> pixels{UINT32_MAX};
     // for (size_t i = 0; i < textureSize * textureSize; i++) {
     //     pixels[i] = (i / textureSize + i % textureSize) % 2 == 0 ? 0 : purple;
     // }
@@ -2138,7 +2180,8 @@ void VkRenderer::UpdateScene(EngineStats &stats) {
 //    memcpy(data, totalLights.get(), sizeof(Light));
 //    memoryManager->unmapBuffer(lightUniformBuffer);
 
-    loadedScene.Draw(glm::mat4{1.f}, mainDrawContext);
+    if (!meshShader)
+        loadedScene.Draw(glm::mat4{1.f}, mainDrawContext);
 
     // UpdateCascades();
 }
@@ -2174,7 +2217,7 @@ void VkRenderer::DestroyDebugUtilsMessengerEXT(VkInstance instance, VkDebugUtils
 constexpr int multiplier = 16 * 9 * 6;
 
 void VkRenderer::CreateRandomLights() {
-    totalLights = std::make_unique<Light>();
+    totalLights = new Light;
     totalLights->lightCount = MAX_LIGHTS;
 
     std::random_device rd;
@@ -2195,7 +2238,7 @@ void VkRenderer::CreateRandomLights() {
              VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT});
 
     const auto mappedMemoryTask = [&](auto &, auto *stagingBuffer) {
-        memcpy(stagingBuffer, totalLights.get(), sizeof(Light));
+        memcpy(stagingBuffer, totalLights, sizeof(Light));
     };
 
     const auto unmappedMemoryTask = [&](auto &buf) {

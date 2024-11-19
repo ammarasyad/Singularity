@@ -49,14 +49,14 @@ struct DescriptorAllocator {
         float ratio;
     };
 
-    void InitPool(const VkDevice &device, uint32_t maxSets, const std::span<PoolSizeRatio> &poolRatios);
+    void InitPool(const VkDevice &device, uint32_t maxSets, std::span<PoolSizeRatio>poolRatios);
     void ClearPools(const VkDevice &device);
     void Destroy(const VkDevice &device);
-    [[nodiscard]] VkDescriptorSet Allocate(const VkDevice &device, const std::span<VkDescriptorSetLayout> &layout);
+    [[nodiscard]] VkDescriptorSet Allocate(const VkDevice &device, std::span<VkDescriptorSetLayout>layout);
 
 private:
     VkDescriptorPool GetPool(const VkDevice &device);
-    static VkDescriptorPool CreatePool(const VkDevice &device, uint32_t maxSets, const std::span<PoolSizeRatio> &poolRatios);
+    static VkDescriptorPool CreatePool(const VkDevice &device, uint32_t maxSets, std::span<PoolSizeRatio>poolRatios);
 
     std::vector<PoolSizeRatio> ratios;
     std::vector<VkDescriptorPool> fullPools;
@@ -72,7 +72,7 @@ private:
 //
 //     VkDescriptorPool pool;
 //
-//     void InitPool(const VkDevice &device, const uint32_t maxSets, const std::span<PoolSizeRatio> &poolRatios) {
+//     void InitPool(const VkDevice &device, const uint32_t maxSets, std::span<PoolSizeRatio>poolRatios) {
 //         std::vector<VkDescriptorPoolSize> poolSizes;
 //         poolSizes.reserve(poolRatios.size());
 //
@@ -98,7 +98,7 @@ private:
 //         vkDestroyDescriptorPool(device, pool, nullptr);
 //     }
 //
-//     [[nodiscard]] VkDescriptorSet Allocate(const VkDevice &device, const std::span<VkDescriptorSetLayout> &layout) const {
+//     [[nodiscard]] VkDescriptorSet Allocate(const VkDevice &device, std::span<VkDescriptorSetLayout>layout) const {
 //         const VkDescriptorSetAllocateInfo allocateInfo{
 //             .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
 //             .descriptorPool = pool,

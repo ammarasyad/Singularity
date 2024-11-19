@@ -85,11 +85,6 @@ public:
 
     void destroyBuffer(const VulkanBuffer &buffer, bool tracked = true);
     void destroyImage(const VulkanImage &vkImage, bool tracked = true);
-
-    [[nodiscard]] VmaAllocator getAllocator() const {
-        return allocator;
-    }
-
 private:
     static VmaVirtualBlock createVirtualBuffer(VkDeviceSize size) ;
     static inline void destroyVirtualBuffer(const VmaVirtualBlock &block);
