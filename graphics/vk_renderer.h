@@ -11,7 +11,6 @@
 #include <GLFW/glfw3.h>
 #endif
 
-#include <memory>
 #include <optional>
 #include <vector>
 #include <detail/type_half.hpp>

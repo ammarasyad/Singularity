@@ -2,6 +2,13 @@
 
 #include <bits/stl_algo.h>
 
+#ifdef _WIN32
+#include <glfw/glfw3.h>
+#else
+// use system glfw
+#include <GLFW/glfw3.h>
+#endif
+
 #include "ext/matrix_clip_space.hpp"
 #include <ext/matrix_transform.hpp>
 

@@ -52,7 +52,7 @@ VkGui::VkGui(const int width, const int height, const bool dynamicRendering, con
     // });
 
     // VkRenderer initialization
-    renderer = std::make_unique<VkRenderer>(window, &camera, dynamicRendering, asyncCompute, true);
+    renderer = new VkRenderer(window, &camera, dynamicRendering, asyncCompute, true);
 
     const auto instance = renderer->instance;
     const auto physicalDevice = renderer->physicalDevice;
@@ -170,7 +170,8 @@ void VkGui::Shutdown() const {
     ImGui_ImplGlfw_Shutdown();
     ImGui::DestroyContext();
 
-    renderer->Shutdown();
+    // renderer->Shutdown();
+    delete renderer;
 
     glfwDestroyWindow(window);
     glfwTerminate();

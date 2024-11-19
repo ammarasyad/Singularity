@@ -31,9 +31,6 @@ VkRenderer::VkRenderer(GLFWwindow *window, Camera *camera, const bool dynamicRen
 {
     InitializeInstance();
 
-    fn_vkCmdDrawMeshTasksEXT = reinterpret_cast<PFN_vkCmdDrawMeshTasksEXT>(vkGetInstanceProcAddr(
-        instance, "vkCmdDrawMeshTasksEXT"));
-
 #ifndef NDEBUG
     constexpr VkDebugUtilsMessengerCreateInfoEXT debugCreateInfo{
         VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT,
@@ -53,6 +50,9 @@ VkRenderer::VkRenderer(GLFWwindow *window, Camera *camera, const bool dynamicRen
     PickPhysicalDevice();
     CreateLogicalDevice();
     CreateCommandPool();
+
+    if (meshShader)
+        fn_vkCmdDrawMeshTasksEXT = reinterpret_cast<PFN_vkCmdDrawMeshTasksEXT>(vkGetInstanceProcAddr(instance, "vkCmdDrawMeshTasksEXT"));
 
     memoryManager = new VkMemoryManager{instance, physicalDevice, device, static_cast<bool>(isIntegratedGPU)};
 
@@ -331,14 +331,12 @@ void VkRenderer::Render(EngineStats &stats) {
 
     if (meshShader)
     {
-        // fences = {frames[currentFrame].inFlightFence, computeFinishedFence};
         fences[1] = computeFinishedFence;
     }
     else
     {
         fences[1] = depthPrepassFence;
         fences[2] = computeFinishedFence;
-        // fences = {frames[currentFrame].inFlightFence, depthPrepassFence, computeFinishedFence};
     }
 
     const auto size = fences.size() - !asyncCompute - meshShader;
@@ -429,7 +427,6 @@ void VkRenderer::Render(EngineStats &stats) {
     stats.meshDrawTime = static_cast<float>(elapsed) / 1000.f;
 
     static constexpr VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT, VK_PIPELINE_STAGE_MESH_SHADER_BIT_EXT};
-    // std::array waitSemaphores = {frames[currentFrame].imageAvailableSemaphore/*, depthPrepassSemaphore*/, computeFinishedSemaphore};
     static std::array<VkSemaphore, 3> waitSemaphores;
     waitSemaphores[0] = frames[currentFrame].imageAvailableSemaphore;
     if (meshShader)
@@ -853,8 +850,6 @@ void VkRenderer::Shutdown() {
     vkDestroySampler(device, textureSamplerLinear, VK_NULL_HANDLE);
     vkDestroySampler(device, textureSamplerNearest, VK_NULL_HANDLE);
 
-    // All buffers and images will be destroyed by the memory manager (EXCEPT UNMANAGED BUFFERS AND IMAGES), no need for manual management
-    // memoryManager->reset();
     delete memoryManager;
     delete totalLights;
 
@@ -1171,7 +1166,7 @@ void VkRenderer::CreateLogicalDevice() {
 
     VkPhysicalDeviceVulkan11Features vulkan11Features{
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES,
-        .pNext = &meshShaderFeatures,
+        .pNext = meshShader ? &meshShaderFeatures : VK_NULL_HANDLE,
         .storageBuffer16BitAccess = VK_TRUE,
         .uniformAndStorageBuffer16BitAccess = VK_TRUE
     };
@@ -1233,6 +1228,7 @@ void VkRenderer::CreateLogicalDevice() {
         deviceExtensions[7] = VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME;
         deviceExtensions[8] = VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME;
 
+        // Mesh shader support and RT support go hand in hand AFAIK so I think this should be fine
         meshShaderFeatures.pNext = &rayTracingPipelineFeatures;
     }
 
@@ -1830,13 +1826,9 @@ void VkRenderer::CreateCommandBuffers() {
 }
 
 void VkRenderer::CreateDefaultTexture() {
-    // const uint32_t purple = packUnorm4x8(glm::vec4{1, 0, 1, 1});
 
     constexpr uint32_t textureSize = 16;
-    constexpr std::array<uint32_t, textureSize * textureSize> pixels{UINT32_MAX};
-    // for (size_t i = 0; i < textureSize * textureSize; i++) {
-    //     pixels[i] = (i / textureSize + i % textureSize) % 2 == 0 ? 0 : purple;
-    // }
+    static constexpr std::array<uint32_t, textureSize * textureSize> pixels{UINT32_MAX};
 
     defaultImage = memoryManager->createTexture(pixels.data(), this, {16, 16, 1}, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT);
 
@@ -2169,16 +2161,6 @@ void VkRenderer::UpdateScene(EngineStats &stats) {
     sceneData.worldMatrix = proj * view;
     memoryManager->copyToBuffer(sceneDataBuffer, &sceneData, sizeof(SceneData));
     memoryManager->copyToBuffer(viewMatrix, &view, sizeof(glm::mat4));
-
-//    auto rotation = glm::rotate(glm::mat4{1.f}, stats.frameTime / 1000.f, glm::vec3{0, 1, 0});
-//    for (auto &light : totalLights->lights) {
-//        light.position = {glm::vec3(rotation * hvec4(light.position.x, light.position.y, light.position.z, 1.0f)), light.position.w};
-//    }
-//
-//    void *data;
-//    memoryManager->mapBuffer(lightUniformBuffer, &data);
-//    memcpy(data, totalLights.get(), sizeof(Light));
-//    memoryManager->unmapBuffer(lightUniformBuffer);
 
     if (!meshShader)
         loadedScene.Draw(glm::mat4{1.f}, mainDrawContext);

@@ -1,4 +1,5 @@
 #include "vk_descriptor_layout.h"
+#include <bits/ranges_algobase.h>
 #pragma region DescriptorWriter
 void DescriptorWriter::WriteImage(int binding, VkImageView image, VkSampler sampler, VkImageLayout layout, VkDescriptorType type) {
     auto &info = imageInfos.emplace_back(sampler, image, layout);

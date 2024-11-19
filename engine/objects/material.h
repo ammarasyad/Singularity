@@ -7,7 +7,6 @@
 #endif
 
 #include "vk/vk_descriptor_layout.h"
-#include "vk/vk_common.h"
 
 class VkRenderer;
 

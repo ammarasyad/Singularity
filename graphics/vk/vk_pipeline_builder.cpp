@@ -37,17 +37,17 @@ VkPipeline VkGraphicsPipelineBuilder::Build(const bool dynamicRendering, const V
 
     VkPipelineShaderStageCreateInfo shaderStages[] = {vertexShaderStageInfo, fragmentShaderStageInfo, taskShaderStageInfo};
 
-    VkPipelineVertexInputStateCreateInfo vertexInputInfo{
+    static constexpr VkPipelineVertexInputStateCreateInfo vertexInputInfo{
         VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
         VK_NULL_HANDLE,
         0,
-        static_cast<uint32_t>(vertexInputBindingDescriptions.size()),
-        vertexInputBindingDescriptions.data(),
-        static_cast<uint32_t>(vertexInputAttributeDescriptions.size()),
-        vertexInputAttributeDescriptions.data()
+        0,
+        VK_NULL_HANDLE,
+        0,
+        VK_NULL_HANDLE
     };
 
-    VkPipelineViewportStateCreateInfo viewportState{
+    static constexpr VkPipelineViewportStateCreateInfo viewportState{
         VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
         VK_NULL_HANDLE,
         0,
@@ -57,14 +57,12 @@ VkPipeline VkGraphicsPipelineBuilder::Build(const bool dynamicRendering, const V
         VK_NULL_HANDLE
     };
 
-    VkPipelineMultisampleStateCreateInfo multisample{
+    static constexpr VkPipelineMultisampleStateCreateInfo multisample{
         VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
         VK_NULL_HANDLE,
         0,
         VK_SAMPLE_COUNT_1_BIT
     };
-
-    colorBlendAttachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
 
     VkPipelineColorBlendStateCreateInfo colorBlending{
         VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
@@ -76,7 +74,7 @@ VkPipeline VkGraphicsPipelineBuilder::Build(const bool dynamicRendering, const V
         &colorBlendAttachment
     };
 
-    VkDynamicState dynamicStates[] = {
+    static constexpr VkDynamicState dynamicStates[] = {
         VK_DYNAMIC_STATE_VIEWPORT,
         VK_DYNAMIC_STATE_SCISSOR
     };
@@ -88,8 +86,6 @@ VkPipeline VkGraphicsPipelineBuilder::Build(const bool dynamicRendering, const V
         2,
         dynamicStates
     };
-
-    rasterizerCreateInfo.lineWidth = 1.0f;
 
     VkGraphicsPipelineCreateInfo pipelineInfo{
         VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
@@ -118,9 +114,9 @@ VkPipeline VkGraphicsPipelineBuilder::Build(const bool dynamicRendering, const V
 
 void VkGraphicsPipelineBuilder::Clear() {
     inputAssemblyCreateInfo = {VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
-    rasterizerCreateInfo = {VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO};
+    rasterizerCreateInfo = {.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO, .lineWidth = 1.0f};
     depthStencilCreateInfo = {VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};
-    colorBlendAttachment = {};
+    colorBlendAttachment = {.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT};
     renderingCreateInfo = {VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
     colorAttachmentFormat = VK_FORMAT_UNDEFINED;
 }
@@ -172,14 +168,6 @@ void VkGraphicsPipelineBuilder::DestroyShaderModules(const VkDevice &device) con
 
     if (fragmentShaderModule != VK_NULL_HANDLE)
         vkDestroyShaderModule(device, fragmentShaderModule, VK_NULL_HANDLE);
-}
-
-void VkGraphicsPipelineBuilder::AddBindingDescription(uint32_t binding, uint32_t stride, VkVertexInputRate inputRate) {
-    vertexInputBindingDescriptions.emplace_back(binding, stride, inputRate);
-}
-
-void VkGraphicsPipelineBuilder::AddAttributeDescription(uint32_t location, uint32_t binding, VkFormat format, uint32_t offset) {
-    vertexInputAttributeDescriptions.emplace_back(location, binding, format, offset);
 }
 
 void VkGraphicsPipelineBuilder::SetPipelineLayout(VkPipelineLayout pipelineLayout) {

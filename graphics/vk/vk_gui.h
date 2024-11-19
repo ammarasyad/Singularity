@@ -1,7 +1,6 @@
 #ifndef D3D12_STUFF_VK_GUI_H
 #define D3D12_STUFF_VK_GUI_H
 
-#include <memory>
 #ifdef _WIN32
 #include <glfw/glfw3.h>
 #else
@@ -49,7 +48,7 @@ private:
     VkDescriptorPool imguiDescriptorPool;
     EngineStats stats{};
 
-    std::unique_ptr<VkRenderer> renderer;
+    VkRenderer *renderer;
 };
 
 #endif //D3D12_STUFF_VK_GUI_H

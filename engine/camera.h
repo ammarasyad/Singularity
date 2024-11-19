@@ -2,7 +2,6 @@
 #define D3D12_STUFF_CAMERA_H
 
 #include <glm.hpp>
-#include "GLFW/glfw3.h"
 
 class Camera {
 public:

@@ -4,7 +4,7 @@
 
 #define GLM_FORCE_AVX2
 
-#include <cassert>
+#include <cstdio>
 #include <vulkan/vulkan.h>
 #include <memory>
 #include <vk_mem_alloc.h>

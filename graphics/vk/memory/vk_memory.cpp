@@ -1,6 +1,4 @@
 #include "vk_memory.h"
-#include <ranges>
-
 #include "vk_renderer.h"
 
 VkMemoryManager::VkMemoryManager(const VkInstance &instance, const VkPhysicalDevice &physicalDevice, const VkDevice &device, const bool isIntegratedGPU, const bool customPool) : allocator(), device(device), pool(VK_NULL_HANDLE), isIntegratedGPU(isIntegratedGPU) {
@@ -21,7 +19,7 @@ VkMemoryManager::VkMemoryManager(const VkInstance &instance, const VkPhysicalDev
     VK_CHECK(vmaCreateAllocator(&vmaAllocatorCreateInfo, &allocator));
 
     if (customPool) {
-        constexpr VkBufferCreateInfo bufferCreateInfo{
+        static constexpr VkBufferCreateInfo bufferCreateInfo{
             VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
             VK_NULL_HANDLE,
             {},
@@ -30,8 +28,8 @@ VkMemoryManager::VkMemoryManager(const VkInstance &instance, const VkPhysicalDev
             VK_SHARING_MODE_EXCLUSIVE // TODO: Might need to change this
         };
 
-        constexpr VmaAllocationCreateInfo allocationCreateInfo{
-                {},
+        static constexpr VmaAllocationCreateInfo allocationCreateInfo{
+                0,
                 VMA_MEMORY_USAGE_AUTO_PREFER_HOST
         };
 
@@ -66,7 +64,7 @@ VkMemoryManager::~VkMemoryManager() {
     vmaDestroyAllocator(allocator);
 }
 
-void VkMemoryManager::stagingBuffer(VkDeviceSize bufferSize, const std::function<void(VkBuffer &, void *)> &mappedMemoryTask, const std::function<void(VkBuffer &)> &unmappedMemoryTask) const {
+void VkMemoryManager::stagingBuffer(VkDeviceSize bufferSize, const std::function<void(VkBuffer &, void *)> &&mappedMemoryTask, const std::function<void(VkBuffer &)> &&unmappedMemoryTask) const {
     VmaAllocationCreateFlags allocationFlags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
     if (isIntegratedGPU)
         allocationFlags |= VMA_ALLOCATION_CREATE_MAPPED_BIT;

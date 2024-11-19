@@ -58,8 +58,8 @@ public:
 
     ~VkMemoryManager();
 
-    void stagingBuffer(VkDeviceSize bufferSize, const std::function<void(VkBuffer &, void *)> &mappedMemoryTask,
-                       const std::function<void(VkBuffer &)> &unmappedMemoryTask = nullptr) const;
+    void stagingBuffer(VkDeviceSize bufferSize, const std::function<void(VkBuffer &, void *)> &&mappedMemoryTask,
+                       const std::function<void(VkBuffer &)> &&unmappedMemoryTask = nullptr) const;
 
     VulkanBuffer createManagedBuffer(const VulkanBufferCreateInfo &info);
 

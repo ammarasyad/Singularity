@@ -3,7 +3,8 @@
 
 #include <deque>
 #include <vector>
-#include "vk/vk_common.h"
+#include <span>
+#include "vk_common.h"
 
 struct DescriptorLayoutBuilder {
     std::vector<VkDescriptorSetLayoutBinding> bindings;
