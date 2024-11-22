@@ -100,8 +100,8 @@ void VkGLTFMetallic_Roughness::clearResources(const VkDevice &device) const {
     vkDestroyPipeline(device, transparentPipeline.pipeline, VK_NULL_HANDLE);
 }
 
-VkMaterialInstance VkGLTFMetallic_Roughness::writeMaterial(VkDevice &device, MaterialPass pass, const MaterialResources &resources, DescriptorAllocator &allocator) {
-    VkDescriptorSetLayout setLayouts[] = {materialLayout};
+VkMaterialInstance VkGLTFMetallic_Roughness::writeMaterial(VkDevice &device, const MaterialPass pass, const MaterialResources &resources, DescriptorAllocator &allocator) {
+    const VkDescriptorSetLayout setLayouts[] = {materialLayout};
     VkMaterialInstance matData{
         .pipeline = pass == MaterialPass::Transparent ? transparentPipeline : opaquePipeline,
         .descriptorSet = allocator.Allocate(device, setLayouts),

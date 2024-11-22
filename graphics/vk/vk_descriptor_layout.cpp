@@ -49,7 +49,7 @@ void DescriptorWriter::UpdateSet(VkDevice &device, VkDescriptorSet &descriptorSe
 
 #pragma endregion
 #pragma region DescriptorAllocator
-void DescriptorAllocator::InitPool(const VkDevice &device, const uint32_t maxSets, std::span<PoolSizeRatio>poolRatios) {
+void DescriptorAllocator::InitPool(const VkDevice &device, const uint32_t maxSets, std::span<const PoolSizeRatio> poolRatios) {
     ratios.clear();
     std::ranges::copy(poolRatios, std::back_inserter(ratios));
 
@@ -81,7 +81,7 @@ void DescriptorAllocator::Destroy(const VkDevice &device) {
     fullPools.clear();
 }
 
-VkDescriptorSet DescriptorAllocator::Allocate(const VkDevice &device, std::span<VkDescriptorSetLayout>layout) {
+VkDescriptorSet DescriptorAllocator::Allocate(const VkDevice &device, const std::span<const VkDescriptorSetLayout> layout) {
     auto poolToUse = GetPool(device);
 
     VkDescriptorSetAllocateInfo allocInfo{
@@ -125,7 +125,7 @@ VkDescriptorPool DescriptorAllocator::GetPool(const VkDevice &device) {
     return newPool;
 }
 
-VkDescriptorPool DescriptorAllocator::CreatePool(const VkDevice &device, const uint32_t maxSets, std::span<PoolSizeRatio>poolRatios) {
+VkDescriptorPool DescriptorAllocator::CreatePool(const VkDevice &device, const uint32_t maxSets, const std::span<const PoolSizeRatio> poolRatios) {
     std::vector<VkDescriptorPoolSize> poolSizes;
     poolSizes.reserve(poolRatios.size());
     for (auto &[type, ratio] : poolRatios) {

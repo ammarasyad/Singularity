@@ -156,12 +156,10 @@ std::optional<LoadedGLTF> LoadGLTF(VkRenderer *renderer, bool multithread, const
 
     fastgltf::Asset gltf = std::move(load.get());
 
-    std::array<DescriptorAllocator::PoolSizeRatio, 3> sizes = {
-        {
-            {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 3},
-            {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 3},
-            {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1}
-        }
+    static constexpr DescriptorAllocator::PoolSizeRatio sizes[] = {
+        {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 3},
+        {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 3},
+        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1}
     };
 
     scene.descriptorAllocator.InitPool(renderer->device, gltf.materials.size(), sizes);

@@ -8,7 +8,7 @@
 
 #include <cstdint>
 #include <glm.hpp>
-#include <memory>
+#include <thread>
 
 #include "vk/vk_common.h"
 #include "vk/memory/vk_mesh_assets.h"
@@ -59,6 +59,7 @@ struct Node {
 
     void RefreshTransform(const glm::mat4 &parentTransform) {
         worldTransform = parentTransform * localTransform;
+#pragma omp parallel for ordered shared(children, worldTransform) default(none) num_threads(std::thread::hardware_concurrency())
         for (const auto &c : children) {
             c->RefreshTransform(worldTransform);
         }
@@ -84,6 +85,7 @@ struct Node {
             }
 
             case NodeType::Node: {
+#pragma omp parallel for ordered shared(children, topMatrix, ctx) default(none) num_threads(std::thread::hardware_concurrency())
                 for (const auto &c: children) {
                     c->Draw(topMatrix, ctx);
                 }

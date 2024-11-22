@@ -113,9 +113,9 @@ VkRenderer::VkRenderer(GLFWwindow *window, Camera *camera, const bool dynamicRen
     CreateDefaultTexture();
     CreateSyncObjects();
 
-    auto start = std::chrono::high_resolution_clock::now();
-    auto structureFile = LoadGLTF(this, true, "../assets/Sponza/Sponza.gltf", "../assets/Sponza/");
-    auto end = std::chrono::high_resolution_clock::now();
+    const auto start = std::chrono::high_resolution_clock::now();
+    const auto structureFile = LoadGLTF(this, true, "../assets/Sponza/Sponza.gltf", "../assets/Sponza/");
+    const auto end = std::chrono::high_resolution_clock::now();
 
     printf("Loading time: %lld ms\n", std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count());
 
@@ -1870,12 +1870,10 @@ void VkRenderer::CreateSyncObjects() {
 }
 
 void VkRenderer::CreateDescriptors() {
-    std::array<DescriptorAllocator::PoolSizeRatio, 3> sizes{
-        {
-            {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1},
-            {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1},
-            {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 3},
-        }
+    static constexpr DescriptorAllocator::PoolSizeRatio sizes[] = {
+        {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1},
+        {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1},
+        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 3},
     };
 
     mainDescriptorAllocator.InitPool(device, 10, sizes);
@@ -1909,22 +1907,20 @@ void VkRenderer::CreateDescriptors() {
     builder.AddBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT);
     skyboxDescriptorSetLayout = builder.Build(device);
 
-    std::array layouts = {mainDescriptorSetLayout};
+    VkDescriptorSetLayout layouts[] = {mainDescriptorSetLayout};
     mainDescriptorSet = mainDescriptorAllocator.Allocate(device, layouts);
 
-    layouts = {sceneDescriptorSetLayout};
+    layouts[0] = sceneDescriptorSetLayout;
     sceneDescriptorSet = mainDescriptorAllocator.Allocate(device, layouts);
 
-    layouts = {skyboxDescriptorSetLayout};
+    layouts[0] = skyboxDescriptorSetLayout;
     skyboxDescriptorSet = mainDescriptorAllocator.Allocate(device, layouts);
 
-    std::array<DescriptorAllocator::PoolSizeRatio, 4> frameSizes = {
-        {
-            { VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,          3 },
-            { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         3 },
-            { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,         3 },
-            { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 3 },
-        }
+    static constexpr DescriptorAllocator::PoolSizeRatio frameSizes[] = {
+        { VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,          3 },
+        { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         3 },
+        { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,         3 },
+        { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 3 },
     };
 
     for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
