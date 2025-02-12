@@ -8,6 +8,8 @@
 #include "input_structures.glsl"
 #include "tiled_shading.glsl"
 
+precision mediump float;
+
 layout(location = 0) in vec3 fragNormal;
 layout(location = 1) in vec2 fragUV;
 layout(location = 2) in vec3 fragPos;
@@ -46,47 +48,40 @@ layout(push_constant) uniform PushConstants {
 
 layout(early_fragment_tests) in;
 
-const float16_t ambient = 0.1hf;
-const f16mat4 biasMat = f16mat4(
+const float ambient = 0.1f;
+const mat4 biasMat = mat4(
         0.5, 0.0, 0.0, 0.0,
         0.0, 0.5, 0.0, 0.0,
         0.0, 0.0, 1.0, 0.0,
         0.5, 0.5, 0.0, 1.0
 );
 
-float16_t textureProjection(f16vec4 shadowCoord, f16vec2 offset, uint cascadeIndex) {
-    const float16_t shadow = 1.0hf;
-    const float16_t bias = 0.005hf;
-    float16_t dist = float16_t(texture(shadowMap, vec3(shadowCoord.st + offset, cascadeIndex)).r);
-//    shadow = shadowCoord.z > -1.0hf && shadowCoord.z < 1.0hf && shadowCoord.w > 0.0hf && dist < shadowCoord.z - bias ? ambient : shadow;
-//    if (shadowCoord.z > -1.0hf && shadowCoord.z < 1.0hf) {
-//        float16_t dist = float16_t(texture(shadowMap, f16vec3(shadowCoord.st + offset, cascadeIndex)).r);
-//        if (shadowCoord.w > 0.0hf && dist < shadowCoord.z - bias) {
-//            shadow = ambient;
-//        }
-//    }
+float textureProjection(vec4 shadowCoord, vec2 offset, uint cascadeIndex) {
+    const float shadow = 1.0f;
+    const float bias = 0.005f;
+    float dist = float(texture(shadowMap, vec3(shadowCoord.st + offset, cascadeIndex)).r);
 
-    return shadowCoord.z > -1.0hf && shadowCoord.z < 1.0hf && shadowCoord.w > 0.0hf && dist < shadowCoord.z - bias ? ambient : shadow;
+    return shadowCoord.z > -1.0f && shadowCoord.z < 1.0f && shadowCoord.w > 0.0f && dist < shadowCoord.z - bias ? ambient : shadow;
 }
 
-float16_t filterPCF(f16vec4 shadowCoord, uint cascadeIndex) {
-    f16vec2 textureDim = f16vec2(textureSize(shadowMap, 0).xy);
-    const float16_t scale = 0.75hf;
-    f16vec2 diff = f16vec2(scale / textureDim);
+float filterPCF(vec4 shadowCoord, uint cascadeIndex) {
+    vec2 textureDim = vec2(textureSize(shadowMap, 0).xy);
+    const float scale = 0.75f;
+    vec2 diff = vec2(scale / textureDim);
 
-    float16_t shadowFactor = 0.0hf;
+    float shadowFactor = 0.0f;
     uint count = 0;
     const int range = 1;
 
     for (int x = -range; x <= range; x++) {
         for (int y = -range; y <= range; y++) {
-            f16vec2 offset = f16vec2(x, y) * diff;
+            vec2 offset = vec2(x, y) * diff;
             shadowFactor += textureProjection(shadowCoord, offset, cascadeIndex);
             count++;
         }
     }
 
-    return shadowFactor / float16_t(count);
+    return shadowFactor / float(count);
 }
 
 void main() {
@@ -96,60 +91,31 @@ void main() {
         cascadeIndex += uint(gl_FragCoord.z < pushConstants.cascadeSplits[i]);
     }
 
-    f16vec3 position = f16vec3(fragPos);
-    f16vec4 shadowCoord = f16vec4(biasMat * cascadeData.viewProjectionMatrix[cascadeIndex] * vec4(fragPos, 1.0f));
+    vec3 position = vec3(fragPos);
+    vec4 shadowCoord = vec4(biasMat * cascadeData.viewProjectionMatrix[cascadeIndex] * vec4(fragPos, 1.0f));
 
     uint zTile = uint(TILE_Z * log((-gl_FragCoord.z - Z_NEAR) / (Z_FAR / Z_NEAR)));
     uvec3 tile = uvec3(gl_FragCoord.xy / (pushConstants.viewportSize / vec2(TILE_X, TILE_Y)), zTile);
     uint tileIndex = tile.x + tile.y * TILE_X + tile.z * TILE_X * TILE_Y;
     uint16_t numLightsInTile = lightCounts[tileIndex];
 
-    f16vec3 normal = f16vec3(normalize(fragNormal));
-    f16vec3 diffuse = f16vec3(ambient);
-
-//    f16vec3 viewDir = f16vec3(normalize(pushConstants.cameraPosition - position));
+    vec3 normal = vec3(normalize(fragNormal));
+    vec3 diffuse = vec3(ambient);
 
     for (uint i = 0; i < numLightsInTile; i++) {
         Light light = lights[visibilities[tileIndex].indices[i]];
 
-        f16vec3 lightPosition = light.position.xyz;
-        f16vec4 lightColor = light.color;
+        vec3 lightPosition = light.position.xyz;
+        vec4 lightColor = light.color;
 
         // Directional Light
-        f16vec3 lightDir = normalize(lightPosition);
-        float16_t lambertian = max(dot(normal, lightDir), 0.0hf);
+        vec3 lightDir = normalize(lightPosition);
+        float lambertian = max(dot(normal, lightDir), 0.0f);
 
         diffuse += lambertian * lightColor.rgb * lightColor.w;
-
-        // Point light
-//        float16_t lightDist = distance(lightPosition, position);
-//        f16vec3 lightDir = (lightPosition - position) / lightDist;
-//
-//        float16_t lambertian = max(dot(normal, lightDir), 0.0hf);
-//        float16_t distSquared = dot(lightDist, lightDist);
-//        float16_t attenuation = clamp(1.0hf / distSquared, 0.0hf, 1.0hf);
-//        f16vec3 halfDist = normalize(lightDir + viewDir);
-//        float16_t specular = pow(clamp(dot(normal, halfDist), 0.0hf, 1.0hf), 32.0hf);
-//
-//        diffuse += (lambertian + specular) * lightColor.xyz * lightColor.w * attenuation;
     }
 
-    float16_t shadow = enablePCF == 1 ? filterPCF(shadowCoord / shadowCoord.w, cascadeIndex) : textureProjection(shadowCoord / shadowCoord.w, f16vec2(0.0hf), cascadeIndex);
+    float shadow = enablePCF == 1 ? filterPCF(shadowCoord / shadowCoord.w, cascadeIndex) : textureProjection(shadowCoord / shadowCoord.w, vec2(0.0f), cascadeIndex);
 
     outColor = vec4(diffuse * shadow, 1.0f) * texColor;
-
-//    switch (cascadeIndex) {
-//        case 0:
-//            outColor *= vec4(1.0f, 0.25f, 0.25f, 1.0f);
-//            break;
-//        case 1:
-//            outColor *= vec4(0.25f, 1.0f, 0.25f, 1.0f);
-//            break;
-//        case 2:
-//            outColor *= vec4(0.25f, 0.25f, 1.0f, 1.0f);
-//            break;
-//        case 3:
-//            outColor *= vec4(1.0f, 1.0f, 0.25f, 1.0f);
-//            break;
-//    }
 }

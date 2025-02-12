@@ -37,9 +37,7 @@ layout(push_constant) uniform PushConstants {
 } pushConstants;
 
 layout(location = 0) out VertexOutput {
-    vec3 fragPos;
     vec3 fragNormal;
-    vec2 fragUV;
 } vertexOutputs[];
 
 taskPayloadSharedEXT Payload payload;
@@ -64,9 +62,6 @@ void main() {
         uint vertexIndex = meshletVertices[meshlet.vertex_offset + gtid];
         gl_MeshVerticesEXT[gtid].gl_Position = sceneData.worldMatrix * pushConstants.mvp * vertices[vertexIndex];
 
-        vertexOutputs[gtid].fragPos = vec3(0, 0, 0);
         vertexOutputs[gtid].fragNormal = vec3(float(gid & 1), float(gid & 3) / 4, float(gid & 7) / 8);
-        // vertexOutputs[gtid].fragNormal = vec3(0, 1, 0);
-        vertexOutputs[gtid].fragUV = vec2(0, 1);
     }
 }

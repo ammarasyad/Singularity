@@ -1,17 +1,19 @@
 #include "vk_memory.h"
 #include "vk_renderer.h"
 
-VkMemoryManager::VkMemoryManager(const VkInstance &instance, const VkPhysicalDevice &physicalDevice, const VkDevice &device, const bool isIntegratedGPU, const bool customPool) : allocator(), device(device), pool(VK_NULL_HANDLE), isIntegratedGPU(isIntegratedGPU) {
+VkMemoryManager::VkMemoryManager(const VkRenderer * renderer, const bool customPool)
+    : allocator(), device(renderer->device), pool(VK_NULL_HANDLE), isIntegratedGPU(renderer->isIntegratedGPU), availableMemory(renderer->memoryProperties.memoryHeaps[0].size), totalMemory(availableMemory)
+{
     const VmaAllocatorCreateInfo vmaAllocatorCreateInfo{
         VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT | VMA_ALLOCATOR_CREATE_EXT_MEMORY_PRIORITY_BIT,
-        physicalDevice,
+        renderer->physicalDevice,
         device,
         0,
         VK_NULL_HANDLE,
         VK_NULL_HANDLE,
         VK_NULL_HANDLE,
         VK_NULL_HANDLE,
-        instance,
+        renderer->instance,
         VK_API_VERSION_1_3,
         VK_NULL_HANDLE
     };
@@ -110,19 +112,28 @@ void VkMemoryManager::stagingBuffer(VkDeviceSize bufferSize, const std::function
 }
 
 VulkanBuffer VkMemoryManager::createManagedBuffer(const VulkanBufferCreateInfo &info) {
-    VulkanBuffer trackedBuffer = createUnmanagedBuffer(info);
+    const VulkanBuffer trackedBuffer = createUnmanagedBuffer(info);
     trackedBuffers.insert(trackedBuffer);
     return trackedBuffer;
 }
 
 VulkanImage VkMemoryManager::createManagedImage(const VulkanImageCreateInfo &info) {
-    VulkanImage trackedImage = createUnmanagedImage(info);
+    assert(availableMemory >= info.imageExtent.width * info.imageExtent.height * info.imageExtent.depth * 4);
+    availableMemory -= info.imageExtent.width * info.imageExtent.height * info.imageExtent.depth * 4;
+    const VulkanImage trackedImage = createUnmanagedImage(info);
     trackedImages.insert(trackedImage);
     return trackedImage;
 }
 
-VulkanBuffer VkMemoryManager::createUnmanagedBuffer(const VulkanBufferCreateInfo &info) const {
+VulkanBuffer VkMemoryManager::createUnmanagedBuffer(const VulkanBufferCreateInfo &info) {
     auto [bufferSize, bufferUsage, allocationFlags, allocationUsage, requiredFlags, minAlignment] = info;
+    if (availableMemory < bufferSize)
+    {
+        printf("Requested buffer size: %llu is more than the available device-local memory: %llu. Allocating on shared memory\n", info.bufferSize, availableMemory);
+        allocationUsage = VMA_MEMORY_USAGE_AUTO_PREFER_HOST;
+        requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+    }
+    availableMemory -= bufferSize;
 
     VkBuffer buffer;
     VmaAllocation allocation{};
@@ -137,7 +148,7 @@ VulkanBuffer VkMemoryManager::createUnmanagedBuffer(const VulkanBufferCreateInfo
             VK_SHARING_MODE_EXCLUSIVE // maybe change this to concurrent for separate graphics and present queues
     };
 
-    if (isIntegratedGPU && (allocationFlags & VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT))
+    if (isIntegratedGPU && allocationFlags & VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT)
         allocationFlags |= VMA_ALLOCATION_CREATE_MAPPED_BIT;
 
     VmaAllocationCreateInfo allocationCreateInfo{
@@ -150,12 +161,21 @@ VulkanBuffer VkMemoryManager::createUnmanagedBuffer(const VulkanBufferCreateInfo
 
     VK_CHECK(vmaCreateBuffer(allocator, &bufferCreateInfo, &allocationCreateInfo, &buffer, &allocation, &allocationInfo));
 
-    VulkanBuffer trackedBuffer{buffer, allocation};
-    return trackedBuffer;
+    return {buffer, allocation};
 }
 
-VulkanImage VkMemoryManager::createUnmanagedImage(const VulkanImageCreateInfo &info) const {
-    auto &[createFlags, imageFormat, imageExtent, imageTiling, imageUsage, imageLayout, allocationFlags, allocationUsage, requiredFlags, mipmapped, imageViewCreateInfo] = info;
+VulkanImage VkMemoryManager::createUnmanagedImage(const VulkanImageCreateInfo &info) {
+    auto [createFlags, imageFormat, imageExtent, imageTiling, imageUsage, imageLayout, allocationFlags, allocationUsage, requiredFlags, mipmapped, imageViewCreateInfo] = info;
+    {
+        const VkDeviceSize requestedBytes = imageExtent.width * imageExtent.height * imageExtent.depth * 4;
+        if (availableMemory < imageExtent.width * imageExtent.height * imageExtent.depth * 4)
+        {
+            printf("Requested image size: %llu is more than the available device-local memory: %llu. Allocating on shared memory\n", requestedBytes, availableMemory);
+            allocationUsage = VMA_MEMORY_USAGE_AUTO_PREFER_HOST;
+            requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+        }
+        availableMemory -= requestedBytes;
+    }
 
     VkImage image;
     VmaAllocation allocation{};
@@ -228,7 +248,7 @@ void generateMipmaps(const VkCommandBuffer &commandBuffer, const VulkanImage &im
     // TODO: Generate this with a compute shader later
     auto mipLevels = static_cast<uint32_t>(std::floor(std::log2(std::max(size.width, size.height))));
     for (int mip = 0; mip < mipLevels; mip++) {
-        VkExtent2D halfSize = {std::max(1u, size.width >> 1), std::max(1u, size.height >> 1)};
+        const VkExtent2D halfSize = {std::max(1u, size.width >> 1), std::max(1u, size.height >> 1)};
 
         VkImageMemoryBarrier2 imageBarrier{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
         imageBarrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
@@ -352,8 +372,8 @@ std::vector<VulkanImage> VkMemoryManager::createTexturesMultithreaded(const std:
          maxImageSize,
          VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
          VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
-         VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE,
-         VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+         VMA_MEMORY_USAGE_AUTO_PREFER_HOST,
+         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
     });
 
     uint8_t *mappedData;
@@ -440,7 +460,7 @@ VulkanImage VkMemoryManager::createKtxCubemap(ktxTexture *texture, VkRenderer *r
     auto data = ktxTexture_GetData(texture);
     auto bufferSize = ktxTexture_GetDataSize(texture);
 
-    stagingBuffer(bufferSize, [&](auto &stagingBuffer, auto mappedMemory) {
+    stagingBuffer(bufferSize, [&](auto &, auto mappedMemory) {
         memcpy(mappedMemory, data, bufferSize);
     }, [&](auto &stagingBuffer) {
         renderer->ImmediateSubmit([&](auto &commandBuffer) {
@@ -448,7 +468,7 @@ VulkanImage VkMemoryManager::createKtxCubemap(ktxTexture *texture, VkRenderer *r
             for (uint32_t face = 0; face < 6; face++) {
                 for (uint32_t level = 0; level < mipLevels; level++) {
                     ktx_size_t offset;
-                    auto result = ktxTexture_GetImageOffset(texture, level, 0, face, &offset);
+                    const auto result = ktxTexture_GetImageOffset(texture, level, 0, face, &offset);
                     assert(result == KTX_SUCCESS);
                     copyRegions.push_back({
                         offset,

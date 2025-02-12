@@ -70,7 +70,7 @@ struct std::hash<VulkanBuffer> {
 };
 
 struct VkVertex {
-    alignas(16) glm::vec3 pos;
+    alignas(16) glm::vec4 pos;
     alignas(16) glm::vec3 normal;
     alignas(16) glm::vec4 color;
     alignas(16) glm::vec2 uv;

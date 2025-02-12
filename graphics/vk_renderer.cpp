@@ -10,12 +10,17 @@
 
 #include <ranges>
 
+#include "../main.h"
 #include "vk/memory/vk_mesh_assets.h"
 #include "file.h"
 #include "vk/vk_gui.h"
 #include "vk/vk_pipeline_builder.h"
 #include "ext/matrix_transform.hpp"
 #include "ext/matrix_clip_space.inl"
+
+#ifdef _WIN32
+#include <dxgi1_6.h>
+#endif
 
 static constexpr uint32_t MAX_MESHLET_PRIMITIVES = 124;
 static constexpr uint32_t MAX_MESHLET_VERTICES = 64;
@@ -54,7 +59,7 @@ VkRenderer::VkRenderer(GLFWwindow *window, Camera *camera, const bool dynamicRen
     if (meshShader)
         fn_vkCmdDrawMeshTasksEXT = reinterpret_cast<PFN_vkCmdDrawMeshTasksEXT>(vkGetInstanceProcAddr(instance, "vkCmdDrawMeshTasksEXT"));
 
-    memoryManager = new VkMemoryManager{instance, physicalDevice, device, static_cast<bool>(isIntegratedGPU)};
+    memoryManager = new VkMemoryManager{this};
 
     // Reuse pipeline cache
     const auto pipelineCacheData = ReadFile<char>("pipeline_cache.bin");
@@ -465,7 +470,7 @@ void VkRenderer::Render(EngineStats &stats) {
 
     result = vkQueuePresentKHR(presentQueue, &presentInfo);
 
-    if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || framebufferResized) [[unlikely]] {
+    if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || framebufferResized) {
         framebufferResized = false;
     } else if (result != VK_SUCCESS) [[unlikely]] {
         throw std::runtime_error("Failed to acquire swap chain image!");
@@ -976,25 +981,34 @@ void VkRenderer::CreateFromMeshlets(const std::vector<VkVertex> &vertices, const
     meshletVertices.resize(maxMeshlets * MAX_MESHLET_VERTICES);
     meshletPrimitives.resize(maxMeshlets * MAX_MESHLET_PRIMITIVES);
 
-    std::vector<float> vertexPositionData;
-    vertexPositionData.reserve(vertices.size() * 3);
+    printf("Resizing vertex position data: %llu\n", vertices.size() * 4);
+    std::vector<float> vertexPositionData(vertices.size() * 4);
+    // vertexPositionData.resize(vertices.size() * 3);
 
-    for (const auto &[pos, normal, color, uv] : vertices) {
-        vertexPositionData.push_back(pos.x);
-        vertexPositionData.push_back(pos.y);
-        vertexPositionData.push_back(pos.z);
-        vertexPositionData.push_back(1.f);
+    for (size_t i = 0; i < vertices.size(); i += 2)
+    {
+        if (i + 1 < vertices.size()) [[likely]] {
+            // ReSharper disable CppCStyleCast
+            const auto ymm = _mm256_loadu2_m128((float *) &vertices[i + 1].pos, (float *) &vertices[i].pos);
+            _mm256_storeu_ps(vertexPositionData.data() + i * 4, ymm);
+        }
+        else
+        {
+            const auto xmm = _mm_load_ps((float *) &vertices[i].pos);
+            _mm_storeu_ps(vertexPositionData.data() + i * 4, xmm);
+            // ReSharper restore CppCStyleCast
+        }
     }
 
     constexpr float coneWeight = 0.0f;
     const auto meshletCount = meshopt_buildMeshlets(meshlets.data(), meshletVertices.data(), meshletPrimitives.data(),
                                               indices.data(), indices.size(), vertexPositionData.data(),
-                                              vertices.size(), sizeof(glm::vec3), MAX_MESHLET_VERTICES,
+                                              vertices.size(), sizeof(glm::vec4), MAX_MESHLET_VERTICES,
                                               MAX_MESHLET_PRIMITIVES, coneWeight);
 
     const auto &[vertex_offset, triangle_offset, vertex_count, triangle_count] = meshlets[meshletCount - 1];
     meshletVertices.resize(vertex_offset + vertex_count);
-    meshletPrimitives.resize(triangle_offset + (triangle_count * 3 + 3 & ~3));
+    meshletPrimitives.resize(triangle_offset + triangle_count * 3);
     meshlets.resize(meshletCount);
 
     std::vector<uint32_t> meshletPrimitivesU32;
@@ -1026,28 +1040,33 @@ void VkRenderer::CreateFromMeshlets(const std::vector<VkVertex> &vertices, const
     meshletStats.verticesCount = meshletVertices.size();
     meshletStats.primitiveCount = meshletPrimitivesU32.size();
 
-    positionBuffer = memoryManager->createManagedBuffer({vertexPositionData.size() * sizeof(float), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, 0, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT});
-    meshletBuffer = memoryManager->createManagedBuffer({meshlets.size() * sizeof(meshopt_Meshlet), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, 0, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT});
-    meshletVerticesBuffer = memoryManager->createManagedBuffer({meshletVertices.size() * sizeof(uint32_t), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, 0, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT});
-    meshletPrimitivesBuffer = memoryManager->createManagedBuffer({meshletPrimitivesU32.size() * sizeof(uint32_t), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, 0, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT});
+    const auto vertexPositionDataBytes = vertexPositionData.size() * sizeof(float);
+    const auto meshletBufferBytes = meshlets.size() * sizeof(meshopt_Meshlet);
+    const auto meshletVerticesBytes = meshletVertices.size() * sizeof(uint32_t);
+    const auto meshletPrimitivesBytes = meshletPrimitivesU32.size() * sizeof(uint32_t);
 
-    const auto stagingBufferSize = vertexPositionData.size() * sizeof(float)
-                                                + meshlets.size() * sizeof(meshopt_Meshlet)
-                                                + meshletVertices.size() * sizeof(uint32_t)
-                                                + meshletPrimitivesU32.size() * sizeof(uint32_t);
+    positionBuffer = memoryManager->createManagedBuffer({vertexPositionDataBytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, 0, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT});
+    meshletBuffer = memoryManager->createManagedBuffer({meshletBufferBytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, 0, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT});
+    meshletVerticesBuffer = memoryManager->createManagedBuffer({meshletVerticesBytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, 0, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT});
+    meshletPrimitivesBuffer = memoryManager->createManagedBuffer({meshletPrimitivesBytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, 0, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT});
+
+    const auto stagingBufferSize = vertexPositionDataBytes
+                                                + meshletBufferBytes
+                                                + meshletVerticesBytes
+                                                + meshletPrimitivesBytes;
 
     const auto stagingBufferMappedTask = [&](auto &, void *data) {
         auto memory = static_cast<char *>(data);
-        memcpy(memory, vertexPositionData.data(), vertexPositionData.size() * sizeof(float));
+        memcpy(memory, vertexPositionData.data(), vertexPositionDataBytes);
 
-        memory += vertexPositionData.size() * sizeof(float);
-        memcpy(memory, meshlets.data(), meshlets.size() * sizeof(meshopt_Meshlet));
+        memory += vertexPositionDataBytes;
+        memcpy(memory, meshlets.data(), meshletBufferBytes);
 
-        memory += meshlets.size() * sizeof(meshopt_Meshlet);
-        memcpy(memory, meshletVertices.data(), meshletVertices.size() * sizeof(uint32_t));
+        memory += meshletBufferBytes;
+        memcpy(memory, meshletVertices.data(), meshletVerticesBytes);
 
-        memory += meshletVertices.size() * sizeof(uint32_t);
-        memcpy(memory, meshletPrimitivesU32.data(), meshletPrimitivesU32.size() * sizeof(uint32_t));
+        memory += meshletVerticesBytes;
+        memcpy(memory, meshletPrimitivesU32.data(), meshletPrimitivesBytes);
     };
 
     const auto stagingBufferUnmappedTask = [&](auto &stagingBuffer) {
@@ -1055,25 +1074,25 @@ void VkRenderer::CreateFromMeshlets(const std::vector<VkVertex> &vertices, const
             VkBufferCopy positionCopyRegion{
                 0,
                 0,
-                vertexPositionData.size() * sizeof(float)
+                vertexPositionDataBytes
             };
 
             VkBufferCopy meshletCopyRegion{
-                vertexPositionData.size() * sizeof(float),
+                vertexPositionDataBytes,
                 0,
-                meshlets.size() * sizeof(meshopt_Meshlet)
+                meshletBufferBytes
             };
 
             VkBufferCopy meshletVerticesCopyRegion{
-                vertexPositionData.size() * sizeof(float) + meshlets.size() * sizeof(meshopt_Meshlet),
+                vertexPositionDataBytes + meshletBufferBytes,
                 0,
-                meshletVertices.size() * sizeof(uint32_t)
+                meshletVerticesBytes
             };
 
             VkBufferCopy meshletPrimitivesCopyRegion{
-                vertexPositionData.size() * sizeof(float) + meshlets.size() * sizeof(meshopt_Meshlet) + meshletVertices.size() * sizeof(uint32_t),
+                vertexPositionDataBytes + meshletBufferBytes + meshletVerticesBytes,
                 0,
-                meshletPrimitivesU32.size() * sizeof(uint32_t)
+                meshletPrimitivesBytes
             };
 
             vkCmdCopyBuffer(commandBuffer, stagingBuffer, positionBuffer.buffer, 1, &positionCopyRegion);
@@ -1083,6 +1102,7 @@ void VkRenderer::CreateFromMeshlets(const std::vector<VkVertex> &vertices, const
         });
     };
 
+    printf("Creating staging buffer of size: %llu\n", stagingBufferSize);
     memoryManager->stagingBuffer(stagingBufferSize, stagingBufferMappedTask, stagingBufferUnmappedTask);
 }
 
@@ -1096,23 +1116,63 @@ void VkRenderer::PickPhysicalDevice() {
     std::vector<VkPhysicalDevice> physicalDevices(deviceCount);
     vkEnumeratePhysicalDevices(instance, &deviceCount, physicalDevices.data());
 
-    uint32_t maxScore = 0;
-    for (const auto &gpu: physicalDevices) {
-        uint32_t score = 0;
-        vkGetPhysicalDeviceProperties(gpu, &deviceProperties);
+#ifdef _WIN32
+#define HrToString(x) std::string("HRESULT: ") + std::to_string(x)
+#define ThrowIfFailed(x) do { HRESULT hr = (x); if(FAILED(hr)) { throw std::runtime_error(HrToString(hr)); } } while(0)
+    {
+        using Microsoft::WRL::ComPtr;
+        ComPtr<IDXGIFactory6> dxgiFactory;
+        ComPtr<IDXGIAdapter1> dxgiAdapter;
 
-        if (deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
-            score += 1000;
-        }
+        ThrowIfFailed(CreateDXGIFactory2(0, IID_PPV_ARGS(&dxgiFactory)));
+        ThrowIfFailed(dxgiFactory->EnumAdapterByGpuPreference(0, DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE, IID_PPV_ARGS(&dxgiAdapter)));
 
-        score += deviceProperties.limits.maxImageDimension2D;
+        DXGI_ADAPTER_DESC1 desc;
+        dxgiAdapter->GetDesc1(&desc);
 
-        if (score > maxScore) {
-            maxScore = score;
-            physicalDevice = gpu;
-            isIntegratedGPU = deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU;
+        for (const auto &gpu : physicalDevices) {
+            VkPhysicalDeviceIDProperties idProperties{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ID_PROPERTIES, nullptr};
+            VkPhysicalDeviceProperties2 properties2{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2, &idProperties};
+            vkGetPhysicalDeviceProperties2(gpu, &properties2);
+
+            // const uint64_t dxgiLUID = *reinterpret_cast<uint64_t *>(&desc.AdapterLuid);
+            // const uint64_t deviceLUID = *reinterpret_cast<uint64_t *>(&idProperties.deviceLUID);
+
+            if (memcmp(&desc.AdapterLuid, &idProperties.deviceLUID, sizeof(desc.AdapterLuid)) == 0) {
+                physicalDevice = gpu;
+                deviceProperties = properties2.properties;
+                break;
+            }
         }
     }
+#undef ThrowIfFailed
+#undef HrToString
+#else
+    physicalDevice = physicalDevices[0];
+    vkGetPhysicalDeviceProperties(physicalDevice, &deviceProperties);
+
+    isIntegratedGPU = deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU;
+#endif
+
+    // uint32_t maxScore = 0;
+    // for (const auto &gpu: physicalDevices) {
+    //     uint32_t score = 0;
+    //     vkGetPhysicalDeviceProperties(gpu, &deviceProperties);
+    //
+    //     if (deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
+    //         score += 1000;
+    //     }
+    //
+    //     score += deviceProperties.limits.maxImageDimension2D;
+    //
+    //     if (score > maxScore) {
+    //         maxScore = score;
+    //         physicalDevice = gpu;
+    //         isIntegratedGPU = deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU;
+    //     }
+    // }
+
+    printf("Using device: %256s\n", deviceProperties.deviceName);
 
     VkPhysicalDeviceMeshShaderPropertiesEXT meshShaderProperties{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_PROPERTIES_EXT};
     VkPhysicalDeviceMaintenance3Properties maintenance3Properties{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_3_PROPERTIES, &meshShaderProperties};
@@ -1126,13 +1186,13 @@ void VkRenderer::PickPhysicalDevice() {
 
     vkGetPhysicalDeviceProperties2(physicalDevice, &deviceProperties2);
     maxMemoryAllocationSize = maintenance3Properties.maxMemoryAllocationSize;
-    // vkGetPhysicalDeviceMemoryProperties(physicalDevice, &memoryProperties);
+    vkGetPhysicalDeviceMemoryProperties(physicalDevice, &memoryProperties);
     raytracingCapable = raytracingProperties.shaderGroupHandleSize > 0;
     // Workaround for Intel Mesa drivers
     const auto isIntelIGPU = isIntegratedGPU && strncmp(deviceProperties.deviceName, "Intel(R)", 8) == 0;
-    meshShader = !isIntelIGPU && meshShaderProperties.maxMeshWorkGroupCount[0] > 0;
+    meshShader = meshShader && !isIntelIGPU && meshShaderProperties.maxMeshWorkGroupCount[0] > 0;
 
-    !meshShader && printf("Mesh shader not supported, falling back to traditional rendering\n");
+    !meshShader && printf("Mesh shader not supported or turned off, falling back to VTG rendering\n");
 
     raytracingCapable = !isIntelIGPU && raytracingProperties.shaderGroupHandleSize > 0;
 }
@@ -1192,12 +1252,16 @@ void VkRenderer::CreateLogicalDevice() {
         {.multiDrawIndirect = VK_TRUE, .depthClamp = VK_TRUE, .samplerAnisotropy = VK_TRUE, .shaderInt16 = VK_TRUE }
     };
 
-    std::array<const char *, 9> deviceExtensions{
+    const char * deviceExtensions[9] = {
         VK_KHR_SWAPCHAIN_EXTENSION_NAME,
         VK_KHR_PIPELINE_LIBRARY_EXTENSION_NAME,
         VK_EXT_GRAPHICS_PIPELINE_LIBRARY_EXTENSION_NAME,
         VK_KHR_SPIRV_1_4_EXTENSION_NAME,
-        VK_EXT_MESH_SHADER_EXTENSION_NAME
+        VK_EXT_MESH_SHADER_EXTENSION_NAME,
+        VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME,
+        VK_KHR_RAY_QUERY_EXTENSION_NAME,
+        VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME,
+        VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME
     };
 
     VkPhysicalDeviceRayQueryFeaturesKHR rayQueryFeatures{
@@ -1223,12 +1287,6 @@ void VkRenderer::CreateLogicalDevice() {
     };
 
     if (raytracingCapable) {
-        deviceExtensions[5] = VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME;
-        deviceExtensions[6] = VK_KHR_RAY_QUERY_EXTENSION_NAME;
-        deviceExtensions[7] = VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME;
-        deviceExtensions[8] = VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME;
-
-        // Mesh shader support and RT support go hand in hand AFAIK so I think this should be fine
         meshShaderFeatures.pNext = &rayTracingPipelineFeatures;
     }
 
@@ -1240,8 +1298,8 @@ void VkRenderer::CreateLogicalDevice() {
         queueCreateInfos.data(),
         0,
         VK_NULL_HANDLE,
-        static_cast<uint32_t>(deviceExtensions.size() - !raytracingCapable * 4 - !meshShader),
-        deviceExtensions.data()
+        static_cast<uint32_t>(9 - !raytracingCapable * 4 - !meshShader),
+        deviceExtensions
     };
 
 #ifndef NDEBUG
@@ -1365,9 +1423,7 @@ void VkRenderer::CreateDepthImage() {
                             VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT |
                             VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
                             VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
-        });
 
-        ImmediateSubmit([&](auto &cmd) {
             TransitionImage(cmd, depthImage, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_NONE,
                             VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT,
                             VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT |
@@ -2134,8 +2190,8 @@ void VkRenderer::UpdateCascades() {
         auto maxExtents = glm::vec3(radius);
         auto minExtents = -maxExtents;
 
-        const hvec4 &lightPosition = totalLights->lights[0].position;
-        auto lightDir = normalize(glm::vec3(glm::detail::toFloat32(lightPosition.x), -glm::detail::toFloat32(lightPosition.y), glm::detail::toFloat32(lightPosition.z)));
+        const glm::vec4 &lightPosition = totalLights->lights[0].position;
+        auto lightDir = normalize(glm::vec3(lightPosition.x, -lightPosition.y, lightPosition.z));
         auto lightView = lookAt(frustumCenter - lightDir * maxExtents.z, frustumCenter, camera->worldUp);
         auto lightOrtho = glm::ortho(minExtents.x, maxExtents.x, minExtents.y, maxExtents.y, 0.0f, maxExtents.z - minExtents.z);
 

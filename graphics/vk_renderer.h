@@ -80,8 +80,8 @@ struct DepthPassPushConstants {
 struct Light {
     uint32_t lightCount;
     alignas(8) struct {
-        hvec4 position;
-        hvec4 color;
+        glm::vec4 position;
+        glm::vec4 color;
     } lights[MAX_LIGHTS];
 };
 
@@ -266,7 +266,7 @@ public:
 
     VkPhysicalDeviceProperties deviceProperties{};
     VkDeviceSize maxMemoryAllocationSize{};
-    // VkPhysicalDeviceMemoryProperties memoryProperties{};
+    VkPhysicalDeviceMemoryProperties memoryProperties{};
 
     VulkanImage depthImage{};
     VulkanImage shadowCascadeImage{};

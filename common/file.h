@@ -12,7 +12,12 @@ static inline std::vector<T> ReadFile(const std::filesystem::path &filename) {
 
     if (!file.is_open()) {
         // throw std::runtime_error("Failed to open file: " + filename);
-        fprintf(stderr, "Failed to open file: %ls\n", filename.c_str());
+#ifdef _WIN32
+#define FORMAT_SPECIFIER "%ls"
+#else
+#define FORMAT_SPECIFIER "%s"
+#endif
+        fprintf(stderr, "Failed to open file: " FORMAT_SPECIFIER "\n", filename.c_str());
         return {};
     }
 

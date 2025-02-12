@@ -30,7 +30,7 @@ layout(push_constant) uniform PushConstants {
     mat4 viewMatrix;
 } pushConstants;
 
-bool SphereAABBIntersection(vec4 sphere, float16_t radius, vec3 aabbMin, vec3 aabbMax) {
+bool SphereAABBIntersection(vec4 sphere, float radius, vec3 aabbMin, vec3 aabbMax) {
     vec3 closestPointInAabb = clamp(sphere.xyz, aabbMin, aabbMax);
     vec3 distance = sphere.xyz - closestPointInAabb;
     return dot(distance, distance) <= radius * radius;
@@ -46,7 +46,7 @@ void main() {
     uint16_t count = uint16_t(0);
 
     for (uint i = 0; i < lightCount; i++) {
-        f16vec4 lightPosition = lights[i].position;
+        vec4 lightPosition = lights[i].position;
 
         bool intersects = SphereAABBIntersection(pushConstants.viewMatrix * vec4(lightPosition.xyz, 1.0f), lightPosition.w, frustumAABB.minPoint.xyz, frustumAABB.maxPoint.xyz);
 

@@ -29,6 +29,7 @@
 #endif
 #include "graphics/vk_renderer.h"
 #include "graphics/vk/vk_gui.h"
+#include "main.h"
 
 enum class RendererType {
     D3D12,

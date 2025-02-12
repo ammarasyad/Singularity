@@ -10,8 +10,8 @@
 #extension GL_EXT_shader_16bit_storage : require
 
 struct Light {
-    f16vec4 position; // xyz: position, w: radius
-    f16vec4 color; // xyz: color, w: intensity
+    vec4 position; // xyz: position, w: radius
+    vec4 color; // xyz: color, w: intensity
 };
 
 struct FrustumAABB {

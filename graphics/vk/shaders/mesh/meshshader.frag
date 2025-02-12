@@ -24,9 +24,7 @@ layout(set = 2, binding = 2) buffer readonly lightCount {
 };
 
 layout(location = 0) in VertexInput {
-    vec3 inPosition;
     vec3 inNormal;
-    vec2 inUv;
 };
 
 layout(location = 0) out vec4 outColor;

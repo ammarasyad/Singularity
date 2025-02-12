@@ -1,7 +1,6 @@
 #ifndef D3D12_STUFF_VK_MEMORY_H
 #define D3D12_STUFF_VK_MEMORY_H
 
-#include "vk_mem_alloc.h"
 #include "vk/vk_common.h"
 #include <functional>
 #include <unordered_set>
@@ -54,7 +53,7 @@ struct alignas(64) LoadedImage {
 
 class VkMemoryManager {
 public:
-    VkMemoryManager(const VkInstance &, const VkPhysicalDevice &, const VkDevice &, bool, bool customPool = false);
+    explicit VkMemoryManager(const VkRenderer *, bool customPool = false);
 
     ~VkMemoryManager();
 
@@ -65,9 +64,9 @@ public:
 
     VulkanImage createManagedImage(const VulkanImageCreateInfo &info);
 
-    VulkanBuffer createUnmanagedBuffer(const VulkanBufferCreateInfo &info) const;
+    VulkanBuffer createUnmanagedBuffer(const VulkanBufferCreateInfo &info);
 
-    VulkanImage createUnmanagedImage(const VulkanImageCreateInfo &info) const;
+    VulkanImage createUnmanagedImage(const VulkanImageCreateInfo &info);
 
     // All textures are tracked.
     VulkanImage createTexture(VkExtent3D size, VkFormat format, VkImageUsageFlags usage, bool mipmapped = false);
@@ -91,6 +90,8 @@ private:
     VmaAllocator allocator;
     VkDevice device;
     VmaPool pool;
+    VkDeviceSize availableMemory;
+    VkDeviceSize totalMemory;
 
     bool isIntegratedGPU;
 

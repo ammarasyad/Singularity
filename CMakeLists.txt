@@ -82,6 +82,11 @@ add_executable(Singularity main.cpp
         engine/objects/gltf.cpp
         engine/objects/gltf.h
         common/stbi_image.cpp
+        engine/objects/arena.cpp
+        engine/objects/arena.h
+        engine/objects/arena_array.cpp
+        engine/objects/arena_array.h
+        main.h
 )
 
 set_target_properties(Singularity PROPERTIES WIN32_EXECUTABLE $<PLATFORM_ID:Windows>)
@@ -112,17 +117,19 @@ foreach (FILE ${SHADER_FILES})
         add_custom_command(
                 TARGET shaders
                 COMMAND third_party/shaderc/bin/glslc.exe ${FILE} --target-spv=spv1.6 -o ${CMAKE_CURRENT_BINARY_DIR}/shaders/${FILE_NAME}.spv -g
-                MAIN_DEPENDENCY ${FILE}
+                #MAIN_DEPENDENCY ${FILE}
                 WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
                 VERBATIM
+                PRE_BUILD
         )
     else ()
         add_custom_command(
                 TARGET shaders
                 COMMAND glslc ${FILE} --target-spv=spv1.6 -o ${CMAKE_CURRENT_BINARY_DIR}/shaders/${FILE_NAME}.spv -g
-                MAIN_DEPENDENCY ${FILE}
+                #MAIN_DEPENDENCY ${FILE}
                 WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
                 VERBATIM
+                PRE_BUILD
         )
     endif ()
 endforeach ()

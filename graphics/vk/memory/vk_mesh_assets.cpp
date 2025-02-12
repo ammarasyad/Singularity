@@ -60,7 +60,7 @@ std::optional<std::vector<std::shared_ptr<MeshAsset>>> LoadGltfMeshes(VkRenderer
 
                 fastgltf::iterateAccessorWithIndex<glm::vec3>(gltf, posAccessor, [&](auto value, const size_t index) {
                     vertices[initialVerticesSize + index] = {
-                        value,
+                        {value, 1.0f},
                         {1, 0, 0},
                         {1.f, 1.f, 1.f, 1.f},
                         {0.f, 1.f}

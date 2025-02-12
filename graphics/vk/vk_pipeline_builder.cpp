@@ -168,6 +168,9 @@ void VkGraphicsPipelineBuilder::DestroyShaderModules(const VkDevice &device) con
 
     if (fragmentShaderModule != VK_NULL_HANDLE)
         vkDestroyShaderModule(device, fragmentShaderModule, VK_NULL_HANDLE);
+
+    if (taskShaderModule != VK_NULL_HANDLE)
+        vkDestroyShaderModule(device, taskShaderModule, VK_NULL_HANDLE);
 }
 
 void VkGraphicsPipelineBuilder::SetPipelineLayout(VkPipelineLayout pipelineLayout) {
