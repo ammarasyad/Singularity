@@ -82,11 +82,8 @@ add_executable(Singularity main.cpp
         engine/objects/gltf.cpp
         engine/objects/gltf.h
         common/stbi_image.cpp
-        engine/objects/arena.cpp
-        engine/objects/arena.h
-        engine/objects/arena_array.cpp
-        engine/objects/arena_array.h
-        main.h
+        engine/objects/pool.cpp
+        engine/objects/pool.h
 )
 
 set_target_properties(Singularity PROPERTIES WIN32_EXECUTABLE $<PLATFORM_ID:Windows>)

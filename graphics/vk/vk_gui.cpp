@@ -10,11 +10,23 @@ static constexpr uint32_t MIN_IMAGE_COUNT = 2;
 // ImGui helper function
 namespace ImGui {
     template<typename Getter, typename Setter>
-    void SliderFloat(const char *label, Getter getter, Setter setter, float min, float max, const char *format = "%.3f", ImGuiSliderFlags flags = 0) {
-        float temp = getter();
+    void SliderFloat(const char *label, Getter getter, Setter setter, const float min, const float max, const char *format = "%.3f", ImGuiSliderFlags flags = 0) {
+        const float temp = getter();
         float newValue = temp;
 
         SliderFloat(label, &newValue, min, max, format, flags);
+
+        if (newValue != temp) {
+            setter(newValue);
+        }
+    }
+
+    template<typename Getter, typename Setter>
+    void SliderInt(const char *label, Getter getter, Setter setter, const int min, const int max, const char *format = "%d", ImGuiSliderFlags flags = 0) {
+        int temp = getter();
+        int newValue = temp;
+
+        SliderInt(label, &newValue, min, max, format, flags);
 
         if (newValue != temp) {
             setter(newValue);
@@ -38,7 +50,7 @@ VkGui::VkGui(const int width, const int height, const bool dynamicRendering, con
     if (glfwRawMouseMotionSupported())
         glfwSetInputMode(window, GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
 
-    glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+    // glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
     glfwSetWindowUserPointer(window, this);
     glfwSetFramebufferSizeCallback(window, FramebufferResizeCallback);
     // glfwSetMouseButtonCallback(window, MouseButtonCallback);
@@ -138,6 +150,7 @@ void VkGui::Loop() {
             ImGui::Text("Camera Pitch: %.2f, Yaw: %.2f", camera.pitch, camera.yaw);
 
             ImGui::SliderFloat("FOV", [&] { return camera.Fov(); }, [&](const float &newValue){ camera.setFov(newValue); }, 30.f, 120.f, "%.1f", ImGuiSliderFlags_AlwaysClamp);
+            ImGui::SliderInt("FPS Limit", [&] { return renderer->GetFPSLimit(); }, [&](const uint16_t &fps) { renderer->SetFPSLimit(fps); }, 1, 240);
             // ImGui::Checkbox("Display Shadow Map", &renderer->displayShadowMap);
             // if (renderer->displayShadowMap) {
             //     ImGui::SliderInt("Cascade Index", &renderer->cascadeIndex, 0, SHADOW_MAP_CASCADE_COUNT - 1);

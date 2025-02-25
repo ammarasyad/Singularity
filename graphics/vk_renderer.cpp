@@ -10,7 +10,6 @@
 
 #include <ranges>
 
-#include "../main.h"
 #include "vk/memory/vk_mesh_assets.h"
 #include "file.h"
 #include "vk/vk_gui.h"
@@ -325,6 +324,16 @@ bool isObjectVisible(const VkRenderObject &obj, const glm::mat4 &viewProjection)
 
 // static std::vector<size_t> drawIndices;
 
+uint16_t VkRenderer::GetFPSLimit() const
+{
+    return 1000 / fpsLimit;
+}
+
+void VkRenderer::SetFPSLimit(const uint16_t fps)
+{
+    fpsLimit = 1000 / fps;
+}
+
 void VkRenderer::Render(EngineStats &stats) {
     stats.drawCallCount = 0;
     stats.triangleCount = 0;
@@ -477,6 +486,9 @@ void VkRenderer::Render(EngineStats &stats) {
     }
 
     currentFrame = (currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
+
+    // std::this_thread::sleep_for(std::chrono::milliseconds(fpsLimit));
+    // Sleep(fpsLimit);
 }
 
 void VkRenderer::DrawObject(const VkCommandBuffer &commandBuffer, const VkRenderObject &draw, VkMaterialPipeline &lastPipeline, VkMaterialInstance &lastMaterialInstance, VkBuffer &lastIndexBuffer) {
@@ -1257,11 +1269,11 @@ void VkRenderer::CreateLogicalDevice() {
         VK_KHR_PIPELINE_LIBRARY_EXTENSION_NAME,
         VK_EXT_GRAPHICS_PIPELINE_LIBRARY_EXTENSION_NAME,
         VK_KHR_SPIRV_1_4_EXTENSION_NAME,
-        VK_EXT_MESH_SHADER_EXTENSION_NAME,
         VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME,
         VK_KHR_RAY_QUERY_EXTENSION_NAME,
         VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME,
-        VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME
+        VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME,
+        VK_EXT_MESH_SHADER_EXTENSION_NAME
     };
 
     VkPhysicalDeviceRayQueryFeaturesKHR rayQueryFeatures{
@@ -2223,7 +2235,7 @@ void VkRenderer::UpdateScene(EngineStats &stats) {
 #ifndef NDEBUG
 VkBool32 VKAPI_CALL VkRenderer::DebugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT, VkDebugUtilsMessageTypeFlagsEXT,
                                               const VkDebugUtilsMessengerCallbackDataEXT *pCallbackData, void *) {
-    fprintf(stderr, "%s\n", pCallbackData->pMessage);
+    fprintf(stderr, "%s\n\n", pCallbackData->pMessage);
     return VK_FALSE;
 }
 

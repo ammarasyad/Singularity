@@ -20,16 +20,13 @@
 #define WIN32_LEAN_AND_MEAN
 #endif
 
-#endif
-
-#ifdef _WIN32
 #include <windows.h>
 #include "graphics/d3d12_renderer.h"
 #include <fstream>
 #endif
+
 #include "graphics/vk_renderer.h"
 #include "graphics/vk/vk_gui.h"
-#include "main.h"
 
 enum class RendererType {
     D3D12,
@@ -65,7 +62,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow) {
         }
         case RendererType::VK: {
             auto start = std::chrono::high_resolution_clock ::now();
-            VkGui gui(2560, 1440, true, true);
+            VkGui gui(2560, 1600, true, true);
             auto end = std::chrono::high_resolution_clock ::now();
             printf("Initialization took %lld ms\n", std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count());
             gui.Loop();

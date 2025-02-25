@@ -109,6 +109,9 @@ public:
     VkRenderer &operator=(const VkRenderer &) = delete;
     VkRenderer &operator=(VkRenderer &&) = delete;
 
+    uint16_t GetFPSLimit() const;
+    void SetFPSLimit(uint16_t fps);
+
     void Render(EngineStats &stats);
     void Draw(const VkCommandBuffer &commandBuffer, uint32_t imageIndex, EngineStats &stats);
     void DrawMesh(const VkCommandBuffer &commandBuffer, uint32_t imageIndex, EngineStats &stats);
@@ -214,25 +217,15 @@ public:
     void Screenshot();
 
     uint8_t currentFrame = 0;
-    bool displayShadowMap = false;
-    union {
-        struct {
-            bool dynamicRendering : 1;
-            bool asyncCompute : 1;
-            bool raytracingCapable : 1;
-            bool framebufferResized : 1;
-            bool isIntegratedGPU : 1;
-            bool meshShader : 1;
-        };
-        uint16_t flags;
+    struct {
+        bool dynamicRendering : 1;
+        bool asyncCompute : 1;
+        bool raytracingCapable : 1;
+        bool framebufferResized : 1;
+        bool isIntegratedGPU : 1;
+        bool meshShader : 1;
     };
     int32_t cascadeIndex = 0;
-
-    // bool dynamicRendering = true;
-    // bool asyncCompute = true;
-    // bool raytracingCapable = false;
-    // bool framebufferResized = false;
-    // bool isIntegratedGPU = false;
 
     static constexpr VkSampleCountFlagBits msaaSamples = VK_SAMPLE_COUNT_1_BIT;
 
@@ -241,7 +234,6 @@ public:
         std::vector<VkSurfaceFormatKHR> formats;
         std::vector<VkPresentModeKHR> presentModes;
     };
-
 
     GLFWwindow *glfwWindow;
     Camera *camera;
@@ -308,7 +300,6 @@ public:
     std::array<FrameData, MAX_FRAMES_IN_FLIGHT> frames;
     VkCommandPool graphicsCommandPool{};
     VkCommandPool transferCommandPool{};
-//    std::vector<VkCommandPool> commandPools{};
     VkCommandPool computeCommandPool{};
 
     std::vector<VkFramebuffer> swapChainFramebuffers{};
@@ -346,7 +337,6 @@ public:
     std::array<ShadowCascade, SHADOW_MAP_CASCADE_COUNT> shadowCascades{};
     VulkanBuffer cascadeViewProjectionBuffer{};
     std::array<glm::mat4, SHADOW_MAP_CASCADE_COUNT> cascadeViewProjections{};
-    // std::array<float, SHADOW_MAP_CASCADE_COUNT> cascadeSplits{};
     union
     {
         std::array<float, SHADOW_MAP_CASCADE_COUNT> arr;
@@ -376,6 +366,7 @@ public:
     VulkanBuffer meshletPrimitivesBuffer{};
 
 private:
+    uint16_t fpsLimit = 60;
 #ifndef NDEBUG
     static constexpr std::array<const char *, 1> validationLayers = {
             "VK_LAYER_KHRONOS_validation"

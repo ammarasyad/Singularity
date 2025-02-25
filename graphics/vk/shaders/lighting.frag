@@ -117,5 +117,5 @@ void main() {
 
     float shadow = enablePCF == 1 ? filterPCF(shadowCoord / shadowCoord.w, cascadeIndex) : textureProjection(shadowCoord / shadowCoord.w, vec2(0.0f), cascadeIndex);
 
-    outColor = vec4(diffuse * shadow, 1.0f) * texColor;
+    outColor = vec4(diffuse, 1.0f) * texColor;
 }
