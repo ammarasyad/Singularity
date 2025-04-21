@@ -1,29 +1,6 @@
-#ifdef _WIN32
-
-#if !defined(NOMINMAX)
-#define NOMINMAX
-#endif
-
-#if !defined(NOSERVICE)
-#define NOSERVICE
-#endif
-
-#if !defined(NOMCX)
-#define NOMCX
-#endif
-
-#if !defined(NOIME)
-#define NOIME
-#endif
-
-#if !defined(WIN32_LEAN_AND_MEAN)
-#define WIN32_LEAN_AND_MEAN
-#endif
-
-#include <windows.h>
+#include "min_windows.h"
 #include "graphics/d3d12_renderer.h"
 #include <fstream>
-#endif
 
 #include "graphics/vk_renderer.h"
 #include "graphics/vk/vk_gui.h"

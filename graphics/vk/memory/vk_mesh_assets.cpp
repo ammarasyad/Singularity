@@ -3,7 +3,7 @@
 
 #include <fastgltf/glm_element_traits.hpp>
 #include <fastgltf/core.hpp>
-#include "vk_renderer.h"
+#include "graphics/vk_renderer.h"
 
 std::optional<std::vector<std::shared_ptr<MeshAsset>>> LoadGltfMeshes(VkRenderer *renderer, const std::filesystem::path& path) {
     auto data = fastgltf::GltfDataBuffer::FromPath(path);

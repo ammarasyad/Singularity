@@ -3,7 +3,7 @@
 #include <chrono>
 #include <backends/imgui_impl_glfw.h>
 #include <backends/imgui_impl_vulkan.h>
-#include "vk_renderer.h"
+#include "graphics/vk_renderer.h"
 
 static constexpr uint32_t MIN_IMAGE_COUNT = 2;
 
@@ -34,6 +34,34 @@ namespace ImGui {
     }
 }
 
+// #ifdef _WIN32
+// static LRESULT CALLBACK WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
+// {
+//     // TODO: WndProc
+//     return 0;
+// }
+//
+// VkGui::VkGui(HINSTANCE hInstance, int width, int height, bool dynamicRendering, bool asyncCompute) : imguiDescriptorPool(VK_NULL_HANDLE)
+// {
+//     WNDCLASSEX wc{
+//         .cbSize = sizeof(WNDCLASSEX),
+//         .style = CS_OWNDC,
+//         .lpfnWndProc = WndProc,
+//         .hInstance = hInstance,
+//         .hCursor = LoadCursor(nullptr, IDC_ARROW),
+//         .lpszClassName = "Vulkan"
+//     };
+//
+//     ATOM atom = RegisterClassEx(&wc);
+//     if (!atom)
+//         throw std::runtime_error("Failed to register window class");
+//
+//     RECT rc = {0, 0, width, height};
+//     AdjustWindowRectEx(&rc, WS_OVERLAPPEDWINDOW, FALSE, WS_EX_OVERLAPPEDWINDOW);
+//
+//     HWND hwnd = CreateWindowEx(WS_EX_OVERLAPPEDWINDOW, MAKEINTATOM(atom), "Vulkan", WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, rc.right - rc.left, rc.bottom - rc.top, nullptr, nullptr, hInstance, nullptr);
+// }
+// #else
 VkGui::VkGui(const int width, const int height, const bool dynamicRendering, const bool asyncCompute) : imguiDescriptorPool(VK_NULL_HANDLE) {
     // GLFW initialization
     glfwSetErrorCallback(errorCallback);
@@ -116,6 +144,7 @@ VkGui::VkGui(const int width, const int height, const bool dynamicRendering, con
     ImGui_ImplVulkan_Init(&initInfo);
     ImGui_ImplVulkan_CreateFontsTexture();
 }
+// #endif
 
 void VkGui::Loop() {
     while (!glfwWindowShouldClose(window)) {

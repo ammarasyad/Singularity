@@ -11,14 +11,17 @@
 #include <ranges>
 
 #include "vk/memory/vk_mesh_assets.h"
-#include "file.h"
+#include "common/file.h"
 #include "vk/vk_gui.h"
 #include "vk/vk_pipeline_builder.h"
 #include "ext/matrix_transform.hpp"
 #include "ext/matrix_clip_space.inl"
 
 #ifdef _WIN32
+#include <d3d12.h>
 #include <dxgi1_6.h>
+#define HrToString(x) std::string("HRESULT: ") + std::to_string(x)
+#define ThrowIfFailed(x) do { HRESULT hr = (x); if(FAILED(hr)) { throw std::runtime_error(HrToString(hr)); } } while(0)
 #endif
 
 static constexpr uint32_t MAX_MESHLET_PRIMITIVES = 124;
@@ -26,6 +29,12 @@ static constexpr uint32_t MAX_MESHLET_VERTICES = 64;
 
 PFN_vkCmdDrawMeshTasksEXT fn_vkCmdDrawMeshTasksEXT = nullptr;
 
+// #ifdef _WIN32
+// VkRenderer::VkRenderer(HINSTANCE hinstance, HWND hwnd, Camera *camera, const bool dynamicRendering, const bool asyncCompute, const bool meshShader)
+// {
+//     InitializeInstance(hinstance, hwnd);
+// }
+// #else
 VkRenderer::VkRenderer(GLFWwindow *window, Camera *camera, const bool dynamicRendering, const bool asyncCompute, const bool meshShader)
     : dynamicRendering(dynamicRendering),
       asyncCompute(asyncCompute),
@@ -144,6 +153,7 @@ VkRenderer::VkRenderer(GLFWwindow *window, Camera *camera, const bool dynamicRen
     UpdateCascades();
     isVkRunning = true;
 }
+// #endif
 
 VkRenderer::~VkRenderer() {
     Shutdown();
@@ -230,6 +240,14 @@ void VkRenderer::Screenshot() {
     memoryManager->destroyImage(dstImage);
 }
 
+// #ifdef _WIN32
+// void VkRenderer::InitializeInstance(HINSTANCE hInstance, HWND hWnd)
+// {
+//     this->hInstance = hInstance;
+//     this->hWnd = hWnd;
+// }
+//
+// #else
 void VkRenderer::InitializeInstance() {
     constexpr VkApplicationInfo appInfo{
         VK_STRUCTURE_TYPE_APPLICATION_INFO,
@@ -293,6 +311,7 @@ void VkRenderer::InitializeInstance() {
     VK_CHECK(vkCreateInstance(&createInfo, VK_NULL_HANDLE, &instance));
     glfwCreateWindowSurface(instance, glfwWindow, nullptr, &surface);
 }
+// #endif
 
 bool isObjectVisible(const VkRenderObject &obj, const glm::mat4 &viewProjection) {
     static constexpr std::array corners{
@@ -1129,10 +1148,8 @@ void VkRenderer::PickPhysicalDevice() {
     vkEnumeratePhysicalDevices(instance, &deviceCount, physicalDevices.data());
 
 #ifdef _WIN32
-#define HrToString(x) std::string("HRESULT: ") + std::to_string(x)
-#define ThrowIfFailed(x) do { HRESULT hr = (x); if(FAILED(hr)) { throw std::runtime_error(HrToString(hr)); } } while(0)
+
     {
-        using Microsoft::WRL::ComPtr;
         ComPtr<IDXGIFactory6> dxgiFactory;
         ComPtr<IDXGIAdapter1> dxgiAdapter;
 
@@ -1156,9 +1173,9 @@ void VkRenderer::PickPhysicalDevice() {
                 break;
             }
         }
+
+        ThrowIfFailed(D3D12CreateDevice(dxgiAdapter.Get(), D3D_FEATURE_LEVEL_12_0, IID_PPV_ARGS(&d3dDevice)));
     }
-#undef ThrowIfFailed
-#undef HrToString
 #else
     physicalDevice = physicalDevices[0];
     vkGetPhysicalDeviceProperties(physicalDevice, &deviceProperties);
@@ -1348,6 +1365,71 @@ void VkRenderer::CreateSwapChain() {
         imageCount = capabilities.maxImageCount;
     }
 
+#ifdef _WIN32
+    {
+        ComPtr<IDXGIFactory6> dxgiFactory;
+        ThrowIfFailed(CreateDXGIFactory2(0, IID_PPV_ARGS(&dxgiFactory)));
+
+        ComPtr<ID3D12CommandQueue> d3dQueue;
+        D3D12_COMMAND_QUEUE_DESC queueDesc{
+            .Type = D3D12_COMMAND_LIST_TYPE_DIRECT,
+            .Flags = D3D12_COMMAND_QUEUE_FLAG_NONE,
+        };
+
+        ThrowIfFailed(d3dDevice->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&d3dQueue)));
+
+        ComPtr<IDXGISwapChain1> dxgiSwapChain;
+        DXGI_SWAP_CHAIN_DESC1 swapChainDesc{
+            .Width = swapChainExtent.width,
+            .Height = swapChainExtent.height,
+            .Format = DXGI_FORMAT_B8G8R8A8_UNORM,
+            .SampleDesc = {.Count = 1},
+            .BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT,
+            .BufferCount = imageCount,
+            .SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD,
+        };
+
+        auto hwnd = glfwGetWin32Window(glfwWindow);
+        ThrowIfFailed(dxgiFactory->CreateSwapChainForHwnd(d3dQueue.Get(), hwnd, &swapChainDesc, nullptr, nullptr, &dxgiSwapChain));
+        ThrowIfFailed(dxgiSwapChain.As(&d3dSwapChain));
+        ThrowIfFailed(dxgiFactory->MakeWindowAssociation(hwnd, DXGI_MWA_NO_ALT_ENTER));
+    }
+
+    {
+        ComPtr<ID3D12Resource> d3dFramebuffers[imageCount]{};
+        for (uint32_t i = 0; i < imageCount; i++) {
+            ThrowIfFailed(d3dSwapChain->GetBuffer(i, IID_PPV_ARGS(&d3dFramebuffers[i])));
+        }
+
+        static constexpr VkExternalMemoryImageCreateInfo externalMemoryImageCreateInfo{
+            VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO,
+            VK_NULL_HANDLE,
+            VK_EXTERNAL_MEMORY_HANDLE_TYPE_D3D12_RESOURCE_BIT,
+        };
+
+        // static constexpr VkImageCreateInfo imageInfo{
+        //     VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+        //     &externalMemoryImageCreateInfo,
+        //     0,
+        //     VK_IMAGE_TYPE_2D,
+        //     VK_FORMAT_B8G8R8A8_UNORM,
+        //     {swapChainExtent.width, swapChainExtent.height, 1},
+        //     1,
+        //     1,
+        //     VK_SAMPLE_COUNT_1_BIT,
+        //     VK_IMAGE_TILING_OPTIMAL,
+        //     VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+        //     VK_SHARING_MODE_EXCLUSIVE,
+        //     0,
+        //     VK_NULL_HANDLE,
+        //     VK_IMAGE_LAYOUT_UNDEFINED,
+        // };
+
+        for (uint32_t i = 0; i < imageCount; i++) {
+            memoryManager->createExternalImage(imageInfo, d3dFramebuffers[i].Get());
+        }
+    }
+#else
     VkSwapchainCreateInfoKHR createInfo{
         VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
         VK_NULL_HANDLE,
@@ -1404,6 +1486,7 @@ void VkRenderer::CreateSwapChain() {
         imageViewCreateInfo.image = swapChainImages[i];
         VK_CHECK(vkCreateImageView(device, &imageViewCreateInfo, VK_NULL_HANDLE, &swapChainImageViews[i]));
     }
+#endif
 }
 
 void VkRenderer::CreateDepthImage() {
@@ -2074,15 +2157,15 @@ VkRenderer::SwapChainSupportDetails VkRenderer::QuerySwapChainSupport(const VkPh
 
     return details;
 }
-
 VkSurfaceFormatKHR VkRenderer::ChooseSwapSurfaceFormat(const std::vector<VkSurfaceFormatKHR> &availableFormats) {
-    for (const auto &availableFormat: availableFormats) {
-        if (availableFormat.format == VK_FORMAT_B8G8R8A8_SINT && availableFormat.colorSpace ==
+    for (const auto &availableFormat : availableFormats) {
+        if (availableFormat.format == VK_FORMAT_B8G8R8A8_UNORM && availableFormat.colorSpace ==
             VK_COLORSPACE_SRGB_NONLINEAR_KHR) {
             return availableFormat;
         }
     }
 
+    fprintf(stderr, "No preferred format found, using first available\n");
     return availableFormats[0];
 }
 

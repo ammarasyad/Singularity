@@ -7,9 +7,9 @@
 #include <stb_image.h>
 #include <ranges>
 
-#include "vk_renderer.h"
+#include "graphics/vk_renderer.h"
 #include "gtc/quaternion.hpp"
-#include "threading/thread_pool.h"
+#include "engine/threading/thread_pool.h"
 
 static std::optional<VulkanImage> loadImage(VkRenderer *renderer, fastgltf::Asset &asset, fastgltf::Image &image, const std::filesystem::path &assetPath) {
     VulkanImage vulkanImage{};

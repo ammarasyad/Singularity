@@ -6,7 +6,7 @@
 #include <wrl/client.h>
 #endif
 
-#include "vk/vk_descriptor_layout.h"
+#include "graphics/vk/vk_descriptor_layout.h"
 
 class VkRenderer;
 

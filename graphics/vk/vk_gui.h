@@ -8,7 +8,7 @@
 #include <GLFW/glfw3.h>
 #endif
 
-#include "camera.h"
+#include "engine/camera.h"
 
 class VkRenderer;
 typedef struct VkDescriptorPool_T * VkDescriptorPool;
@@ -22,7 +22,11 @@ struct EngineStats {
 
 class VkGui {
 public:
+// #ifdef _WIN32
+//     explicit VkGui(HINSTANCE hInstance, int width, int height, bool dynamicRendering = true, bool asyncCompute = true);
+// #else
     explicit VkGui(int width, int height, bool dynamicRendering = true, bool asyncCompute = true);
+// #endif
     ~VkGui() = default;
 
     void Loop();

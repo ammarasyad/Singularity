@@ -5,22 +5,28 @@
 #define GLM_FORCE_RADIANS
 
 #ifdef _WIN32
+#define GLFW_EXPOSE_NATIVE_WIN32
 #include <glfw/glfw3.h>
+#include <glfw/glfw3native.h>
+#include <wrl/client.h>
+
+using Microsoft::WRL::ComPtr;
 #else
 // use system glfw
 #include <GLFW/glfw3.h>
 #endif
 
+#include <dxgi1_5.h>
 #include <optional>
 #include <vector>
 #include <detail/type_half.hpp>
 
-#include "camera.h"
-#include "objects/material.h"
-#include "objects/render_object.h"
+#include "engine/camera.h"
+#include "engine/objects/material.h"
+#include "engine/objects/render_object.h"
 #include "vk/memory/vk_memory.h"
 #include "vk/vk_descriptor_layout.h"
-#include "objects/gltf.h"
+#include "engine/objects/gltf.h"
 
 static constexpr uint32_t SHADOW_MAP_CASCADE_COUNT = 4;
 static constexpr uint32_t SHADOW_MAP_SIZE = 4096;
@@ -103,7 +109,11 @@ struct FrustumPushConstants {
 // TODO: Replace error handling with a dialog box
 class VkRenderer {
 public:
+// #ifdef _WIN32
+//     explicit VkRenderer(HINSTANCE hinstance, HWND hwnd, Camera *camera, bool dynamicRendering = true, bool asyncCompute = true, bool meshShader = false);
+// #else
     explicit VkRenderer(GLFWwindow *window, Camera *camera, bool dynamicRendering = true, bool asyncCompute = true, bool meshShader = false);
+// #endif
     ~VkRenderer();
     VkRenderer(const VkRenderer &) = delete;
     VkRenderer &operator=(const VkRenderer &) = delete;
@@ -241,8 +251,16 @@ public:
     VkViewport viewport{};
     VkRect2D scissor{};
 
+#ifdef _WIN32
+    ComPtr<ID3D12Device> d3dDevice;
+    ComPtr<IDXGISwapChain3> d3dSwapChain;
+#endif
+//     HINSTANCE hInstance;
+//     HWND hWnd;
+// #else
     VkInstance instance{};
     VkSurfaceKHR surface{};
+// #endif
     VkPhysicalDevice physicalDevice{};
     VkDevice device{};
     VkPipelineCache pipelineCache{};
@@ -378,7 +396,11 @@ private:
     static void DestroyDebugUtilsMessengerEXT(VkInstance instance, VkDebugUtilsMessengerEXT debugMessenger, const VkAllocationCallbacks *pAllocator);
 #endif
 
+// #ifdef _WIN32
+//     inline void InitializeInstance(HINSTANCE hInstance, HWND hWnd);
+// #else
     inline void InitializeInstance();
+// #endif
     inline void PickPhysicalDevice();
     inline void CreateLogicalDevice();
     inline void CreatePipelineCache();
@@ -423,6 +445,5 @@ private:
 
     void UpdateCascades();
 };
-
 
 #endif

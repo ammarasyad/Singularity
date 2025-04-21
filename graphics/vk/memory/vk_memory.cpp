@@ -1,5 +1,5 @@
 #include "vk_memory.h"
-#include "vk_renderer.h"
+#include "graphics/vk_renderer.h"
 
 VkMemoryManager::VkMemoryManager(const VkRenderer * renderer, const bool customPool)
     : allocator(), device(renderer->device), pool(VK_NULL_HANDLE), isIntegratedGPU(renderer->isIntegratedGPU), availableMemory(renderer->memoryProperties.memoryHeaps[0].size), totalMemory(availableMemory)
@@ -229,6 +229,12 @@ VulkanImage VkMemoryManager::createUnmanagedImage(const VulkanImageCreateInfo &i
 
     return untrackedImage;
 }
+
+VulkanImage VkMemoryManager::createExternalImage(const VulkanExternalImageCreateInfo &info, VkExternalMemoryHandleTypeFlags handleType)
+{
+
+}
+
 
 VulkanImage VkMemoryManager::createTexture(VkExtent3D size, VkFormat format, VkImageUsageFlags usage, bool mipmapped) {
     ImageViewCreateInfo imageViewCreateInfo{

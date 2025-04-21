@@ -1,7 +1,7 @@
 #include "material.h"
-#include "file.h"
-#include "vk_renderer.h"
-#include "vk/vk_pipeline_builder.h"
+#include "common/file.h"
+#include "graphics/vk_renderer.h"
+#include "graphics/vk/vk_pipeline_builder.h"
 
 void VkGLTFMetallic_Roughness::buildPipelines(const VkRenderer *renderer) {
     const auto device = renderer->device;

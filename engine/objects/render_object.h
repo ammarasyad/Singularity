@@ -10,8 +10,8 @@
 #include <glm.hpp>
 #include <thread>
 
-#include "vk/vk_common.h"
-#include "vk/memory/vk_mesh_assets.h"
+#include "graphics/vk/vk_common.h"
+#include "graphics/vk/memory/vk_mesh_assets.h"
 
 struct VkMaterialInstance;
 class D3D12Renderer;

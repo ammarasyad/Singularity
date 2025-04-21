@@ -2,7 +2,7 @@
 #define VK_PIPELINE_BUILDER_H
 
 #include <string>
-#include "vk/vk_common.h"
+#include "graphics/vk/vk_common.h"
 
 struct SpecializationInfoHelper {
     VkPipelineStageFlags stageFlags;

@@ -1,7 +1,7 @@
 #ifndef D3D12_STUFF_VK_MEMORY_H
 #define D3D12_STUFF_VK_MEMORY_H
 
-#include "vk/vk_common.h"
+#include "graphics/vk/vk_common.h"
 #include <functional>
 #include <unordered_set>
 #include <ktx.h>
@@ -44,6 +44,12 @@ struct VulkanImageCreateInfo {
     ImageViewCreateInfo *imageViewCreateInfo = nullptr;
 };
 
+struct VulkanExternalImageCreateInfo
+{
+    VulkanImageCreateInfo imageCreateInfo;
+    VkExternalMemoryHandleTypeFlags handleType{};
+};
+
 struct alignas(64) LoadedImage {
     inline static std::atomic_uint64_t totalBytesSize{0};
     VkExtent3D size;
@@ -67,6 +73,8 @@ public:
     VulkanBuffer createUnmanagedBuffer(const VulkanBufferCreateInfo &info);
 
     VulkanImage createUnmanagedImage(const VulkanImageCreateInfo &info);
+
+    VulkanImage createExternalImage(const VulkanExternalImageCreateInfo &info, VkExternalMemoryHandleTypeFlags handleType);
 
     // All textures are tracked.
     VulkanImage createTexture(VkExtent3D size, VkFormat format, VkImageUsageFlags usage, bool mipmapped = false);

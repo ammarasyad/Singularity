@@ -55,7 +55,7 @@ add_library(imgui STATIC ${IMGUI_GLOB})
 target_include_directories(imgui PUBLIC ${imgui} ${imgui}/backends)
 target_link_libraries(imgui PRIVATE glfw Vulkan::Vulkan)
 
-include_directories(${glm} ${glfw}/include ${KTX_INCLUDE_DIR} $<$<PLATFORM_ID:Windows>:${D3D12MemoryAllocator}/include> common graphics engine third_party/stb #[[third_party/png++]])
+include_directories(${glm} ${glfw}/include ${KTX_INCLUDE_DIR} $<$<PLATFORM_ID:Windows>:${D3D12MemoryAllocator}/include> ${CMAKE_CURRENT_SOURCE_DIR} third_party/stb #[[third_party/png++]])
 
 add_executable(Singularity main.cpp
         graphics/d3d12_renderer.cpp
@@ -84,6 +84,7 @@ add_executable(Singularity main.cpp
         common/stbi_image.cpp
         engine/objects/pool.cpp
         engine/objects/pool.h
+        min_windows.h
 )
 
 set_target_properties(Singularity PROPERTIES WIN32_EXECUTABLE $<PLATFORM_ID:Windows>)

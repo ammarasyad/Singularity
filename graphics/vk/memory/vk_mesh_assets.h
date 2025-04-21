@@ -5,8 +5,8 @@
 #include <filesystem>
 #include <memory>
 #include <vector>
-#include "vk/vk_common.h"
-#include "objects/material.h"
+#include "graphics/vk/vk_common.h"
+#include "engine/objects/material.h"
 
 struct GLTFMaterial {
     VkMaterialInstance data;
