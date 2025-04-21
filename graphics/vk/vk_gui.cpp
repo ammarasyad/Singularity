@@ -196,6 +196,10 @@ void VkGui::Loop() {
             // if (renderer->displayShadowMap) {
             //     ImGui::SliderInt("Cascade Index", &renderer->cascadeIndex, 0, SHADOW_MAP_CASCADE_COUNT - 1);
             // }
+            if (ImGui::Button("Reload Shaders"))
+            {
+                renderer->ReloadShaders();
+            }
             ImGui::End();
         }
 

@@ -128,6 +128,7 @@ public:
     void DrawIndirect(const VkCommandBuffer &commandBuffer, uint32_t imageIndex, EngineStats &stats);
     void Shutdown();
     void RecreateSwapChain();
+    void ReloadShaders();
 
     Mesh CreateMesh(std::span<VkVertex> vertices, std::span<uint32_t> indices) const;
     void CreateFromMeshlets(const std::vector<VkVertex> &vertices, const std::vector<uint32_t> &indices);

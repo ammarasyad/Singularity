@@ -1020,6 +1020,20 @@ void VkRenderer::RecreateSwapChain() {
     framebufferResized = false;
 }
 
+void VkRenderer::ReloadShaders()
+{
+    vkDeviceWaitIdle(device);
+    const auto start = std::chrono::high_resolution_clock::now();
+    printf("Begin reloading shaders\n");
+
+    metalRoughMaterial.clearResources(device);
+    metalRoughMaterial.buildPipelines(this);
+
+    const auto elapsed = std::chrono::high_resolution_clock::now() - start;
+    const auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count();
+    printf("Reloaded shaders in %lldms\n", elapsedMs);
+}
+
 Mesh VkRenderer::CreateMesh(const std::span<VkVertex> vertices, const std::span<uint32_t>indices) const {
     Mesh mesh{};
 
