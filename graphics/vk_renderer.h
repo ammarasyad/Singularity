@@ -234,6 +234,7 @@ public:
         bool framebufferResized : 1;
         bool isIntegratedGPU : 1;
         bool meshShader : 1;
+        bool allowTearing : 1;
     };
     int32_t cascadeIndex = 0;
 
@@ -254,6 +255,10 @@ public:
 #ifdef _WIN32
     ComPtr<ID3D12Device> d3dDevice;
     ComPtr<IDXGISwapChain3> d3dSwapChain;
+    // TODO: switch this
+    std::vector<VkDeviceMemory> swapChainMemory;
+#else
+    VkSwapchainKHR swapChain{};
 #endif
 //     HINSTANCE hInstance;
 //     HWND hWnd;
@@ -268,7 +273,7 @@ public:
     VkQueue computeQueue{};
     VkQueue transferQueue{};
     VkQueue presentQueue{};
-    VkSwapchainKHR swapChain{};
+    // VkSwapchainKHR swapChain{};
     VkSurfaceFormatKHR surfaceFormat{};
     VkRenderPass renderPass{};
 
@@ -326,6 +331,7 @@ public:
 
     VkPresentModeKHR presentMode{};
     VkExtent2D swapChainExtent{};
+    uint32_t swapChainImageCount{};
 
     VulkanImage defaultImage{};
     VulkanImage skyboxImage{};
@@ -404,6 +410,9 @@ private:
     inline void PickPhysicalDevice();
     inline void CreateLogicalDevice();
     inline void CreatePipelineCache();
+#ifdef _WIN32
+    inline void CreateDXGISwapChain();
+#endif
     inline void CreateSwapChain();
     inline void CreateRenderPass();
     inline void CreatePipelineLayout();

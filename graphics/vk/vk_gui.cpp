@@ -68,15 +68,27 @@ VkGui::VkGui(const int width, const int height, const bool dynamicRendering, con
     if (!glfwInit()) [[unlikely]]
         throw std::runtime_error("Failed to initialize GLFW");
 
+    GLFWmonitor *monitor = glfwGetPrimaryMonitor();
+    const GLFWvidmode *mode = glfwGetVideoMode(monitor);
+
+    glfwWindowHint(GLFW_RED_BITS, mode->redBits);
+    glfwWindowHint(GLFW_GREEN_BITS, mode->greenBits);
+    glfwWindowHint(GLFW_BLUE_BITS, mode->blueBits);
+    glfwWindowHint(GLFW_REFRESH_RATE, mode->refreshRate);
+
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
     glfwWindowHint(GLFW_DECORATED, GLFW_FALSE);
+    glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
 
-    window = glfwCreateWindow(width, height, "Vulkan", nullptr, nullptr);
+    window = glfwCreateWindow(mode->width, mode->height, "Vulkan", nullptr, nullptr);
     if (!glfwVulkanSupported())
         throw std::runtime_error("Vulkan not supported");
 
     if (glfwRawMouseMotionSupported())
+    {
+        printf("Raw input supported\n");
         glfwSetInputMode(window, GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
+    }
 
     // glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
     glfwSetWindowUserPointer(window, this);

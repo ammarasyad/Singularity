@@ -1,18 +1,35 @@
 #include "vk_memory.h"
 #include "graphics/vk_renderer.h"
 
+PFN_vkGetMemoryWin32HandleKHR fn_vkGetMemoryWin32HandleKHR;
+
 VkMemoryManager::VkMemoryManager(const VkRenderer * renderer, const bool customPool)
     : allocator(), device(renderer->device), pool(VK_NULL_HANDLE), isIntegratedGPU(renderer->isIntegratedGPU), availableMemory(renderer->memoryProperties.memoryHeaps[0].size), totalMemory(availableMemory)
 {
+#ifdef _WIN32
+    VmaVulkanFunctions vulkanFunctions{};
+    fn_vkGetMemoryWin32HandleKHR = reinterpret_cast<PFN_vkGetMemoryWin32HandleKHR>(vkGetInstanceProcAddr(renderer->instance, "vkGetMemoryWin32HandleKHR"));
+    vulkanFunctions.vkGetMemoryWin32HandleKHR = fn_vkGetMemoryWin32HandleKHR;
+    // vulkanFunctions.vkGetMemoryWin32HandleKHR = vkGetMemoryWin32HandleKHR;
+#endif
+
     const VmaAllocatorCreateInfo vmaAllocatorCreateInfo{
-        VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT | VMA_ALLOCATOR_CREATE_EXT_MEMORY_PRIORITY_BIT,
+        VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT | VMA_ALLOCATOR_CREATE_EXT_MEMORY_PRIORITY_BIT
+#ifdef _WIN32
+            | VMA_ALLOCATOR_CREATE_KHR_EXTERNAL_MEMORY_WIN32_BIT
+#endif
+        ,
         renderer->physicalDevice,
         device,
         0,
         VK_NULL_HANDLE,
         VK_NULL_HANDLE,
         VK_NULL_HANDLE,
+#ifdef _WIN32
+        &vulkanFunctions,
+#else
         VK_NULL_HANDLE,
+#endif
         renderer->instance,
         VK_API_VERSION_1_3,
         VK_NULL_HANDLE
@@ -20,10 +37,17 @@ VkMemoryManager::VkMemoryManager(const VkRenderer * renderer, const bool customP
 
     VK_CHECK(vmaCreateAllocator(&vmaAllocatorCreateInfo, &allocator));
 
+    // TODO: Force use custom pool for external memory support
     if (customPool) {
+        static constexpr VkExternalMemoryBufferCreateInfo externalMemoryBufferCreateInfo{
+            VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_BUFFER_CREATE_INFO,
+            VK_NULL_HANDLE,
+            VK_EXTERNAL_MEMORY_HANDLE_TYPE_D3D12_RESOURCE_BIT
+        };
+
         static constexpr VkBufferCreateInfo bufferCreateInfo{
             VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-            VK_NULL_HANDLE,
+            &externalMemoryBufferCreateInfo,
             {},
             1024,
             VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
@@ -31,14 +55,22 @@ VkMemoryManager::VkMemoryManager(const VkRenderer * renderer, const bool customP
         };
 
         static constexpr VmaAllocationCreateInfo allocationCreateInfo{
-                0,
-                VMA_MEMORY_USAGE_AUTO_PREFER_HOST
+            0,
+            VMA_MEMORY_USAGE_AUTO_PREFER_HOST
         };
 
         uint32_t memoryTypeIndex;
-        VK_CHECK(vmaFindMemoryTypeIndexForBufferInfo(allocator, &bufferCreateInfo, &allocationCreateInfo, &memoryTypeIndex));
+        VK_CHECK(vmaFindMemoryTypeIndexForBufferInfo(allocator, &bufferCreateInfo, &allocationCreateInfo, &memoryTypeIndex))
+        ;
 
-        const VmaPoolCreateInfo poolCreateInfo{memoryTypeIndex};
+        VkExportMemoryAllocateInfo exportMemoryAllocateInfo{
+            VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO,
+            VK_NULL_HANDLE,
+            VK_EXTERNAL_MEMORY_HANDLE_TYPE_D3D12_RESOURCE_BIT
+        };
+
+        VmaPoolCreateInfo poolCreateInfo{memoryTypeIndex};
+        poolCreateInfo.pMemoryAllocateNext = reinterpret_cast<void *>(&exportMemoryAllocateInfo);
 
         VK_CHECK(vmaCreatePool(allocator, &poolCreateInfo, &pool));
     }
@@ -230,11 +262,82 @@ VulkanImage VkMemoryManager::createUnmanagedImage(const VulkanImageCreateInfo &i
     return untrackedImage;
 }
 
-VulkanImage VkMemoryManager::createExternalImage(const VulkanExternalImageCreateInfo &info, VkExternalMemoryHandleTypeFlags handleType)
+#ifdef _WIN32
+VulkanExternalImage VkMemoryManager::createExternalImage(const VkImageCreateInfo &imageCreateInfo, VkPhysicalDeviceMemoryProperties &properties, ID3D12Device *d3d12Device, ID3D12Resource *deviceHandle)
 {
+    VkImage image;
+    // VmaAllocation allocation{};
+    // VmaAllocationInfo allocationInfo{};
+    //
+    // VmaAllocationCreateInfo allocationCreateInfo{};
+    //
+    // allocationCreateInfo.pool = pool;
+    //
+    // VK_CHECK(vmaCreateImage(allocator, &imageCreateInfo, &allocationCreateInfo, &image, &allocation, &allocationInfo));
+    //
+    // HANDLE imgHandle;
+    // VK_CHECK(vmaGetMemoryWin32Handle(allocator, allocation, nullptr, &imgHandle));
+    VK_CHECK(vkCreateImage(device, &imageCreateInfo, nullptr, &image));
 
+    HANDLE imgHandle;
+    #define HrToString(x) std::string("HRESULT: ") + std::to_string(x)
+    #define ThrowIfFailed(x) do { HRESULT hr = (x); if(FAILED(hr)) { throw std::runtime_error(HrToString(hr)); } } while(0)
+
+    ThrowIfFailed(d3d12Device->CreateSharedHandle(deviceHandle, nullptr, GENERIC_ALL, nullptr, &imgHandle));
+
+    #undef HrToString
+    #undef ThrowIfFailed
+
+    VkMemoryDedicatedAllocateInfo dedicatedAllocateInfo{
+        VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO,
+        nullptr,
+        image,
+        VK_NULL_HANDLE
+    };
+
+    VkImportMemoryWin32HandleInfoKHR importMemoryWin32HandleInfo{
+        VK_STRUCTURE_TYPE_IMPORT_MEMORY_WIN32_HANDLE_INFO_KHR,
+        &dedicatedAllocateInfo,
+        VK_EXTERNAL_MEMORY_HANDLE_TYPE_D3D12_RESOURCE_BIT,
+        imgHandle
+    };
+
+    VkMemoryRequirements memoryRequirements;
+    vkGetImageMemoryRequirements(device, image, &memoryRequirements);
+
+    uint32_t memoryTypeIndex = 0;
+    for (uint32_t i = 0; i < properties.memoryTypeCount; i++) {
+        if (properties.memoryTypes[i].propertyFlags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT && memoryRequirements.memoryTypeBits & (1 << memoryTypeIndex)) {
+            memoryTypeIndex = i;
+            break;
+        }
+    }
+
+    VkMemoryAllocateInfo allocateInfo{
+        VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+        &importMemoryWin32HandleInfo,
+        memoryRequirements.size,
+        memoryTypeIndex
+    };
+
+    VkDeviceMemory memory;
+    VK_CHECK(vkAllocateMemory(device, &allocateInfo, nullptr, &memory));
+    VK_CHECK(vkBindImageMemory(device, image, memory, 0));
+    // VK_CHECK(vmaAllocateMemoryForImage(allocator, image, &allocationCreateInfo, &allocation, &allocationInfo));
+    // VK_CHECK(vmaBindImageMemory(allocator, allocation, image));
+    //
+    // CloseHandle(imgHandle);
+
+    return {image, memory};
 }
 
+void VkMemoryManager::destroyExternalImageMemory(const VkImage &image, const VkDeviceMemory &memory)
+{
+    vkDestroyImage(device, image, nullptr);
+    vkFreeMemory(device, memory, nullptr);
+}
+
+#endif
 
 VulkanImage VkMemoryManager::createTexture(VkExtent3D size, VkFormat format, VkImageUsageFlags usage, bool mipmapped) {
     ImageViewCreateInfo imageViewCreateInfo{
@@ -252,7 +355,7 @@ VulkanImage VkMemoryManager::createTexture(VkExtent3D size, VkFormat format, VkI
 
 void generateMipmaps(const VkCommandBuffer &commandBuffer, const VulkanImage &image, VkExtent2D size) {
     // TODO: Generate this with a compute shader later
-    auto mipLevels = static_cast<uint32_t>(std::floor(std::log2(std::max(size.width, size.height))));
+    const auto mipLevels = static_cast<uint32_t>(std::floor(std::log2(std::max(size.width, size.height))));
     for (int mip = 0; mip < mipLevels; mip++) {
         const VkExtent2D halfSize = {std::max(1u, size.width >> 1), std::max(1u, size.height >> 1)};
 

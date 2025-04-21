@@ -39,7 +39,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow) {
         }
         case RendererType::VK: {
             auto start = std::chrono::high_resolution_clock ::now();
-            VkGui gui(2560, 1600, true, true);
+            VkGui gui(2560, 1440, true, true);
             auto end = std::chrono::high_resolution_clock ::now();
             printf("Initialization took %lld ms\n", std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count());
             gui.Loop();

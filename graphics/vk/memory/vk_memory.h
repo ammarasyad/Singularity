@@ -6,6 +6,7 @@
 #include <unordered_set>
 #include <ktx.h>
 #include <atomic>
+#include <d3d12.h>
 
 class VkRenderer;
 
@@ -44,17 +45,17 @@ struct VulkanImageCreateInfo {
     ImageViewCreateInfo *imageViewCreateInfo = nullptr;
 };
 
-struct VulkanExternalImageCreateInfo
-{
-    VulkanImageCreateInfo imageCreateInfo;
-    VkExternalMemoryHandleTypeFlags handleType{};
-};
-
 struct alignas(64) LoadedImage {
     inline static std::atomic_uint64_t totalBytesSize{0};
     VkExtent3D size;
     uint32_t index;
     uint8_t *data;
+};
+
+struct VulkanExternalImage
+{
+    VkImage image;
+    VkDeviceMemory memory;
 };
 
 class VkMemoryManager {
@@ -74,7 +75,10 @@ public:
 
     VulkanImage createUnmanagedImage(const VulkanImageCreateInfo &info);
 
-    VulkanImage createExternalImage(const VulkanExternalImageCreateInfo &info, VkExternalMemoryHandleTypeFlags handleType);
+#ifdef _WIN32
+    VulkanExternalImage createExternalImage(const VkImageCreateInfo &imageCreateInfo, VkPhysicalDeviceMemoryProperties &properties, ID3D12Device *d3d12Device, ID3D12Resource *deviceHandle);
+    void destroyExternalImageMemory(const VkImage &image, const VkDeviceMemory &memory);
+#endif
 
     // All textures are tracked.
     VulkanImage createTexture(VkExtent3D size, VkFormat format, VkImageUsageFlags usage, bool mipmapped = false);

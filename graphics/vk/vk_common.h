@@ -5,9 +5,14 @@
 #define GLM_FORCE_AVX2
 
 #include <cstdio>
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#define VK_USE_PLATFORM_WIN32_KHR
+#endif
 #include <vulkan/vulkan.h>
 #include <memory>
-#include <vk_mem_alloc.h>
+// #include <vk_mem_alloc.h>
+#include "memory/vma_usage.h"
 #include <glm.hpp>
 
 #define VK_CHECK(x) do { VkResult err = x; if (err) { printf(#x ", file: " __FILE__ ", line %d: %d\n", __LINE__, err); abort(); } } while (0)

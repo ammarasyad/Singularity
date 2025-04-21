@@ -8,7 +8,9 @@
 
 #include "vk_renderer.h"
 
+#include <iostream>
 #include <ranges>
+#include <vulkan/vulkan_win32.h>
 
 #include "vk/memory/vk_mesh_assets.h"
 #include "common/file.h"
@@ -20,8 +22,8 @@
 #ifdef _WIN32
 #include <d3d12.h>
 #include <dxgi1_6.h>
-#define HrToString(x) std::string("HRESULT: ") + std::to_string(x)
-#define ThrowIfFailed(x) do { HRESULT hr = (x); if(FAILED(hr)) { throw std::runtime_error(HrToString(hr)); } } while(0)
+#define HrToString(x) std::string("HRESULT: ") + std::format("{:x}", (uint32_t) x)
+#define ThrowIfFailed(x) do { HRESULT hr = (x); if(FAILED(hr)) { printf("error in %s, line: %d\n", __FILE__, __LINE__); throw std::runtime_error(HrToString(hr)); } } while(0)
 #endif
 
 static constexpr uint32_t MAX_MESHLET_PRIMITIVES = 124;
@@ -88,6 +90,9 @@ VkRenderer::VkRenderer(GLFWwindow *window, Camera *camera, const bool dynamicRen
         CreatePipelineCache();
     }
 
+#ifdef _WIN32
+    CreateDXGISwapChain();
+#endif
     CreateSwapChain();
     CreateDepthImage();
 
@@ -375,6 +380,24 @@ void VkRenderer::Render(EngineStats &stats) {
     const auto size = fences.size() - !asyncCompute - meshShader;
     VK_CHECK(vkWaitForFences(device, size, fences.data(), VK_TRUE, UINT64_MAX));
 
+#ifdef _WIN32
+    uint32_t imageIndex = d3dSwapChain->GetCurrentBackBufferIndex();
+    {
+        VkSubmitInfo submitInfo{
+            VK_STRUCTURE_TYPE_SUBMIT_INFO,
+            VK_NULL_HANDLE,
+            0,
+            VK_NULL_HANDLE,
+            VK_NULL_HANDLE,
+            0,
+            VK_NULL_HANDLE,
+            1,
+            &frames[currentFrame].imageAvailableSemaphore
+        };
+
+        VK_CHECK(vkQueueSubmit(graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE));
+    }
+#else
     uint32_t imageIndex;
     auto result = vkAcquireNextImageKHR(device, swapChain, UINT64_MAX, frames[currentFrame].imageAvailableSemaphore,
                                         VK_NULL_HANDLE, &imageIndex);
@@ -387,6 +410,7 @@ void VkRenderer::Render(EngineStats &stats) {
     if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) [[unlikely]] {
         throw std::runtime_error("Failed to acquire swap chain image!");
     }
+#endif
 
     VK_CHECK(vkResetFences(device, size, fences.data()));
     VK_CHECK(vkResetCommandBuffer(frames[currentFrame].commandBuffer, VK_COMMAND_BUFFER_RESET_RELEASE_RESOURCES_BIT));
@@ -472,6 +496,38 @@ void VkRenderer::Render(EngineStats &stats) {
         waitSemaphores[2] = computeFinishedSemaphore;
     }
 
+#ifdef _WIN32
+    VkSubmitInfo submitInfo{
+        VK_STRUCTURE_TYPE_SUBMIT_INFO,
+        VK_NULL_HANDLE,
+        static_cast<uint32_t>(waitSemaphores.size() - !asyncCompute - meshShader),
+        waitSemaphores.data(),
+        waitStages,
+        1,
+        &frames[currentFrame].commandBuffer,
+        1,
+        &frames[currentFrame].renderFinishedSemaphore
+    };
+
+    VK_CHECK(vkQueueSubmit(graphicsQueue, 1, &submitInfo, frames[currentFrame].inFlightFence));
+
+    static constexpr VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+    submitInfo.waitSemaphoreCount = 1;
+    submitInfo.pWaitSemaphores = &frames[currentFrame].renderFinishedSemaphore;
+    submitInfo.pWaitDstStageMask = &waitStage;
+    submitInfo.commandBufferCount = 0;
+    submitInfo.pCommandBuffers = VK_NULL_HANDLE;
+    submitInfo.signalSemaphoreCount = 0;
+    submitInfo.pSignalSemaphores = VK_NULL_HANDLE;
+
+    VK_CHECK(vkQueueSubmit(graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE));
+    ThrowIfFailed(d3dSwapChain->Present(1, 0));
+
+    if (framebufferResized)
+    {
+        framebufferResized = false;
+    }
+#else
     VkSubmitInfo submitInfo{
         VK_STRUCTURE_TYPE_SUBMIT_INFO,
         VK_NULL_HANDLE,
@@ -495,7 +551,6 @@ void VkRenderer::Render(EngineStats &stats) {
         &swapChain,
         &imageIndex
     };
-
     result = vkQueuePresentKHR(presentQueue, &presentInfo);
 
     if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || framebufferResized) {
@@ -503,6 +558,7 @@ void VkRenderer::Render(EngineStats &stats) {
     } else if (result != VK_SUCCESS) [[unlikely]] {
         throw std::runtime_error("Failed to acquire swap chain image!");
     }
+#endif
 
     currentFrame = (currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
 
@@ -938,6 +994,15 @@ void VkRenderer::RecreateSwapChain() {
         glfwWaitEvents();
     }
 
+#ifdef _WIN32
+    DXGI_SWAP_CHAIN_DESC swapChainDesc{};
+    ThrowIfFailed(d3dSwapChain->GetDesc(&swapChainDesc));
+    ThrowIfFailed(d3dSwapChain->ResizeBuffers(swapChainImageCount, width, height, swapChainDesc.BufferDesc.Format, swapChainDesc.Flags));
+
+    CleanupSwapChain();
+    CreateSwapChain();
+    CreateDepthImage();
+#else
     if (!dynamicRendering) {
         CleanupSwapChain();
 
@@ -951,6 +1016,7 @@ void VkRenderer::RecreateSwapChain() {
         scissor.extent = swapChainExtent;
     }
 
+#endif
     framebufferResized = false;
 }
 
@@ -1273,6 +1339,7 @@ void VkRenderer::CreateLogicalDevice() {
         .pNext = &vulkan12Features,
         .synchronization2 = VK_TRUE,
         .dynamicRendering = VK_TRUE,
+        .maintenance4 = VK_TRUE
     };
 
     VkPhysicalDeviceFeatures2 deviceFeatures2{
@@ -1281,11 +1348,20 @@ void VkRenderer::CreateLogicalDevice() {
         {.multiDrawIndirect = VK_TRUE, .depthClamp = VK_TRUE, .samplerAnisotropy = VK_TRUE, .shaderInt16 = VK_TRUE }
     };
 
-    const char * deviceExtensions[9] = {
+#ifdef _WIN32
+    constexpr uint32_t arraySize = 11;
+#else
+    constexpr uint32_t arraySize = 10;
+#endif
+    static constexpr const char * deviceExtensions[arraySize] = {
         VK_KHR_SWAPCHAIN_EXTENSION_NAME,
         VK_KHR_PIPELINE_LIBRARY_EXTENSION_NAME,
         VK_EXT_GRAPHICS_PIPELINE_LIBRARY_EXTENSION_NAME,
         VK_KHR_SPIRV_1_4_EXTENSION_NAME,
+        VK_KHR_MAINTENANCE_4_EXTENSION_NAME,
+#ifdef _WIN32
+        VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME,
+#endif
         VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME,
         VK_KHR_RAY_QUERY_EXTENSION_NAME,
         VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME,
@@ -1327,7 +1403,7 @@ void VkRenderer::CreateLogicalDevice() {
         queueCreateInfos.data(),
         0,
         VK_NULL_HANDLE,
-        static_cast<uint32_t>(9 - !raytracingCapable * 4 - !meshShader),
+        arraySize - !raytracingCapable * 4 - !meshShader,
         deviceExtensions
     };
 
@@ -1353,51 +1429,58 @@ void VkRenderer::CreatePipelineCache() {
     VK_CHECK(vkCreatePipelineCache(device, &pipelineCacheInfo, VK_NULL_HANDLE, &pipelineCache));
 }
 
-void VkRenderer::CreateSwapChain() {
+#ifdef _WIN32
+void VkRenderer::CreateDXGISwapChain()
+{
     const auto &[capabilities, formats, presentModes] = QuerySwapChainSupport(physicalDevice);
 
     surfaceFormat = ChooseSwapSurfaceFormat(formats);
     presentMode = ChooseSwapPresentMode(presentModes);
     swapChainExtent = ChooseSwapExtent(capabilities);
 
-    uint32_t imageCount = capabilities.minImageCount + 1;
-    if (capabilities.maxImageCount > 0 && imageCount > capabilities.maxImageCount) {
-        imageCount = capabilities.maxImageCount;
+    swapChainImageCount = capabilities.maxImageCount > 0 && capabilities.minImageCount + 1 > capabilities.maxImageCount ? capabilities.maxImageCount : capabilities.minImageCount + 1;
+
+    ComPtr<IDXGIFactory6> dxgiFactory;
+    ThrowIfFailed(CreateDXGIFactory2(0, IID_PPV_ARGS(&dxgiFactory)));
+
+    ComPtr<ID3D12CommandQueue> d3dQueue;
+    D3D12_COMMAND_QUEUE_DESC queueDesc{
+        .Type = D3D12_COMMAND_LIST_TYPE_DIRECT,
+        .Flags = D3D12_COMMAND_QUEUE_FLAG_NONE,
+    };
+
+    ThrowIfFailed(d3dDevice->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&d3dQueue)));
+
+    {
+        BOOL tearing = false;
+        ThrowIfFailed(dxgiFactory->CheckFeatureSupport(DXGI_FEATURE_PRESENT_ALLOW_TEARING, &tearing, sizeof(tearing)));
+        allowTearing = tearing & 1;
     }
 
+    ComPtr<IDXGISwapChain1> dxgiSwapChain;
+    DXGI_SWAP_CHAIN_DESC1 swapChainDesc{
+        .Width = swapChainExtent.width,
+        .Height = swapChainExtent.height,
+        .Format = DXGI_FORMAT_B8G8R8A8_UNORM,
+        .SampleDesc = {.Count = 1},
+        .BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT,
+        .BufferCount = swapChainImageCount,
+        .SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD,
+        .Flags = allowTearing ? DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING : 0u,
+    };
+
+    const auto hwnd = glfwGetWin32Window(glfwWindow);
+    ThrowIfFailed(dxgiFactory->CreateSwapChainForHwnd(d3dQueue.Get(), hwnd, &swapChainDesc, nullptr, nullptr, &dxgiSwapChain));
+    ThrowIfFailed(dxgiSwapChain.As(&d3dSwapChain));
+    ThrowIfFailed(dxgiFactory->MakeWindowAssociation(hwnd, DXGI_MWA_NO_ALT_ENTER));
+}
+#endif
+
+void VkRenderer::CreateSwapChain() {
 #ifdef _WIN32
     {
-        ComPtr<IDXGIFactory6> dxgiFactory;
-        ThrowIfFailed(CreateDXGIFactory2(0, IID_PPV_ARGS(&dxgiFactory)));
-
-        ComPtr<ID3D12CommandQueue> d3dQueue;
-        D3D12_COMMAND_QUEUE_DESC queueDesc{
-            .Type = D3D12_COMMAND_LIST_TYPE_DIRECT,
-            .Flags = D3D12_COMMAND_QUEUE_FLAG_NONE,
-        };
-
-        ThrowIfFailed(d3dDevice->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&d3dQueue)));
-
-        ComPtr<IDXGISwapChain1> dxgiSwapChain;
-        DXGI_SWAP_CHAIN_DESC1 swapChainDesc{
-            .Width = swapChainExtent.width,
-            .Height = swapChainExtent.height,
-            .Format = DXGI_FORMAT_B8G8R8A8_UNORM,
-            .SampleDesc = {.Count = 1},
-            .BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT,
-            .BufferCount = imageCount,
-            .SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD,
-        };
-
-        auto hwnd = glfwGetWin32Window(glfwWindow);
-        ThrowIfFailed(dxgiFactory->CreateSwapChainForHwnd(d3dQueue.Get(), hwnd, &swapChainDesc, nullptr, nullptr, &dxgiSwapChain));
-        ThrowIfFailed(dxgiSwapChain.As(&d3dSwapChain));
-        ThrowIfFailed(dxgiFactory->MakeWindowAssociation(hwnd, DXGI_MWA_NO_ALT_ENTER));
-    }
-
-    {
-        ComPtr<ID3D12Resource> d3dFramebuffers[imageCount]{};
-        for (uint32_t i = 0; i < imageCount; i++) {
+        ComPtr<ID3D12Resource> d3dFramebuffers[swapChainImageCount]{};
+        for (uint32_t i = 0; i < swapChainImageCount; i++) {
             ThrowIfFailed(d3dSwapChain->GetBuffer(i, IID_PPV_ARGS(&d3dFramebuffers[i])));
         }
 
@@ -1407,35 +1490,48 @@ void VkRenderer::CreateSwapChain() {
             VK_EXTERNAL_MEMORY_HANDLE_TYPE_D3D12_RESOURCE_BIT,
         };
 
-        // static constexpr VkImageCreateInfo imageInfo{
-        //     VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
-        //     &externalMemoryImageCreateInfo,
-        //     0,
-        //     VK_IMAGE_TYPE_2D,
-        //     VK_FORMAT_B8G8R8A8_UNORM,
-        //     {swapChainExtent.width, swapChainExtent.height, 1},
-        //     1,
-        //     1,
-        //     VK_SAMPLE_COUNT_1_BIT,
-        //     VK_IMAGE_TILING_OPTIMAL,
-        //     VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
-        //     VK_SHARING_MODE_EXCLUSIVE,
-        //     0,
-        //     VK_NULL_HANDLE,
-        //     VK_IMAGE_LAYOUT_UNDEFINED,
-        // };
+        VkImageCreateInfo imageInfo{
+            VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+            &externalMemoryImageCreateInfo,
+            0,
+            VK_IMAGE_TYPE_2D,
+            surfaceFormat.format,
+            {swapChainExtent.width, swapChainExtent.height, 1},
+            1,
+            1,
+            VK_SAMPLE_COUNT_1_BIT,
+            VK_IMAGE_TILING_OPTIMAL,
+            VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+            VK_SHARING_MODE_EXCLUSIVE,
+            0,
+            VK_NULL_HANDLE,
+            VK_IMAGE_LAYOUT_UNDEFINED,
+        };
 
-        for (uint32_t i = 0; i < imageCount; i++) {
-            memoryManager->createExternalImage(imageInfo, d3dFramebuffers[i].Get());
+        swapChainImages.resize(swapChainImageCount);
+        swapChainMemory.resize(swapChainImageCount);
+
+        for (uint32_t i = 0; i < swapChainImageCount; i++) {
+            auto [image, memory] = memoryManager->createExternalImage(imageInfo, memoryProperties, d3dDevice.Get(), d3dFramebuffers[i].Get());
+            swapChainImages[i] = image;
+            swapChainMemory[i] = memory;
         }
     }
 #else
+    const auto &[capabilities, formats, presentModes] = QuerySwapChainSupport(physicalDevice);
+
+    surfaceFormat = ChooseSwapSurfaceFormat(formats);
+    presentMode = ChooseSwapPresentMode(presentModes);
+    swapChainExtent = ChooseSwapExtent(capabilities);
+
+    swapChainImageCount = capabilities.maxImageCount > 0 && capabilities.minImageCount + 1 > capabilities.maxImageCount ? capabilities.maxImageCount : capabilities.minImageCount + 1;
+
     VkSwapchainCreateInfoKHR createInfo{
         VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
         VK_NULL_HANDLE,
         0,
         surface,
-        imageCount,
+        swapChainImageCount,
         surfaceFormat.format,
         surfaceFormat.colorSpace,
         swapChainExtent,
@@ -1461,11 +1557,11 @@ void VkRenderer::CreateSwapChain() {
 
     VK_CHECK(vkCreateSwapchainKHR(device, &createInfo, VK_NULL_HANDLE, &swapChain));
 
-    vkGetSwapchainImagesKHR(device, swapChain, &imageCount, VK_NULL_HANDLE);
-    swapChainImages.resize(imageCount);
-    vkGetSwapchainImagesKHR(device, swapChain, &imageCount, swapChainImages.data());
+    vkGetSwapchainImagesKHR(device, swapChain, &swapChainImageCount, VK_NULL_HANDLE);
+    swapChainImages.resize(swapChainImageCount);
+    vkGetSwapchainImagesKHR(device, swapChain, &swapChainImageCount, swapChainImages.data());
+#endif
     swapChainImageViews.resize(swapChainImages.size());
-
     camera->UpdateAspectRatio(static_cast<float>(swapChainExtent.width), static_cast<float>(swapChainExtent.height));
 
     VkImageViewCreateInfo imageViewCreateInfo{
@@ -1486,7 +1582,6 @@ void VkRenderer::CreateSwapChain() {
         imageViewCreateInfo.image = swapChainImages[i];
         VK_CHECK(vkCreateImageView(device, &imageViewCreateInfo, VK_NULL_HANDLE, &swapChainImageViews[i]));
     }
-#endif
 }
 
 void VkRenderer::CreateDepthImage() {
@@ -2198,7 +2293,8 @@ VkExtent2D VkRenderer::ChooseSwapExtent(const VkSurfaceCapabilitiesKHR &capabili
     };
 }
 
-void VkRenderer::CleanupSwapChain() {
+void VkRenderer::CleanupSwapChain()
+{
     for (const auto &f: swapChainFramebuffers) {
         vkDestroyFramebuffer(device, f, nullptr);
     }
@@ -2207,11 +2303,18 @@ void VkRenderer::CleanupSwapChain() {
         vkDestroyImageView(device, imageView, nullptr);
     }
 
+#ifdef _WIN32
+    memoryManager->destroyImage(shadowCascadeImage, false);
+    memoryManager->destroyImage(depthImage, false);
+    for (int i = 0; i < swapChainImages.size(); i++) {
+        memoryManager->destroyExternalImageMemory(swapChainImages[i], swapChainMemory[i]);
+    }
+#else
     vkDestroyFramebuffer(device, depthPrepassFramebuffer, nullptr);
     memoryManager->destroyImage(shadowCascadeImage, false);
     memoryManager->destroyImage(depthImage, false);
-
     vkDestroySwapchainKHR(device, swapChain, nullptr);
+#endif
 }
 
 void VkRenderer::SavePipelineCache() const {
