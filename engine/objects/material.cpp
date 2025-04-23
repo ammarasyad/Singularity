@@ -17,9 +17,9 @@ void VkGLTFMetallic_Roughness::buildPipelines(const VkRenderer *renderer) {
         sizeof(MeshShaderPushConstants)
     };
 
-    constexpr VkPushConstantRange fragmentPushConstantRange{
+    const VkPushConstantRange fragmentPushConstantRange{
         VK_SHADER_STAGE_FRAGMENT_BIT,
-        sizeof(MeshPushConstants),
+        static_cast<uint32_t>(renderer->meshShader ? sizeof(MeshShaderPushConstants) : sizeof(MeshPushConstants)),
         sizeof(FragmentPushConstants)
     };
 
@@ -32,15 +32,15 @@ void VkGLTFMetallic_Roughness::buildPipelines(const VkRenderer *renderer) {
     materialLayout = layoutBuilder.Build(device);
 
     std::array setLayouts = {renderer->sceneDescriptorSetLayout, materialLayout, renderer->mainDescriptorSetLayout};
-    constexpr std::array pushConstantRanges = {pushConstantRange, fragmentPushConstantRange};
+    const std::array pushConstantRanges = { renderer->meshShader ? meshShaderPushConstantRange : pushConstantRange, fragmentPushConstantRange};
     const VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo{
         VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
         VK_NULL_HANDLE,
         0,
         setLayouts.size(),
         setLayouts.data(),
-        renderer->meshShader ? 1 : static_cast<uint32_t>(pushConstantRanges.size()),
-        renderer->meshShader ? &meshShaderPushConstantRange : pushConstantRanges.data(),
+        pushConstantRanges.size(),
+        pushConstantRanges.data(),
     };
 
     VkPipelineLayout pipelineLayout;

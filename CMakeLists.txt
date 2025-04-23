@@ -86,6 +86,8 @@ add_executable(Singularity main.cpp
         engine/objects/pool.h
         min_windows.h
         graphics/vk/memory/vma_usage.h
+        common/file_watcher.cpp
+        common/file_watcher.h
 )
 
 set_target_properties(Singularity PROPERTIES WIN32_EXECUTABLE $<PLATFORM_ID:Windows>)

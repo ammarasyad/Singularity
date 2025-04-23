@@ -236,6 +236,7 @@ public:
         bool isIntegratedGPU : 1;
         bool meshShader : 1;
         bool allowTearing : 1;
+        bool isShaderInvalidated: 1;
     };
     int32_t cascadeIndex = 0;
 

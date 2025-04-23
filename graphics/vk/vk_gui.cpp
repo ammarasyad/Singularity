@@ -3,6 +3,8 @@
 #include <chrono>
 #include <backends/imgui_impl_glfw.h>
 #include <backends/imgui_impl_vulkan.h>
+
+#include "common/file_watcher.h"
 #include "graphics/vk_renderer.h"
 
 static constexpr uint32_t MIN_IMAGE_COUNT = 2;
@@ -62,6 +64,12 @@ namespace ImGui {
 //     HWND hwnd = CreateWindowEx(WS_EX_OVERLAPPEDWINDOW, MAKEINTATOM(atom), "Vulkan", WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, rc.right - rc.left, rc.bottom - rc.top, nullptr, nullptr, hInstance, nullptr);
 // }
 // #else
+
+static void reloadShaderCallback(void *arg)
+{
+    static_cast<VkRenderer *>(arg)->isShaderInvalidated = true;
+}
+
 VkGui::VkGui(const int width, const int height, const bool dynamicRendering, const bool asyncCompute) : imguiDescriptorPool(VK_NULL_HANDLE) {
     // GLFW initialization
     glfwSetErrorCallback(errorCallback);
@@ -117,6 +125,11 @@ VkGui::VkGui(const int width, const int height, const bool dynamicRendering, con
     const auto queueFamily = renderer->queueFamilyIndices.graphicsFamily.value();
 
     constexpr auto msaaSamples = VkRenderer::msaaSamples;
+
+    {
+        const char *fullPath = std::filesystem::absolute("shaders/").string().c_str();
+        addFileWatcher(fullPath, reinterpret_cast<void *(*)(void *)>(reloadShaderCallback), renderer);
+    }
 
     CreateImGuiDescriptorPool();
 
@@ -229,6 +242,7 @@ void VkGui::Shutdown() const {
     ImGui::DestroyContext();
 
     // renderer->Shutdown();
+    removeFileWatcher();
     delete renderer;
 
     glfwDestroyWindow(window);

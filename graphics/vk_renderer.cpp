@@ -41,6 +41,7 @@ VkRenderer::VkRenderer(GLFWwindow *window, Camera *camera, const bool dynamicRen
     : dynamicRendering(dynamicRendering),
       asyncCompute(asyncCompute),
       meshShader(meshShader),
+      isShaderInvalidated(false),
       glfwWindow(window),
       camera(camera)
 {
@@ -359,6 +360,12 @@ void VkRenderer::SetFPSLimit(const uint16_t fps)
 }
 
 void VkRenderer::Render(EngineStats &stats) {
+    if (isShaderInvalidated)
+    {
+        ReloadShaders();
+        isShaderInvalidated = false;
+    }
+
     stats.drawCallCount = 0;
     stats.triangleCount = 0;
 
