@@ -29,6 +29,7 @@ static constexpr uint32_t MAX_MESHLET_PRIMITIVES = 124;
 static constexpr uint32_t MAX_MESHLET_VERTICES = 64;
 
 PFN_vkCmdDrawMeshTasksEXT fn_vkCmdDrawMeshTasksEXT = nullptr;
+PFN_vkGetSemaphoreWin32HandleKHR fn_vkGetSemaphoreWin32HandleKHR = nullptr;
 
 VkRenderer::VkRenderer() : dynamicRendering(false),
                            asyncCompute(false),
@@ -100,6 +101,7 @@ void VkRenderer::Initialize(GLFWwindow *window, Camera *camera, bool dynamicRend
 
 #if defined(_WIN32) && defined(USE_DXGI_SWAPCHAIN)
     CreateDXGISwapChain();
+    fn_vkGetSemaphoreWin32HandleKHR = reinterpret_cast<PFN_vkGetSemaphoreWin32HandleKHR>(vkGetInstanceProcAddr(instance, "vkGetSemaphoreWin32HandleKHR"));
 #endif
     CreateSwapChain();
     CreateDepthImage();
@@ -167,138 +169,6 @@ void VkRenderer::Initialize(GLFWwindow *window, Camera *camera, bool dynamicRend
     UpdateCascades();
     isVkRunning = true;
 }
-
-
-
-// VkRenderer::VkRenderer(GLFWwindow *window, Camera *camera, const bool dynamicRendering, const bool asyncCompute, const bool meshShader)
-//     : dynamicRendering(dynamicRendering),
-//       asyncCompute(asyncCompute),
-//       raytracingCapable(false),
-//       framebufferResized(false),
-//       isIntegratedGPU(false),
-//       meshShader(meshShader),
-//       allowTearing(false),
-//       isShaderInvalidated(false),
-//       meshCount(0),
-//       glfwWindow(window),
-//       camera(camera)
-// {
-//     InitializeInstance();
-//
-// #ifndef NDEBUG
-//     constexpr VkDebugUtilsMessengerCreateInfoEXT debugCreateInfo{
-//         VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT,
-//         VK_NULL_HANDLE,
-//         0,
-//         VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT |
-//         VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT,
-//         VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
-//         VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT,
-//         DebugCallback,
-//         VK_NULL_HANDLE
-//     };
-//
-//     VK_CHECK(CreateDebugUtilsMessengerEXT(instance, &debugCreateInfo, VK_NULL_HANDLE, &debugMessenger));
-// #endif
-//
-//     PickPhysicalDevice();
-//     CreateLogicalDevice();
-//     CreateCommandPool();
-//
-//     if (meshShader)
-//         fn_vkCmdDrawMeshTasksEXT = reinterpret_cast<PFN_vkCmdDrawMeshTasksEXT>(vkGetInstanceProcAddr(instance, "vkCmdDrawMeshTasksEXT"));
-//
-//     // memoryManager = new VkMemoryManager{this};
-//     memoryManager.Initialize(this);
-//
-//     // Reuse pipeline cache
-//     const auto pipelineCacheData = ReadFile<char>("pipeline_cache.bin");
-//     if (!pipelineCacheData.empty())
-//     {
-//         VkPipelineCacheCreateInfo pipelineCacheCreateInfo{
-//             VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO,
-//             VK_NULL_HANDLE,
-//             0,
-//             pipelineCacheData.size(),
-//             pipelineCacheData.data()
-//         };
-//
-//         VK_CHECK(vkCreatePipelineCache(device, &pipelineCacheCreateInfo, VK_NULL_HANDLE, &pipelineCache));
-//     }
-//     else
-//     {
-//         CreatePipelineCache();
-//     }
-//
-// #if defined(_WIN32) && defined(USE_DXGI_SWAPCHAIN)
-//     CreateDXGISwapChain();
-// #endif
-//     CreateSwapChain();
-//     CreateDepthImage();
-//
-//     viewport = {
-//         0.0f,
-//         0.0f,
-//         static_cast<float>(swapChainExtent.width),
-//         static_cast<float>(swapChainExtent.height),
-//         0.0f,
-//         1.0f
-//     };
-//
-//     scissor = {
-//         {0, 0},
-//         swapChainExtent
-//     };
-//
-//     if (!dynamicRendering)
-//     {
-//         CreateRenderPass();
-//     }
-//
-//     CreateDescriptors();
-//     CreatePipelineLayout();
-//     CreateGraphicsPipeline();
-//     CreateComputePipeline();
-//
-//     if (!dynamicRendering)
-//     {
-//         CreateFramebuffers();
-//     }
-//
-//     CreateShadowCascades();
-//
-//     CreateCommandBuffers();
-//     CreateDefaultTexture();
-//     CreateSyncObjects();
-//
-//     const auto start = std::chrono::high_resolution_clock::now();
-//     // const auto structureFile = LoadGLTF(this, true, "../assets/Sponza/Sponza.gltf", "../assets/Sponza/");
-//     const auto structureFile = LoadGLTF(this, true, "../assets/main1_sponza/NewSponza_Main_glTF_003.gltf", "../assets/main1_sponza");
-//     const auto end = std::chrono::high_resolution_clock::now();
-//
-//     printf("Loading time: %lld ms\n", std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count());
-//
-//     assert(structureFile.has_value());
-//
-//     loadedScene = structureFile.value();
-//
-//     sceneDataBuffer = memoryManager.createManagedBuffer(
-//         {
-//             sizeof(SceneData), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-//             VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
-//             VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE,
-//             VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-//             VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
-//         });
-//
-//     CreateRandomLights();
-//     CreateSkybox();
-//     ComputeFrustum();
-//     UpdateDescriptorSets();
-//
-//     UpdateCascades();
-//     isVkRunning = true;
-// }
 
 VkRenderer::~VkRenderer() {
     Shutdown();
@@ -510,6 +380,21 @@ void VkRenderer::Render(EngineStats &stats) {
 
     UpdateScene(stats);
 
+#if defined(_WIN32) && defined(USE_DXGI_SWAPCHAIN)
+    static std::array<VkFence, 2> fences{
+            {
+                depthPrepassFence,
+                computeFinishedFence
+            }
+    };
+    VK_CHECK(vkWaitForFences(device, 2, fences.data(), VK_TRUE, UINT64_MAX));
+    ThrowIfFailed(d3dQueue->Signal(sharedFence.Get(), waitValue));
+    // ThrowIfFailed(frames[currentFrame].commandAllocator->Reset());
+    // ThrowIfFailed(frames[currentFrame].commandList->Reset(frames[currentFrame].commandAllocator.Get(), nullptr));
+
+    uint32_t imageIndex = d3dSwapChain->GetCurrentBackBufferIndex();
+    VK_CHECK(vkResetFences(device, 2, fences.data()));
+#else
     static std::array<VkFence, 3> fences;
     fences[0] = frames[currentFrame].inFlightFence;
 
@@ -526,24 +411,6 @@ void VkRenderer::Render(EngineStats &stats) {
     const auto size = fences.size() - !asyncCompute - meshShader;
     VK_CHECK(vkWaitForFences(device, size, fences.data(), VK_TRUE, UINT64_MAX));
 
-#if defined(_WIN32) && defined(USE_DXGI_SWAPCHAIN)
-    uint32_t imageIndex = d3dSwapChain->GetCurrentBackBufferIndex();
-    {
-        VkSubmitInfo submitInfo{
-            VK_STRUCTURE_TYPE_SUBMIT_INFO,
-            VK_NULL_HANDLE,
-            0,
-            VK_NULL_HANDLE,
-            VK_NULL_HANDLE,
-            0,
-            VK_NULL_HANDLE,
-            1,
-            &frames[currentFrame].imageAvailableSemaphore
-        };
-
-        VK_CHECK(vkQueueSubmit(graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE));
-    }
-#else
     uint32_t imageIndex;
     auto result = vkAcquireNextImageKHR(device, swapChain, UINT64_MAX, frames[currentFrame].imageAvailableSemaphore,
                                         VK_NULL_HANDLE, &imageIndex);
@@ -556,9 +423,9 @@ void VkRenderer::Render(EngineStats &stats) {
     if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) [[unlikely]] {
         throw std::runtime_error("Failed to acquire swap chain image!");
     }
-#endif
 
     VK_CHECK(vkResetFences(device, size, fences.data()));
+#endif
     VK_CHECK(vkResetCommandBuffer(frames[currentFrame].commandBuffer, VK_COMMAND_BUFFER_RESET_RELEASE_RESOURCES_BIT));
     VK_CHECK(vkResetCommandBuffer(depthPrepassCommandBuffer, VK_COMMAND_BUFFER_RESET_RELEASE_RESOURCES_BIT));
 
@@ -629,9 +496,8 @@ void VkRenderer::Render(EngineStats &stats) {
     const auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
     stats.meshDrawTime = static_cast<float>(elapsed) / 1000.f;
 
-    static constexpr VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT, VK_PIPELINE_STAGE_MESH_SHADER_BIT_EXT};
+    static constexpr VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT};
     static std::array<VkSemaphore, 3> waitSemaphores;
-    waitSemaphores[0] = frames[currentFrame].imageAvailableSemaphore;
     if (meshShader)
     {
         waitSemaphores[1] = computeFinishedSemaphore;
@@ -643,37 +509,58 @@ void VkRenderer::Render(EngineStats &stats) {
     }
 
 #if defined(_WIN32) && defined(USE_DXGI_SWAPCHAIN)
-    VkSubmitInfo submitInfo{
-        VK_STRUCTURE_TYPE_SUBMIT_INFO,
+    waitSemaphores[0] = timelineSemaphore;
+
+    VkTimelineSemaphoreSubmitInfo semaphoreSubmitInfo{
+        VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO,
         VK_NULL_HANDLE,
         static_cast<uint32_t>(waitSemaphores.size() - !asyncCompute - meshShader),
+        &waitValue,
+        1,
+        &signalValue
+    };
+
+    VkSubmitInfo submitInfo{
+        VK_STRUCTURE_TYPE_SUBMIT_INFO,
+        &semaphoreSubmitInfo,
+        semaphoreSubmitInfo.waitSemaphoreValueCount,
         waitSemaphores.data(),
         waitStages,
         1,
         &frames[currentFrame].commandBuffer,
         1,
-        &frames[currentFrame].renderFinishedSemaphore
+        &timelineSemaphore
     };
 
-    VK_CHECK(vkQueueSubmit(graphicsQueue, 1, &submitInfo, frames[currentFrame].inFlightFence));
-
-    static constexpr VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
-    submitInfo.waitSemaphoreCount = 1;
-    submitInfo.pWaitSemaphores = &frames[currentFrame].renderFinishedSemaphore;
-    submitInfo.pWaitDstStageMask = &waitStage;
-    submitInfo.commandBufferCount = 0;
-    submitInfo.pCommandBuffers = VK_NULL_HANDLE;
-    submitInfo.signalSemaphoreCount = 0;
-    submitInfo.pSignalSemaphores = VK_NULL_HANDLE;
-
     VK_CHECK(vkQueueSubmit(graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE));
-    ThrowIfFailed(d3dSwapChain->Present(1, 0));
+    ThrowIfFailed(d3dQueue->Wait(sharedFence.Get(), signalValue));
+
+    // D3D12_RESOURCE_BARRIER barrier{
+    //     .Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION,
+    //     .Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE,
+    //     .Transition = {
+    //         .pResource = d3dFramebuffers[currentFrame].Get(),
+    //         .Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,
+    //         .StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET,
+    //         .StateAfter = D3D12_RESOURCE_STATE_PRESENT,
+    //     }
+    // };
+    //
+    // frames[currentFrame].commandList->ResourceBarrier(1, &barrier);
+    // ThrowIfFailed(frames[currentFrame].commandList->Close());
+    // d3dQueue->ExecuteCommandLists(1, reinterpret_cast<ID3D12CommandList * const *>(frames[currentFrame].commandList.GetAddressOf()));
+    ThrowIfFailed(d3dSwapChain->Present(0, DXGI_PRESENT_ALLOW_TEARING));
+    // ThrowIfFailed(d3dSwapChain->Present(1, 0));
 
     if (framebufferResized)
     {
         framebufferResized = false;
     }
+
+    waitValue++;
+    signalValue++;
 #else
+    waitSemaphores[0] = frames[currentFrame].imageAvailableSemaphore;
     VkSubmitInfo submitInfo{
         VK_STRUCTURE_TYPE_SUBMIT_INFO,
         VK_NULL_HANDLE,
@@ -990,7 +877,7 @@ void VkRenderer::EndDraw(const VkCommandBuffer &commandBuffer, const uint32_t im
     const VulkanImage swapChainImage{swapChainImages[imageIndex], swapChainImageViews[imageIndex], VK_NULL_HANDLE, {swapChainExtent.width, swapChainExtent.height, 1}, surfaceFormat.format};
     if (dynamicRendering) {
         vkCmdEndRendering(commandBuffer);
-        TransitionImage(commandBuffer, swapChainImage, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT, VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, 0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+        TransitionImage(commandBuffer, swapChainImage, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT, VK_PIPELINE_STAGE_2_NONE, 0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
     } else {
         vkCmdEndRenderPass(commandBuffer);
     }
@@ -1093,12 +980,16 @@ void VkRenderer::Shutdown() {
     VK_CHECK(vkDeviceWaitIdle(device));
 
     loadedScene.Clear(this);
-
+#if defined(_WIN32) && defined(USE_DXGI_SWAPCHAIN)
+    CloseHandle(timelineSemaphoreHandle);
+    vkDestroySemaphore(device, timelineSemaphore, nullptr);
+#endif
     for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+#if !defined(_WIN32) || !defined(USE_DXGI_SWAPCHAIN)
         vkDestroySemaphore(device, frames[i].renderFinishedSemaphore, nullptr);
         vkDestroySemaphore(device, frames[i].imageAvailableSemaphore, nullptr);
         vkDestroyFence(device, frames[i].inFlightFence, nullptr);
-
+#endif
         vkDestroyCommandPool(device, frames[i].commandPool, nullptr);
         frames[i].frameDescriptors.Destroy(device);
     }
@@ -1169,6 +1060,7 @@ void VkRenderer::Shutdown() {
 }
 
 void VkRenderer::RecreateSwapChain() {
+    printf("Recreating swap chain\n");
     vkDeviceWaitIdle(device);
 
     int width, height;
@@ -1633,6 +1525,7 @@ void VkRenderer::CreateLogicalDevice() {
         .pNext = &vulkan11Features,
         .shaderFloat16 = VK_TRUE,
         .descriptorIndexing = VK_TRUE,
+        .timelineSemaphore = VK_TRUE,
         .bufferDeviceAddress = VK_TRUE,
     };
 
@@ -1651,7 +1544,7 @@ void VkRenderer::CreateLogicalDevice() {
     };
 
 #if defined(_WIN32) && defined(USE_DXGI_SWAPCHAIN)
-    constexpr uint32_t arraySize = 11;
+    constexpr uint32_t arraySize = 13;
 #else
     constexpr uint32_t arraySize = 10;
 #endif
@@ -1663,6 +1556,8 @@ void VkRenderer::CreateLogicalDevice() {
         VK_KHR_MAINTENANCE_4_EXTENSION_NAME,
 #if defined(_WIN32) && defined(USE_DXGI_SWAPCHAIN)
         VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME,
+        VK_KHR_EXTERNAL_SEMAPHORE_WIN32_EXTENSION_NAME,
+        VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME,
 #endif
         VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME,
         VK_KHR_RAY_QUERY_EXTENSION_NAME,
@@ -1745,13 +1640,19 @@ void VkRenderer::CreateDXGISwapChain()
     ComPtr<IDXGIFactory6> dxgiFactory;
     ThrowIfFailed(CreateDXGIFactory2(0, IID_PPV_ARGS(&dxgiFactory)));
 
-    ComPtr<ID3D12CommandQueue> d3dQueue;
+    // ComPtr<ID3D12CommandQueue> d3dQueue;
     D3D12_COMMAND_QUEUE_DESC queueDesc{
         .Type = D3D12_COMMAND_LIST_TYPE_DIRECT,
         .Flags = D3D12_COMMAND_QUEUE_FLAG_NONE,
     };
 
     ThrowIfFailed(d3dDevice->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&d3dQueue)));
+
+    // for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+    //     ThrowIfFailed(d3dDevice->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&frames[i].commandAllocator)));
+    //     ThrowIfFailed(d3dDevice->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, frames[i].commandAllocator.Get(), nullptr, IID_PPV_ARGS(&frames[i].commandList)));
+    //     ThrowIfFailed(frames[i].commandList->Close());
+    // }
 
     {
         BOOL tearing = false;
@@ -2394,9 +2295,30 @@ void VkRenderer::CreateDefaultTexture() {
 }
 
 void VkRenderer::CreateSyncObjects() {
-    constexpr VkSemaphoreCreateInfo semaphoreInfo{VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
+#if defined(_WIN32) && defined(USE_DXGI_SWAPCHAIN)
+    static constexpr VkExportSemaphoreCreateInfo exportSemaphoreCreateInfo{
+        VK_STRUCTURE_TYPE_EXPORT_SEMAPHORE_CREATE_INFO,
+        VK_NULL_HANDLE,
+        VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_WIN32_BIT,
+    };
 
-    constexpr VkFenceCreateInfo fenceInfo{
+    static constexpr VkSemaphoreTypeCreateInfo semaphoreTypeCreateInfo{
+        VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO,
+        &exportSemaphoreCreateInfo,
+        VK_SEMAPHORE_TYPE_TIMELINE,
+        0
+    };
+
+    VkSemaphoreGetWin32HandleInfoKHR semaphoreHandleInfo{
+        VK_STRUCTURE_TYPE_SEMAPHORE_GET_WIN32_HANDLE_INFO_KHR,
+        VK_NULL_HANDLE,
+        VK_NULL_HANDLE,
+        VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_WIN32_BIT,
+    };
+#endif
+    VkSemaphoreCreateInfo semaphoreInfo{VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
+
+    static constexpr VkFenceCreateInfo fenceInfo{
         VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
         VK_NULL_HANDLE,
         VK_FENCE_CREATE_SIGNALED_BIT
@@ -2407,14 +2329,22 @@ void VkRenderer::CreateSyncObjects() {
         VK_CHECK(vkCreateFence(device, &fenceInfo, VK_NULL_HANDLE, &computeFinishedFence));
     }
 
+    VK_CHECK(vkCreateSemaphore(device, &semaphoreInfo, VK_NULL_HANDLE, &depthPrepassSemaphore));
+    VK_CHECK(vkCreateFence(device, &fenceInfo, VK_NULL_HANDLE, &depthPrepassFence));
+
+#if defined(_WIN32) && defined(USE_DXGI_SWAPCHAIN)
+    semaphoreInfo.pNext = &semaphoreTypeCreateInfo;
+    VK_CHECK(vkCreateSemaphore(device, &semaphoreInfo, VK_NULL_HANDLE, &timelineSemaphore));
+    semaphoreHandleInfo.semaphore = timelineSemaphore;
+    VK_CHECK(fn_vkGetSemaphoreWin32HandleKHR(device, &semaphoreHandleInfo, &timelineSemaphoreHandle));
+    ThrowIfFailed(d3dDevice->OpenSharedHandle(timelineSemaphoreHandle, __uuidof(ID3D12Fence), &sharedFence));
+#else
     for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
         VK_CHECK(vkCreateSemaphore(device, &semaphoreInfo, VK_NULL_HANDLE, &frames[i].imageAvailableSemaphore));
         VK_CHECK(vkCreateSemaphore(device, &semaphoreInfo, VK_NULL_HANDLE, &frames[i].renderFinishedSemaphore));
         VK_CHECK(vkCreateFence(device, &fenceInfo, VK_NULL_HANDLE, &frames[i].inFlightFence));
     }
-
-    VK_CHECK(vkCreateSemaphore(device, &semaphoreInfo, VK_NULL_HANDLE, &depthPrepassSemaphore));
-    VK_CHECK(vkCreateFence(device, &fenceInfo, VK_NULL_HANDLE, &depthPrepassFence));
+#endif
 }
 
 void VkRenderer::CreateDescriptors() {

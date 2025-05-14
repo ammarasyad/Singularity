@@ -38,7 +38,7 @@ struct EngineStats;
 struct MeshAsset;
 static bool isVkRunning = false;
 
-constexpr uint32_t MAX_FRAMES_IN_FLIGHT = 3;
+constexpr uint32_t MAX_FRAMES_IN_FLIGHT = 2;
 using hvec4 = glm::vec<4, glm::detail::hdata>;
 
 extern PFN_vkCmdDrawMeshTasksEXT fn_vkCmdDrawMeshTasksEXT;
@@ -64,9 +64,14 @@ namespace glm {
 }
 
 struct FrameData {
+#if defined(_WIN32) && defined(USE_DXGI_SWAPCHAIN)
+    // ComPtr<ID3D12CommandAllocator> commandAllocator;
+    // ComPtr<ID3D12GraphicsCommandList> commandList;
+#else
     VkSemaphore imageAvailableSemaphore{};
     VkSemaphore renderFinishedSemaphore{};
     VkFence inFlightFence{};
+#endif
 
     VkCommandPool commandPool{};
     VkCommandBuffer commandBuffer{};
@@ -263,6 +268,13 @@ public:
 #if defined(_WIN32) && defined(USE_DXGI_SWAPCHAIN)
     ComPtr<ID3D12Device> d3dDevice;
     ComPtr<IDXGISwapChain3> d3dSwapChain;
+    ComPtr<ID3D12CommandQueue> d3dQueue;
+    // ComPtr<ID3D12Resource> d3dFramebuffers[MAX_FRAMES_IN_FLIGHT];
+    VkSemaphore timelineSemaphore;
+    HANDLE timelineSemaphoreHandle;
+    ComPtr<ID3D12Fence> sharedFence;
+    uint64_t waitValue = 1;
+    uint64_t signalValue = 2;
     // TODO: switch this
     std::vector<VkDeviceMemory> swapChainMemory;
 #else

@@ -219,7 +219,7 @@ void VkGui::Loop() {
 
         renderer.Render(stats);
 
-        auto end = std::chrono::high_resolution_clock::now();
+        const auto end = std::chrono::high_resolution_clock::now();
         const auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
         stats.frameTime = deltaTime = static_cast<float>(elapsed) / 1000.f;
     }
