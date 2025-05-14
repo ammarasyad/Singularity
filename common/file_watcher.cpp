@@ -10,7 +10,7 @@
 
 struct thread_args
 {
-    LPCSTR path;
+    std::string path;
     void *(* callback)(void *);
     void *arg;
 };
@@ -24,13 +24,16 @@ static HANDLE hDir;
 
 void fileWatcherInit(thread_args *args)
 {
-    const auto [path, callback, arg] = *args;
+    const auto [pathStr, callback, arg] = *args;
+    const auto path = pathStr.c_str();
     hDir = FindFirstChangeNotification(path, FALSE, FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_SIZE | FILE_NOTIFY_CHANGE_CREATION);
     if (hDir == INVALID_HANDLE_VALUE)
     {
         fprintf(stderr, "Failed to open directory \"%s\" with error code: %x\n", path, HRESULT_FROM_WIN32(GetLastError()));
         return;
     }
+
+    printf("Watching directory \"%s\"\n", path);
 
     // hDir = CreateFileW(path,
     //     FILE_LIST_DIRECTORY,
@@ -116,7 +119,7 @@ void fileWatcherInit(thread_args *args)
     pthread_exit(nullptr);
 }
 
-void addFileWatcher(LPCSTR path, void *(*callback)(void *), void *arg)
+void addFileWatcher(std::string path, void *(*callback)(void *), void *arg)
 {
     if (fileWatcherThread) return;
 

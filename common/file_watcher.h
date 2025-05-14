@@ -1,9 +1,9 @@
 #ifndef FILE_WATCHER_H
 #define FILE_WATCHER_H
 
-#include "min_windows.h"
+#include <string>
 
-void addFileWatcher(LPCSTR path, void *(* callback)(void *), void *arg);
+void addFileWatcher(std::string path, void *(* callback)(void *), void *arg);
 void removeFileWatcher();
 
 #endif

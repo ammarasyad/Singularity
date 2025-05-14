@@ -127,11 +127,8 @@ VkGui::VkGui(const int width, const int height, const bool dynamicRendering, con
 
     constexpr auto msaaSamples = VkRenderer::msaaSamples;
 
-    {
-        const auto fullPath = std::filesystem::absolute("shaders/").string();
-        const auto fullPathStr = fullPath.c_str();
-        addFileWatcher(fullPathStr, reinterpret_cast<void *(*)(void *)>(reloadShaderCallback), &renderer);
-    }
+    const auto fullPath = std::filesystem::absolute("shaders/").string();
+    addFileWatcher(fullPath, reinterpret_cast<void *(*)(void *)>(reloadShaderCallback), &renderer);
 
     CreateImGuiDescriptorPool();
 
