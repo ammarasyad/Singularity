@@ -18,7 +18,7 @@
 #include "ext/matrix_transform.hpp"
 #include "ext/matrix_clip_space.inl"
 
-#ifdef _WIN32
+#if defined(_WIN32) && defined(USE_DXGI_SWAPCHAIN)
 #include <d3d12.h>
 #include <dxgi1_6.h>
 #define HrToString(x) std::string("HRESULT: ") + std::format("{:x}", (uint32_t) x)
@@ -98,7 +98,7 @@ void VkRenderer::Initialize(GLFWwindow *window, Camera *camera, bool dynamicRend
         CreatePipelineCache();
     }
 
-#ifdef _WIN32
+#if defined(_WIN32) && defined(USE_DXGI_SWAPCHAIN)
     CreateDXGISwapChain();
 #endif
     CreateSwapChain();
@@ -230,7 +230,7 @@ void VkRenderer::Initialize(GLFWwindow *window, Camera *camera, bool dynamicRend
 //         CreatePipelineCache();
 //     }
 //
-// #ifdef _WIN32
+// #if defined(_WIN32) && defined(USE_DXGI_SWAPCHAIN)
 //     CreateDXGISwapChain();
 // #endif
 //     CreateSwapChain();
@@ -526,7 +526,7 @@ void VkRenderer::Render(EngineStats &stats) {
     const auto size = fences.size() - !asyncCompute - meshShader;
     VK_CHECK(vkWaitForFences(device, size, fences.data(), VK_TRUE, UINT64_MAX));
 
-#ifdef _WIN32
+#if defined(_WIN32) && defined(USE_DXGI_SWAPCHAIN)
     uint32_t imageIndex = d3dSwapChain->GetCurrentBackBufferIndex();
     {
         VkSubmitInfo submitInfo{
@@ -629,7 +629,7 @@ void VkRenderer::Render(EngineStats &stats) {
     const auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
     stats.meshDrawTime = static_cast<float>(elapsed) / 1000.f;
 
-    static constexpr VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT, VK_PIPELINE_STAGE_MESH_SHADER_BIT_EXT};
+    static constexpr VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT, VK_PIPELINE_STAGE_MESH_SHADER_BIT_EXT};
     static std::array<VkSemaphore, 3> waitSemaphores;
     waitSemaphores[0] = frames[currentFrame].imageAvailableSemaphore;
     if (meshShader)
@@ -642,7 +642,7 @@ void VkRenderer::Render(EngineStats &stats) {
         waitSemaphores[2] = computeFinishedSemaphore;
     }
 
-#ifdef _WIN32
+#if defined(_WIN32) && defined(USE_DXGI_SWAPCHAIN)
     VkSubmitInfo submitInfo{
         VK_STRUCTURE_TYPE_SUBMIT_INFO,
         VK_NULL_HANDLE,
@@ -1178,7 +1178,7 @@ void VkRenderer::RecreateSwapChain() {
         glfwWaitEvents();
     }
 
-#ifdef _WIN32
+#if defined(_WIN32) && defined(USE_DXGI_SWAPCHAIN)
     DXGI_SWAP_CHAIN_DESC swapChainDesc{};
     ThrowIfFailed(d3dSwapChain->GetDesc(&swapChainDesc));
     ThrowIfFailed(d3dSwapChain->ResizeBuffers(swapChainImageCount, width, height, swapChainDesc.BufferDesc.Format, swapChainDesc.Flags));
@@ -1515,7 +1515,7 @@ void VkRenderer::PickPhysicalDevice() {
     std::vector<VkPhysicalDevice> physicalDevices(deviceCount);
     vkEnumeratePhysicalDevices(instance, &deviceCount, physicalDevices.data());
 
-#ifdef _WIN32
+#if defined(_WIN32) && defined(USE_DXGI_SWAPCHAIN)
 
     {
         ComPtr<IDXGIFactory6> dxgiFactory;
@@ -1650,7 +1650,7 @@ void VkRenderer::CreateLogicalDevice() {
         {.multiDrawIndirect = VK_TRUE, .depthClamp = VK_TRUE, .samplerAnisotropy = VK_TRUE, .shaderInt16 = VK_TRUE }
     };
 
-#ifdef _WIN32
+#if defined(_WIN32) && defined(USE_DXGI_SWAPCHAIN)
     constexpr uint32_t arraySize = 11;
 #else
     constexpr uint32_t arraySize = 10;
@@ -1661,7 +1661,7 @@ void VkRenderer::CreateLogicalDevice() {
         VK_EXT_GRAPHICS_PIPELINE_LIBRARY_EXTENSION_NAME,
         VK_KHR_SPIRV_1_4_EXTENSION_NAME,
         VK_KHR_MAINTENANCE_4_EXTENSION_NAME,
-#ifdef _WIN32
+#if defined(_WIN32) && defined(USE_DXGI_SWAPCHAIN)
         VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME,
 #endif
         VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME,
@@ -1731,7 +1731,7 @@ void VkRenderer::CreatePipelineCache() {
     VK_CHECK(vkCreatePipelineCache(device, &pipelineCacheInfo, VK_NULL_HANDLE, &pipelineCache));
 }
 
-#ifdef _WIN32
+#if defined(_WIN32) && defined(USE_DXGI_SWAPCHAIN)
 void VkRenderer::CreateDXGISwapChain()
 {
     const auto &[capabilities, formats, presentModes] = QuerySwapChainSupport(physicalDevice);
@@ -1779,7 +1779,7 @@ void VkRenderer::CreateDXGISwapChain()
 #endif
 
 void VkRenderer::CreateSwapChain() {
-#ifdef _WIN32
+#if defined(_WIN32) && defined(USE_DXGI_SWAPCHAIN)
     {
         ComPtr<ID3D12Resource> d3dFramebuffers[swapChainImageCount]{};
         for (uint32_t i = 0; i < swapChainImageCount; i++) {
@@ -2606,7 +2606,7 @@ void VkRenderer::CleanupSwapChain()
         vkDestroyImageView(device, imageView, nullptr);
     }
 
-#ifdef _WIN32
+#if defined(_WIN32) && defined(USE_DXGI_SWAPCHAIN)
     memoryManager.destroyImage(shadowCascadeImage, false);
     memoryManager.destroyImage(depthImage, false);
     for (int i = 0; i < swapChainImages.size(); i++) {

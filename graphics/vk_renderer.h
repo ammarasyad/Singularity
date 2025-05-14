@@ -29,6 +29,8 @@ using Microsoft::WRL::ComPtr;
 #include "vk/vk_descriptor_layout.h"
 #include "engine/objects/gltf.h"
 
+#define USE_DXGI_SWAPCHAIN
+
 static constexpr uint32_t SHADOW_MAP_CASCADE_COUNT = 4;
 static constexpr uint32_t SHADOW_MAP_SIZE = 4096;
 
@@ -36,7 +38,7 @@ struct EngineStats;
 struct MeshAsset;
 static bool isVkRunning = false;
 
-constexpr uint32_t MAX_FRAMES_IN_FLIGHT = 2;
+constexpr uint32_t MAX_FRAMES_IN_FLIGHT = 3;
 using hvec4 = glm::vec<4, glm::detail::hdata>;
 
 extern PFN_vkCmdDrawMeshTasksEXT fn_vkCmdDrawMeshTasksEXT;
@@ -258,7 +260,7 @@ public:
     VkViewport viewport{};
     VkRect2D scissor{};
 
-#ifdef _WIN32
+#if defined(_WIN32) && defined(USE_DXGI_SWAPCHAIN)
     ComPtr<ID3D12Device> d3dDevice;
     ComPtr<IDXGISwapChain3> d3dSwapChain;
     // TODO: switch this
@@ -444,7 +446,7 @@ private:
     inline void PickPhysicalDevice();
     inline void CreateLogicalDevice();
     inline void CreatePipelineCache();
-#ifdef _WIN32
+#if defined(_WIN32) && defined(USE_DXGI_SWAPCHAIN)
     inline void CreateDXGISwapChain();
 #endif
     inline void CreateSwapChain();
