@@ -112,23 +112,25 @@ VkGui::VkGui(const int width, const int height, const bool dynamicRendering, con
     // });
 
     // VkRenderer initialization
-    renderer = new VkRenderer(window, &camera, dynamicRendering, asyncCompute, true);
+    // renderer = VkRenderer(window, &camera, dynamicRendering, asyncCompute, false);
+    renderer.Initialize(window, &camera, dynamicRendering, asyncCompute, false);
 
-    const auto instance = renderer->instance;
-    const auto physicalDevice = renderer->physicalDevice;
-    const auto logicalDevice = renderer->device;
-    const auto pipelineCache = renderer->pipelineCache;
-    const auto queue = renderer->graphicsQueue;
-    const auto format = renderer->surfaceFormat.format;
-    const auto renderPass = renderer->renderPass;
-    const auto depthFormat = renderer->depthImage.format;
-    const auto queueFamily = renderer->queueFamilyIndices.graphicsFamily.value();
+    const auto instance = renderer.instance;
+    const auto physicalDevice = renderer.physicalDevice;
+    const auto logicalDevice = renderer.device;
+    const auto pipelineCache = renderer.pipelineCache;
+    const auto queue = renderer.graphicsQueue;
+    const auto format = renderer.surfaceFormat.format;
+    const auto renderPass = renderer.renderPass;
+    const auto depthFormat = renderer.depthImage.format;
+    const auto queueFamily = renderer.queueFamilyIndices.graphicsFamily.value();
 
     constexpr auto msaaSamples = VkRenderer::msaaSamples;
 
     {
-        const char *fullPath = std::filesystem::absolute("shaders/").string().c_str();
-        addFileWatcher(fullPath, reinterpret_cast<void *(*)(void *)>(reloadShaderCallback), renderer);
+        const auto fullPath = std::filesystem::absolute("shaders/").string();
+        const auto fullPathStr = fullPath.c_str();
+        addFileWatcher(fullPathStr, reinterpret_cast<void *(*)(void *)>(reloadShaderCallback), &renderer);
     }
 
     CreateImGuiDescriptorPool();
@@ -175,8 +177,8 @@ void VkGui::Loop() {
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
 
-        if (renderer->framebufferResized) {
-            renderer->RecreateSwapChain();
+        if (renderer.framebufferResized) {
+            renderer.RecreateSwapChain();
             continue;
         }
 
@@ -204,21 +206,21 @@ void VkGui::Loop() {
             ImGui::Text("Camera Pitch: %.2f, Yaw: %.2f", camera.pitch, camera.yaw);
 
             ImGui::SliderFloat("FOV", [&] { return camera.Fov(); }, [&](const float &newValue){ camera.setFov(newValue); }, 30.f, 120.f, "%.1f", ImGuiSliderFlags_AlwaysClamp);
-            ImGui::SliderInt("FPS Limit", [&] { return renderer->GetFPSLimit(); }, [&](const uint16_t &fps) { renderer->SetFPSLimit(fps); }, 1, 240);
-            // ImGui::Checkbox("Display Shadow Map", &renderer->displayShadowMap);
-            // if (renderer->displayShadowMap) {
-            //     ImGui::SliderInt("Cascade Index", &renderer->cascadeIndex, 0, SHADOW_MAP_CASCADE_COUNT - 1);
+            ImGui::SliderInt("FPS Limit", [&] { return renderer.GetFPSLimit(); }, [&](const uint16_t &fps) { renderer.SetFPSLimit(fps); }, 1, 240);
+            // ImGui::Checkbox("Display Shadow Map", &renderer.displayShadowMap);
+            // if (renderer.displayShadowMap) {
+            //     ImGui::SliderInt("Cascade Index", &renderer.cascadeIndex, 0, SHADOW_MAP_CASCADE_COUNT - 1);
             // }
             if (ImGui::Button("Reload Shaders"))
             {
-                renderer->ReloadShaders();
+                renderer.ReloadShaders();
             }
             ImGui::End();
         }
 
         ImGui::Render();
 
-        renderer->Render(stats);
+        renderer.Render(stats);
 
         auto end = std::chrono::high_resolution_clock::now();
         const auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
@@ -228,22 +230,22 @@ void VkGui::Loop() {
 
 void VkGui::Shutdown() const {
 // #ifdef _WIN32
-    VK_CHECK(vkDeviceWaitIdle(renderer->device));
+    VK_CHECK(vkDeviceWaitIdle(renderer.device));
 // #else // Fix for Linux NVIDIA drivers I guess?
-//     const auto fences = renderer->get_fences();
-//     vkWaitForFences(renderer->logical_device(), fences.size(), fences.data(), VK_TRUE, UINT64_MAX);
+//     const auto fences = renderer.get_fences();
+//     vkWaitForFences(renderer.logical_device(), fences.size(), fences.data(), VK_TRUE, UINT64_MAX);
 // #endif
 
     ImGui_ImplVulkan_Shutdown();
 
-    vkDestroyDescriptorPool(renderer->device, imguiDescriptorPool, nullptr);
+    vkDestroyDescriptorPool(renderer.device, imguiDescriptorPool, nullptr);
 
     ImGui_ImplGlfw_Shutdown();
     ImGui::DestroyContext();
 
-    // renderer->Shutdown();
+    // renderer.Shutdown();
     removeFileWatcher();
-    delete renderer;
+    // delete renderer;
 
     glfwDestroyWindow(window);
     glfwTerminate();
@@ -256,7 +258,7 @@ void VkGui::errorCallback(const int error, const char *description) {
 
 void VkGui::FramebufferResizeCallback(GLFWwindow *window, int, int) {
     const auto gui = static_cast<VkGui *>(glfwGetWindowUserPointer(window));
-    gui->renderer->framebufferResized = true;
+    gui->renderer.framebufferResized = true;
 }
 
 void VkGui::MouseButtonCallback(GLFWwindow *window, int button, int action, int mods) {
@@ -299,7 +301,7 @@ void VkGui::KeyboardCallback(GLFWwindow *window, int key, int scancode, int acti
                 glfwSetWindowShouldClose(window, GLFW_TRUE);
                 break;
             case GLFW_KEY_F2:
-                gui->renderer->Screenshot();
+                gui->renderer.Screenshot();
                 break;
             case GLFW_KEY_V:
                 mouseDisabled = !mouseDisabled;
@@ -334,5 +336,5 @@ void VkGui::CreateImGuiDescriptorPool() {
         poolSizes.data()
     };
 
-    VK_CHECK(vkCreateDescriptorPool(renderer->device, &poolinfo, nullptr, &imguiDescriptorPool));
+    VK_CHECK(vkCreateDescriptorPool(renderer.device, &poolinfo, nullptr, &imguiDescriptorPool));
 }

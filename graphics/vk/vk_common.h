@@ -5,17 +5,20 @@
 #define GLM_FORCE_AVX2
 
 #include <cstdio>
-#ifdef _WIN32
-#define WIN32_LEAN_AND_MEAN
-#define VK_USE_PLATFORM_WIN32_KHR
-#endif
 #include <vulkan/vulkan.h>
+#ifdef _WIN32
+#define VK_USE_PLATFORM_WIN32_KHR
+#include "min_windows.h"
+#include <vulkan/vulkan_win32.h>
+#endif
+// TODO: Fix this somehow
+#include <vulkan/vk_enum_string_helper.h>
 #include <memory>
 // #include <vk_mem_alloc.h>
 #include "memory/vma_usage.h"
 #include <glm.hpp>
 
-#define VK_CHECK(x) do { VkResult err = x; if (err) { printf(#x ", file: " __FILE__ ", line %d: %d\n", __LINE__, err); abort(); } } while (0)
+#define VK_CHECK(x) do { VkResult err = x; if (err) { printf(#x ", file: " __FILE__ ", line %d: %s\n", __LINE__, string_VkResult(err)); abort(); } } while (0)
 
 struct Mesh {
     VkBuffer indexBuffer;
@@ -28,8 +31,9 @@ struct MeshPushConstants {
     alignas(16) VkDeviceAddress vertexBufferDeviceAddress;
 };
 
-struct MeshShaderPushConstants {
+struct alignas(16) MeshShaderPushConstants {
     glm::mat4 mvp;
+    glm::uvec4 meshOffsets;
 };
 
 struct FragmentPushConstants {

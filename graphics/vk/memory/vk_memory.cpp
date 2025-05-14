@@ -3,9 +3,86 @@
 
 PFN_vkGetMemoryWin32HandleKHR fn_vkGetMemoryWin32HandleKHR;
 
-VkMemoryManager::VkMemoryManager(const VkRenderer * renderer, const bool customPool)
-    : allocator(), device(renderer->device), pool(VK_NULL_HANDLE), isIntegratedGPU(renderer->isIntegratedGPU), availableMemory(renderer->memoryProperties.memoryHeaps[0].size), totalMemory(availableMemory)
+// VkMemoryManager::VkMemoryManager(const VkRenderer * renderer, const bool customPool)
+//     : allocator(), device(renderer->device), pool(VK_NULL_HANDLE), availableMemory(renderer->memoryProperties.memoryHeaps[0].size), totalMemory(availableMemory), isIntegratedGPU(renderer->isIntegratedGPU)
+// {
+// #ifdef _WIN32
+//     VmaVulkanFunctions vulkanFunctions{};
+//     fn_vkGetMemoryWin32HandleKHR = reinterpret_cast<PFN_vkGetMemoryWin32HandleKHR>(vkGetInstanceProcAddr(renderer->instance, "vkGetMemoryWin32HandleKHR"));
+//     vulkanFunctions.vkGetMemoryWin32HandleKHR = fn_vkGetMemoryWin32HandleKHR;
+//     // vulkanFunctions.vkGetMemoryWin32HandleKHR = vkGetMemoryWin32HandleKHR;
+// #endif
+//
+//     const VmaAllocatorCreateInfo vmaAllocatorCreateInfo{
+//         VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT | VMA_ALLOCATOR_CREATE_EXT_MEMORY_PRIORITY_BIT
+// #ifdef _WIN32
+//             | VMA_ALLOCATOR_CREATE_KHR_EXTERNAL_MEMORY_WIN32_BIT
+// #endif
+//         ,
+//         renderer->physicalDevice,
+//         device,
+//         0,
+//         VK_NULL_HANDLE,
+//         VK_NULL_HANDLE,
+//         VK_NULL_HANDLE,
+// #ifdef _WIN32
+//         &vulkanFunctions,
+// #else
+//         VK_NULL_HANDLE,
+// #endif
+//         renderer->instance,
+//         VK_API_VERSION_1_3,
+//         VK_NULL_HANDLE
+//     };
+//
+//     VK_CHECK(vmaCreateAllocator(&vmaAllocatorCreateInfo, &allocator));
+//
+//     // TODO: Force use custom pool for external memory support
+//     if (customPool) {
+//         static constexpr VkExternalMemoryBufferCreateInfo externalMemoryBufferCreateInfo{
+//             VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_BUFFER_CREATE_INFO,
+//             VK_NULL_HANDLE,
+//             VK_EXTERNAL_MEMORY_HANDLE_TYPE_D3D12_RESOURCE_BIT
+//         };
+//
+//         static constexpr VkBufferCreateInfo bufferCreateInfo{
+//             VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+//             &externalMemoryBufferCreateInfo,
+//             {},
+//             1024,
+//             VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+//             VK_SHARING_MODE_EXCLUSIVE // TODO: Might need to change this
+//         };
+//
+//         static constexpr VmaAllocationCreateInfo allocationCreateInfo{
+//             0,
+//             VMA_MEMORY_USAGE_AUTO_PREFER_HOST
+//         };
+//
+//         uint32_t memoryTypeIndex;
+//         VK_CHECK(vmaFindMemoryTypeIndexForBufferInfo(allocator, &bufferCreateInfo, &allocationCreateInfo, &memoryTypeIndex))
+//         ;
+//
+//         VkExportMemoryAllocateInfo exportMemoryAllocateInfo{
+//             VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO,
+//             VK_NULL_HANDLE,
+//             VK_EXTERNAL_MEMORY_HANDLE_TYPE_D3D12_RESOURCE_BIT
+//         };
+//
+//         VmaPoolCreateInfo poolCreateInfo{memoryTypeIndex};
+//         poolCreateInfo.pMemoryAllocateNext = reinterpret_cast<void *>(&exportMemoryAllocateInfo);
+//
+//         VK_CHECK(vmaCreatePool(allocator, &poolCreateInfo, &pool));
+//     }
+// }
+
+VkMemoryManager::VkMemoryManager() : allocator(nullptr), device(VK_NULL_HANDLE), pool(VK_NULL_HANDLE), availableMemory(0), totalMemory(0), isIntegratedGPU(false) {}
+
+void VkMemoryManager::Initialize(const VkRenderer *renderer, const bool customPool)
 {
+    this->device = renderer->device;
+    this->availableMemory = this->totalMemory = renderer->memoryProperties.memoryHeaps[0].size;
+    this->isIntegratedGPU = renderer->isIntegratedGPU;
 #ifdef _WIN32
     VmaVulkanFunctions vulkanFunctions{};
     fn_vkGetMemoryWin32HandleKHR = reinterpret_cast<PFN_vkGetMemoryWin32HandleKHR>(vkGetInstanceProcAddr(renderer->instance, "vkGetMemoryWin32HandleKHR"));
@@ -74,9 +151,39 @@ VkMemoryManager::VkMemoryManager(const VkRenderer * renderer, const bool customP
 
         VK_CHECK(vmaCreatePool(allocator, &poolCreateInfo, &pool));
     }
+
+    // Create a 256MB staging buffer
+    VmaAllocationCreateFlags allocationFlags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
+    if (isIntegratedGPU)
+        allocationFlags |= VMA_ALLOCATION_CREATE_MAPPED_BIT;
+
+    VmaAllocationInfo allocationInfo{};
+    VkBufferCreateInfo bufferCreateInfo{
+        VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+        VK_NULL_HANDLE,
+        0,
+        256 * 1024 * 1024, // 256MB
+        VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+        VK_SHARING_MODE_EXCLUSIVE
+    };
+
+    VmaAllocationCreateInfo allocationCreateInfo{
+        allocationFlags,
+        VMA_MEMORY_USAGE_AUTO_PREFER_HOST,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+    };
+
+    allocationCreateInfo.pool = pool;
+
+    VK_CHECK(vmaCreateBuffer(allocator, &bufferCreateInfo, &allocationCreateInfo, &stagingBuffer.buffer, &stagingBuffer.allocation, &allocationInfo));
+    VK_CHECK(vmaMapMemory(allocator, stagingBuffer.allocation, &mappedStagingBuffer));
 }
 
-VkMemoryManager::~VkMemoryManager() {
+void VkMemoryManager::Shutdown()
+{
+    vmaUnmapMemory(allocator, stagingBuffer.allocation);
+    vmaDestroyBuffer(allocator, stagingBuffer.buffer, stagingBuffer.allocation);
+
     for (const auto &vkBuffer : trackedBuffers) {
         vmaDestroyBuffer(allocator, vkBuffer.buffer, vkBuffer.allocation);
     }
@@ -98,50 +205,66 @@ VkMemoryManager::~VkMemoryManager() {
     vmaDestroyAllocator(allocator);
 }
 
-void VkMemoryManager::stagingBuffer(VkDeviceSize bufferSize, const std::function<void(VkBuffer &, void *)> &&mappedMemoryTask, const std::function<void(VkBuffer &)> &&unmappedMemoryTask) const {
-    VmaAllocationCreateFlags allocationFlags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
-    if (isIntegratedGPU)
-        allocationFlags |= VMA_ALLOCATION_CREATE_MAPPED_BIT;
 
-    VkBuffer stagingBuffer;
-    VmaAllocation allocation{};
-    VmaAllocationInfo allocationInfo{};
-
-    VkBufferCreateInfo bufferCreateInfo{
-            VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-            VK_NULL_HANDLE,
-            0,
-            bufferSize,
-            VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-            VK_SHARING_MODE_EXCLUSIVE // maybe change this to concurrent for separate graphics and present queues
-    };
-
-    VmaAllocationCreateInfo allocationCreateInfo{
-            allocationFlags,
-            VMA_MEMORY_USAGE_AUTO_PREFER_HOST,
-            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
-    };
-
-    allocationCreateInfo.pool = pool;
-
-    VK_CHECK(vmaCreateBuffer(allocator, &bufferCreateInfo, &allocationCreateInfo, &stagingBuffer, &allocation, &allocationInfo));
-
-    if (isIntegratedGPU) {
-        VK_CHECK(vmaMapMemory(allocator, allocation, &allocationInfo.pMappedData));
-        mappedMemoryTask(stagingBuffer, allocationInfo.pMappedData);
-        vmaUnmapMemory(allocator, allocation);
-    } else {
-        void *data;
-        VK_CHECK(vmaMapMemory(allocator, allocation, &data));
-        mappedMemoryTask(stagingBuffer, data);
-        vmaUnmapMemory(allocator, allocation);
-    }
-
+void VkMemoryManager::useStagingBuffer(const std::function<void(void *)> &&mappedMemoryTask, const std::function<void(VkBuffer)> &&unmappedMemoryTask) const
+{
+    // void *data;
+    // VK_CHECK(vmaMapMemory(allocator, allocation, &data));
+    // mappedMemoryTask(_stagingBuffer.buffer, data);
+    // vmaUnmapMemory(allocator, allocation);
+    //
+    // // if (unmappedMemoryTask)
+    // unmappedMemoryTask(stagingBuffer);
+    mappedMemoryTask(mappedStagingBuffer);
     if (unmappedMemoryTask)
-        unmappedMemoryTask(stagingBuffer);
-
-    vmaDestroyBuffer(allocator, stagingBuffer, allocation);
+        unmappedMemoryTask(stagingBuffer.buffer);
 }
+
+
+// void VkMemoryManager::stagingBuffer(VkDeviceSize bufferSize, const std::function<void(VkBuffer &, void *)> &&mappedMemoryTask, const std::function<void(VkBuffer &)> &&unmappedMemoryTask) const {
+//     VmaAllocationCreateFlags allocationFlags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
+//     if (isIntegratedGPU)
+//         allocationFlags |= VMA_ALLOCATION_CREATE_MAPPED_BIT;
+//
+//     VkBuffer stagingBuffer;
+//     VmaAllocation allocation{};
+//     VmaAllocationInfo allocationInfo{};
+//
+//     VkBufferCreateInfo bufferCreateInfo{
+//             VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+//             VK_NULL_HANDLE,
+//             0,
+//             bufferSize,
+//             VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+//             VK_SHARING_MODE_EXCLUSIVE // maybe change this to concurrent for separate graphics and present queues
+//     };
+//
+//     VmaAllocationCreateInfo allocationCreateInfo{
+//             allocationFlags,
+//             VMA_MEMORY_USAGE_AUTO_PREFER_HOST,
+//             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+//     };
+//
+//     allocationCreateInfo.pool = pool;
+//
+//     VK_CHECK(vmaCreateBuffer(allocator, &bufferCreateInfo, &allocationCreateInfo, &stagingBuffer, &allocation, &allocationInfo));
+//
+//     if (isIntegratedGPU) {
+//         VK_CHECK(vmaMapMemory(allocator, allocation, &allocationInfo.pMappedData));
+//         mappedMemoryTask(stagingBuffer, allocationInfo.pMappedData);
+//         vmaUnmapMemory(allocator, allocation);
+//     } else {
+//         void *data;
+//         VK_CHECK(vmaMapMemory(allocator, allocation, &data));
+//         mappedMemoryTask(stagingBuffer, data);
+//         vmaUnmapMemory(allocator, allocation);
+//     }
+//
+//     // if (unmappedMemoryTask)
+//     unmappedMemoryTask(stagingBuffer);
+//
+//     vmaDestroyBuffer(allocator, stagingBuffer, allocation);
+// }
 
 VulkanBuffer VkMemoryManager::createManagedBuffer(const VulkanBufferCreateInfo &info) {
     const VulkanBuffer trackedBuffer = createUnmanagedBuffer(info);
@@ -159,13 +282,6 @@ VulkanImage VkMemoryManager::createManagedImage(const VulkanImageCreateInfo &inf
 
 VulkanBuffer VkMemoryManager::createUnmanagedBuffer(const VulkanBufferCreateInfo &info) {
     auto [bufferSize, bufferUsage, allocationFlags, allocationUsage, requiredFlags, minAlignment] = info;
-    if (availableMemory < bufferSize)
-    {
-        printf("Requested buffer size: %llu is more than the available device-local memory: %llu. Allocating on shared memory\n", info.bufferSize, availableMemory);
-        allocationUsage = VMA_MEMORY_USAGE_AUTO_PREFER_HOST;
-        requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
-    }
-    availableMemory -= bufferSize;
 
     VkBuffer buffer;
     VmaAllocation allocation{};
@@ -198,16 +314,6 @@ VulkanBuffer VkMemoryManager::createUnmanagedBuffer(const VulkanBufferCreateInfo
 
 VulkanImage VkMemoryManager::createUnmanagedImage(const VulkanImageCreateInfo &info) {
     auto [createFlags, imageFormat, imageExtent, imageTiling, imageUsage, imageLayout, allocationFlags, allocationUsage, requiredFlags, mipmapped, imageViewCreateInfo] = info;
-    {
-        const VkDeviceSize requestedBytes = imageExtent.width * imageExtent.height * imageExtent.depth * 4;
-        if (availableMemory < imageExtent.width * imageExtent.height * imageExtent.depth * 4)
-        {
-            printf("Requested image size: %llu is more than the available device-local memory: %llu. Allocating on shared memory\n", requestedBytes, availableMemory);
-            allocationUsage = VMA_MEMORY_USAGE_AUTO_PREFER_HOST;
-            requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
-        }
-        availableMemory -= requestedBytes;
-    }
 
     VkImage image;
     VmaAllocation allocation{};
@@ -345,7 +451,7 @@ VulkanImage VkMemoryManager::createTexture(VkExtent3D size, VkFormat format, VkI
         VK_IMAGE_VIEW_TYPE_2D,
         format,
         {VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY},
-        {format == VK_FORMAT_D16_UNORM ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT, 0, mipmapped ? static_cast<uint32_t>(std::floor(std::log2(std::max(size.width, size.height)))) : 1, 0, 1}
+        {static_cast<VkImageAspectFlags>(format == VK_FORMAT_D16_UNORM ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT), 0, mipmapped ? static_cast<uint32_t>(std::floor(std::log2(std::max(size.width, size.height)))) : 1, 0, 1}
     };
 
     return createManagedImage({0, format, size, VK_IMAGE_TILING_OPTIMAL, usage, VK_IMAGE_LAYOUT_UNDEFINED, 0,
@@ -436,7 +542,7 @@ VulkanImage VkMemoryManager::createTexture(const void *data, VkRenderer *rendere
     VulkanImage newTexture{};
 
     const auto dataSize = size.width * size.height * size.depth * 4;
-    const auto textureCreation = [&](auto &buffer, void *mappedMemory) {
+    const auto textureCreation = [&](void *mappedMemory) {
         memcpy(mappedMemory, data, dataSize);
 
         newTexture = createTexture(size, format, usage | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, mipmapped);
@@ -454,7 +560,7 @@ VulkanImage VkMemoryManager::createTexture(const void *data, VkRenderer *rendere
                 size
             };
 
-            vkCmdCopyBufferToImage(commandBuffer, buffer, newTexture.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copyRegion);
+            vkCmdCopyBufferToImage(commandBuffer, stagingBuffer.buffer, newTexture.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copyRegion);
 
             if (mipmapped) [[likely]] {
                 generateMipmaps(commandBuffer, newTexture, {size.width, size.height});
@@ -464,7 +570,7 @@ VulkanImage VkMemoryManager::createTexture(const void *data, VkRenderer *rendere
         });
     };
 
-    stagingBuffer(dataSize, textureCreation);
+    useStagingBuffer(textureCreation);
     return newTexture;
 }
 
@@ -569,9 +675,11 @@ VulkanImage VkMemoryManager::createKtxCubemap(ktxTexture *texture, VkRenderer *r
     auto data = ktxTexture_GetData(texture);
     auto bufferSize = ktxTexture_GetDataSize(texture);
 
-    stagingBuffer(bufferSize, [&](auto &, auto mappedMemory) {
+    const auto mappedMemoryTask = [&](auto mappedMemory) {
         memcpy(mappedMemory, data, bufferSize);
-    }, [&](auto &stagingBuffer) {
+    };
+
+    const auto unmappedMemoryTask = [&](auto stagingBuffer) {
         renderer->ImmediateSubmit([&](auto &commandBuffer) {
             std::vector<VkBufferImageCopy> copyRegions;
             for (uint32_t face = 0; face < 6; face++) {
@@ -596,7 +704,9 @@ VulkanImage VkMemoryManager::createKtxCubemap(ktxTexture *texture, VkRenderer *r
 
             TransitionImage(commandBuffer, {image, VK_NULL_HANDLE, allocation, imageSize, format}, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, mipLevels, 6);
         });
-    });
+    };
+
+    useStagingBuffer(mappedMemoryTask, unmappedMemoryTask);
 
     VulkanImage trackedImage{image, VK_NULL_HANDLE, allocation, imageSize, format};
 

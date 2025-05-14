@@ -9,9 +9,10 @@
 #endif
 
 #include "engine/camera.h"
+#include "graphics/vk_renderer.h"
 
 class VkRenderer;
-typedef struct VkDescriptorPool_T * VkDescriptorPool;
+typedef VkDescriptorPool_T * VkDescriptorPool;
 
 struct EngineStats {
     float frameTime;
@@ -52,7 +53,7 @@ private:
     VkDescriptorPool imguiDescriptorPool;
     EngineStats stats{};
 
-    VkRenderer *renderer;
+    VkRenderer renderer;
 };
 
 #endif //D3D12_STUFF_VK_GUI_H

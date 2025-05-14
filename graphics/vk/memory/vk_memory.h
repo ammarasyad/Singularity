@@ -60,12 +60,15 @@ struct VulkanExternalImage
 
 class VkMemoryManager {
 public:
-    explicit VkMemoryManager(const VkRenderer *, bool customPool = false);
+    // explicit VkMemoryManager(const VkRenderer *, bool customPool = false);
+    explicit VkMemoryManager();
 
-    ~VkMemoryManager();
+    void Initialize(const VkRenderer *, bool customPool = false);
+    void Shutdown();
 
-    void stagingBuffer(VkDeviceSize bufferSize, const std::function<void(VkBuffer &, void *)> &&mappedMemoryTask,
-                       const std::function<void(VkBuffer &)> &&unmappedMemoryTask = nullptr) const;
+    // void stagingBuffer(VkDeviceSize bufferSize, const std::function<void(VkBuffer &, void *)> &&mappedMemoryTask, const std::function<void(VkBuffer &)> &&unmappedMemoryTask = nullptr) const;
+
+    void useStagingBuffer(const std::function<void(void *)> &&mappedMemoryTask, const std::function<void(VkBuffer)> &&unmappedMemoryTask = nullptr) const;
 
     VulkanBuffer createManagedBuffer(const VulkanBufferCreateInfo &info);
 
@@ -104,6 +107,9 @@ private:
     VmaPool pool;
     VkDeviceSize availableMemory;
     VkDeviceSize totalMemory;
+
+    VulkanBuffer stagingBuffer;
+    void *mappedStagingBuffer;
 
     bool isIntegratedGPU;
 

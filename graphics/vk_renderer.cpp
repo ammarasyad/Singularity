@@ -4,7 +4,6 @@
 #include <ktx.h>
 #include <thread>
 #include <imgui_impl_vulkan.h>
-#include <meshoptimizer.h>
 
 #include "vk_renderer.h"
 
@@ -31,20 +30,27 @@ static constexpr uint32_t MAX_MESHLET_VERTICES = 64;
 
 PFN_vkCmdDrawMeshTasksEXT fn_vkCmdDrawMeshTasksEXT = nullptr;
 
-// #ifdef _WIN32
-// VkRenderer::VkRenderer(HINSTANCE hinstance, HWND hwnd, Camera *camera, const bool dynamicRendering, const bool asyncCompute, const bool meshShader)
-// {
-//     InitializeInstance(hinstance, hwnd);
-// }
-// #else
-VkRenderer::VkRenderer(GLFWwindow *window, Camera *camera, const bool dynamicRendering, const bool asyncCompute, const bool meshShader)
-    : dynamicRendering(dynamicRendering),
-      asyncCompute(asyncCompute),
-      meshShader(meshShader),
-      isShaderInvalidated(false),
-      glfwWindow(window),
-      camera(camera)
+VkRenderer::VkRenderer() : dynamicRendering(false),
+                           asyncCompute(false),
+                           raytracingCapable(false),
+                           framebufferResized(false),
+                           isIntegratedGPU(false),
+                           meshShader(false),
+                           allowTearing(false),
+                           isShaderInvalidated(false),
+                           glfwWindow(nullptr), camera(nullptr),
+                           totalLights(nullptr),
+                           meshCount(0)
+{}
+
+void VkRenderer::Initialize(GLFWwindow *window, Camera *camera, bool dynamicRendering, bool asyncCompute, bool meshShader)
 {
+    this->glfwWindow = window;
+    this->camera = camera;
+    this->dynamicRendering = dynamicRendering;
+    this->asyncCompute = asyncCompute;
+    this->meshShader = meshShader;
+
     InitializeInstance();
 
 #ifndef NDEBUG
@@ -70,7 +76,8 @@ VkRenderer::VkRenderer(GLFWwindow *window, Camera *camera, const bool dynamicRen
     if (meshShader)
         fn_vkCmdDrawMeshTasksEXT = reinterpret_cast<PFN_vkCmdDrawMeshTasksEXT>(vkGetInstanceProcAddr(instance, "vkCmdDrawMeshTasksEXT"));
 
-    memoryManager = new VkMemoryManager{this};
+    // memoryManager = new VkMemoryManager{this};
+    memoryManager.Initialize(this);
 
     // Reuse pipeline cache
     const auto pipelineCacheData = ReadFile<char>("pipeline_cache.bin");
@@ -134,6 +141,7 @@ VkRenderer::VkRenderer(GLFWwindow *window, Camera *camera, const bool dynamicRen
 
     const auto start = std::chrono::high_resolution_clock::now();
     const auto structureFile = LoadGLTF(this, true, "../assets/Sponza/Sponza.gltf", "../assets/Sponza/");
+    // const auto structureFile = LoadGLTF(this, true, "../assets/main1_sponza/NewSponza_Main_glTF_003.gltf", "../assets/main1_sponza");
     const auto end = std::chrono::high_resolution_clock::now();
 
     printf("Loading time: %lld ms\n", std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count());
@@ -142,7 +150,7 @@ VkRenderer::VkRenderer(GLFWwindow *window, Camera *camera, const bool dynamicRen
 
     loadedScene = structureFile.value();
 
-    sceneDataBuffer = memoryManager->createManagedBuffer(
+    sceneDataBuffer = memoryManager.createManagedBuffer(
         {
             sizeof(SceneData), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
             VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
@@ -159,7 +167,138 @@ VkRenderer::VkRenderer(GLFWwindow *window, Camera *camera, const bool dynamicRen
     UpdateCascades();
     isVkRunning = true;
 }
+
+
+
+// VkRenderer::VkRenderer(GLFWwindow *window, Camera *camera, const bool dynamicRendering, const bool asyncCompute, const bool meshShader)
+//     : dynamicRendering(dynamicRendering),
+//       asyncCompute(asyncCompute),
+//       raytracingCapable(false),
+//       framebufferResized(false),
+//       isIntegratedGPU(false),
+//       meshShader(meshShader),
+//       allowTearing(false),
+//       isShaderInvalidated(false),
+//       meshCount(0),
+//       glfwWindow(window),
+//       camera(camera)
+// {
+//     InitializeInstance();
+//
+// #ifndef NDEBUG
+//     constexpr VkDebugUtilsMessengerCreateInfoEXT debugCreateInfo{
+//         VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT,
+//         VK_NULL_HANDLE,
+//         0,
+//         VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT |
+//         VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT,
+//         VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
+//         VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT,
+//         DebugCallback,
+//         VK_NULL_HANDLE
+//     };
+//
+//     VK_CHECK(CreateDebugUtilsMessengerEXT(instance, &debugCreateInfo, VK_NULL_HANDLE, &debugMessenger));
 // #endif
+//
+//     PickPhysicalDevice();
+//     CreateLogicalDevice();
+//     CreateCommandPool();
+//
+//     if (meshShader)
+//         fn_vkCmdDrawMeshTasksEXT = reinterpret_cast<PFN_vkCmdDrawMeshTasksEXT>(vkGetInstanceProcAddr(instance, "vkCmdDrawMeshTasksEXT"));
+//
+//     // memoryManager = new VkMemoryManager{this};
+//     memoryManager.Initialize(this);
+//
+//     // Reuse pipeline cache
+//     const auto pipelineCacheData = ReadFile<char>("pipeline_cache.bin");
+//     if (!pipelineCacheData.empty())
+//     {
+//         VkPipelineCacheCreateInfo pipelineCacheCreateInfo{
+//             VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO,
+//             VK_NULL_HANDLE,
+//             0,
+//             pipelineCacheData.size(),
+//             pipelineCacheData.data()
+//         };
+//
+//         VK_CHECK(vkCreatePipelineCache(device, &pipelineCacheCreateInfo, VK_NULL_HANDLE, &pipelineCache));
+//     }
+//     else
+//     {
+//         CreatePipelineCache();
+//     }
+//
+// #ifdef _WIN32
+//     CreateDXGISwapChain();
+// #endif
+//     CreateSwapChain();
+//     CreateDepthImage();
+//
+//     viewport = {
+//         0.0f,
+//         0.0f,
+//         static_cast<float>(swapChainExtent.width),
+//         static_cast<float>(swapChainExtent.height),
+//         0.0f,
+//         1.0f
+//     };
+//
+//     scissor = {
+//         {0, 0},
+//         swapChainExtent
+//     };
+//
+//     if (!dynamicRendering)
+//     {
+//         CreateRenderPass();
+//     }
+//
+//     CreateDescriptors();
+//     CreatePipelineLayout();
+//     CreateGraphicsPipeline();
+//     CreateComputePipeline();
+//
+//     if (!dynamicRendering)
+//     {
+//         CreateFramebuffers();
+//     }
+//
+//     CreateShadowCascades();
+//
+//     CreateCommandBuffers();
+//     CreateDefaultTexture();
+//     CreateSyncObjects();
+//
+//     const auto start = std::chrono::high_resolution_clock::now();
+//     // const auto structureFile = LoadGLTF(this, true, "../assets/Sponza/Sponza.gltf", "../assets/Sponza/");
+//     const auto structureFile = LoadGLTF(this, true, "../assets/main1_sponza/NewSponza_Main_glTF_003.gltf", "../assets/main1_sponza");
+//     const auto end = std::chrono::high_resolution_clock::now();
+//
+//     printf("Loading time: %lld ms\n", std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count());
+//
+//     assert(structureFile.has_value());
+//
+//     loadedScene = structureFile.value();
+//
+//     sceneDataBuffer = memoryManager.createManagedBuffer(
+//         {
+//             sizeof(SceneData), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+//             VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
+//             VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE,
+//             VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+//             VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+//         });
+//
+//     CreateRandomLights();
+//     CreateSkybox();
+//     ComputeFrustum();
+//     UpdateDescriptorSets();
+//
+//     UpdateCascades();
+//     isVkRunning = true;
+// }
 
 VkRenderer::~VkRenderer() {
     Shutdown();
@@ -184,7 +323,7 @@ void VkRenderer::Screenshot() {
             surfaceFormat.format,
     };
 
-    VulkanImage dstImage = memoryManager->createUnmanagedImage({
+    VulkanImage dstImage = memoryManager.createUnmanagedImage({
         .imageFormat = VK_FORMAT_R8G8B8A8_UNORM,
         .imageExtent = {swapChainExtent.width, swapChainExtent.height, 1},
         .imageTiling = VK_IMAGE_TILING_LINEAR,
@@ -234,7 +373,7 @@ void VkRenderer::Screenshot() {
     vkGetImageSubresourceLayout(device, dstImage.image, &subresource, &layout);
 
     void *data;
-    memoryManager->mapImage(dstImage, &data);
+    memoryManager.mapImage(dstImage, &data);
     data = static_cast<uint8_t *>(data) + layout.offset;
 
     constexpr auto filename = "screenshot.bmp";
@@ -242,8 +381,8 @@ void VkRenderer::Screenshot() {
 
     printf("Screenshot saved to %s\n", filename);
 
-    memoryManager->unmapImage(dstImage);
-    memoryManager->destroyImage(dstImage);
+    memoryManager.unmapImage(dstImage);
+    memoryManager.destroyImage(dstImage);
 }
 
 // #ifdef _WIN32
@@ -898,10 +1037,47 @@ void VkRenderer::DrawMesh(const VkCommandBuffer &commandBuffer, const uint32_t i
         loadedScene.rootNodes[0]->worldTransform,
     };
 
-    vkCmdPushConstants(commandBuffer, metalRoughMaterial.opaquePipeline.layout, VK_SHADER_STAGE_MESH_BIT_EXT, 0, sizeof(MeshShaderPushConstants), &pushConstants);
-    fn_vkCmdDrawMeshTasksEXT(commandBuffer, meshletStats.meshletCount / 32 + 1, 1, 1);
-    stats.drawCallCount++;
-    stats.triangleCount += meshletStats.primitiveCount;
+    FragmentPushConstants fragmentPushConstants{
+        camera->position,
+        {viewport.width, viewport.height},
+        cascadeSplits.vec4
+    };
+
+    // vkCmdPushConstants(commandBuffer, metalRoughMaterial.opaquePipeline.layout, VK_SHADER_STAGE_MESH_BIT_EXT, 0, sizeof(MeshShaderPushConstants), &pushConstants);
+    vkCmdPushConstants(commandBuffer, metalRoughMaterial.opaquePipeline.layout, VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(MeshShaderPushConstants), sizeof(FragmentPushConstants), &fragmentPushConstants);
+
+    for (size_t i = 0; i < 1; i++)
+    {
+        const auto [positionOffset, vertexOffset, primitiveOffset] = meshOffsets[i];
+        pushConstants.meshOffsets = {positionOffset, vertexOffset, primitiveOffset, i};
+        vkCmdPushConstants(commandBuffer, metalRoughMaterial.opaquePipeline.layout, VK_SHADER_STAGE_MESH_BIT_EXT, 0, sizeof(MeshShaderPushConstants), &pushConstants);
+
+        fn_vkCmdDrawMeshTasksEXT(commandBuffer, meshletsStats[i].meshletCount / 32 + 1, 1, 1);
+    }
+
+    // for (size_t i = 0; i < 115; i++)
+    // {
+    //     DescriptorWriter writer;
+    //     writer.WriteBuffer(0, sceneDataBuffer.buffer, 0, sizeof(SceneData), VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
+    //     writer.WriteBuffer(1, cascadeViewProjectionBuffer.buffer, 0, sizeof(glm::mat4) * SHADOW_MAP_CASCADE_COUNT, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
+    //     writer.WriteImage(2, shadowCascadeImage.imageView, shadowCascadeImage.sampler, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+    //     writer.WriteBuffer(3, viewMatrix.buffer, 0, sizeof(glm::mat4), VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
+    //
+    //     if (meshShader) {
+    //         writer.WriteBuffer(4, positionBuffers[i].buffer, 0, sizeof(float) * meshletStats.positionCount, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+    //         writer.WriteBuffer(5, meshletBuffers[i].buffer, 0, sizeof(meshopt_Meshlet) * meshletStats.meshletCount, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+    //         writer.WriteBuffer(6, meshletVerticesBuffers[i].buffer, 0, sizeof(uint32_t) * meshletStats.verticesCount, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+    //         writer.WriteBuffer(7, meshletPrimitivesBuffers[i].buffer, 0, sizeof(uint32_t) * meshletStats.primitiveCount, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+    //     }
+    //
+    //     writer.UpdateSet(device, sceneDescriptorSet);
+    //
+    //     vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, metalRoughMaterial.opaquePipeline.layout, 0, 1, &sceneDescriptorSet, 0, VK_NULL_HANDLE);
+    //
+    //     fn_vkCmdDrawMeshTasksEXT(commandBuffer, meshletStats.meshletCount / 32 + 1, 1, 1);
+    // }
+    // stats.drawCallCount++;
+    // stats.triangleCount += meshletStats.primitiveCount;
 
     EndDraw(commandBuffer, imageIndex);
 }
@@ -949,7 +1125,8 @@ void VkRenderer::Shutdown() {
     vkDestroySampler(device, textureSamplerLinear, VK_NULL_HANDLE);
     vkDestroySampler(device, textureSamplerNearest, VK_NULL_HANDLE);
 
-    delete memoryManager;
+    // delete memoryManager;
+    memoryManager.Shutdown();
     delete totalLights;
 
     mainDescriptorAllocator.Destroy(device);
@@ -1041,32 +1218,33 @@ void VkRenderer::ReloadShaders()
     printf("Reloaded shaders in %lldms\n", elapsedMs);
 }
 
-Mesh VkRenderer::CreateMesh(const std::span<VkVertex> vertices, const std::span<uint32_t>indices) const {
+Mesh VkRenderer::CreateMesh(const std::span<VkVertex> vertices, const std::span<uint32_t> indices) {
     Mesh mesh{};
 
     const auto verticesSize = vertices.size() * sizeof(vertices[0]);
     const auto indicesSize = indices.size() * sizeof(indices[0]);
-    const auto stagingBufferMappedTask = [&](auto &, void *mappedMemory) {
+    const auto stagingBufferMappedTask = [&](void *mappedMemory) {
         memcpy(mappedMemory, vertices.data(), verticesSize);
         memcpy(static_cast<char *>(mappedMemory) + verticesSize, indices.data(), indicesSize);
     };
 
-    const auto stagingBufferUnmappedTask = [&](const VkBuffer &stagingBuffer) {
-        mesh.vertexBuffer = memoryManager->createManagedBuffer({verticesSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT |
-                                                                              VK_BUFFER_USAGE_VERTEX_BUFFER_BIT |
-                                                                              VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
-                                                                0, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE,
-                                                                VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT}).buffer;
-        const VkBufferDeviceAddressInfo deviceAddressInfo{
-            VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
-            VK_NULL_HANDLE,
-            mesh.vertexBuffer
-        };
-        mesh.vertexBufferDeviceAddress = vkGetBufferDeviceAddress(device, &deviceAddressInfo);
-        mesh.indexBuffer = memoryManager->createManagedBuffer(
-                {indicesSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT, 0,
-                 VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT}).buffer;
+    mesh.vertexBuffer = memoryManager.createManagedBuffer({verticesSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT |
+                                                                          VK_BUFFER_USAGE_VERTEX_BUFFER_BIT |
+                                                                          VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+                                                            0, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE,
+                                                            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT}).buffer;
+    const VkBufferDeviceAddressInfo deviceAddressInfo{
+        VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
+        VK_NULL_HANDLE,
+        mesh.vertexBuffer
+    };
 
+    mesh.vertexBufferDeviceAddress = vkGetBufferDeviceAddress(device, &deviceAddressInfo);
+    mesh.indexBuffer = memoryManager.createManagedBuffer(
+            {indicesSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT, 0,
+             VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT}).buffer;
+
+    const auto stagingBufferUnmappedTask = [&](const VkBuffer &stagingBuffer) {
         TransferSubmit([&](auto &commandBuffer) {
             VkBufferCopy copyRegion{
                 0,
@@ -1083,7 +1261,7 @@ Mesh VkRenderer::CreateMesh(const std::span<VkVertex> vertices, const std::span<
         });
     };
 
-    memoryManager->stagingBuffer(verticesSize + indicesSize, stagingBufferMappedTask, stagingBufferUnmappedTask);
+    memoryManager.useStagingBuffer(stagingBufferMappedTask, stagingBufferUnmappedTask);
 
     return mesh;
 }
@@ -1099,9 +1277,7 @@ void VkRenderer::CreateFromMeshlets(const std::vector<VkVertex> &vertices, const
     meshletVertices.resize(maxMeshlets * MAX_MESHLET_VERTICES);
     meshletPrimitives.resize(maxMeshlets * MAX_MESHLET_PRIMITIVES);
 
-    printf("Resizing vertex position data: %llu\n", vertices.size() * 4);
     std::vector<float> vertexPositionData(vertices.size() * 4);
-    // vertexPositionData.resize(vertices.size() * 3);
 
     for (size_t i = 0; i < vertices.size(); i += 2)
     {
@@ -1138,9 +1314,6 @@ void VkRenderer::CreateFromMeshlets(const std::vector<VkVertex> &vertices, const
             const auto i2 = i * 3 + 1 + triangle_offset;
             const auto i3 = i * 3 + 2 + triangle_offset;
 
-            // const auto vIdx0 = meshletVertices[i1];
-            // const auto vIdx1 = meshletVertices[i2];
-            // const auto vIdx2 = meshletVertices[i3];
             const auto vIdx0 = meshletPrimitives[i1];
             const auto vIdx1 = meshletPrimitives[i2];
             const auto vIdx2 = meshletPrimitives[i3];
@@ -1153,75 +1326,183 @@ void VkRenderer::CreateFromMeshlets(const std::vector<VkVertex> &vertices, const
         triangle_offset = primitiveOffset;
     }
 
-    meshletStats.positionCount = vertexPositionData.size();
-    meshletStats.meshletCount = meshletCount;
-    meshletStats.verticesCount = meshletVertices.size();
-    meshletStats.primitiveCount = meshletPrimitivesU32.size();
-
-    const auto vertexPositionDataBytes = vertexPositionData.size() * sizeof(float);
-    const auto meshletBufferBytes = meshlets.size() * sizeof(meshopt_Meshlet);
-    const auto meshletVerticesBytes = meshletVertices.size() * sizeof(uint32_t);
-    const auto meshletPrimitivesBytes = meshletPrimitivesU32.size() * sizeof(uint32_t);
-
-    positionBuffer = memoryManager->createManagedBuffer({vertexPositionDataBytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, 0, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT});
-    meshletBuffer = memoryManager->createManagedBuffer({meshletBufferBytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, 0, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT});
-    meshletVerticesBuffer = memoryManager->createManagedBuffer({meshletVerticesBytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, 0, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT});
-    meshletPrimitivesBuffer = memoryManager->createManagedBuffer({meshletPrimitivesBytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, 0, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT});
-
-    const auto stagingBufferSize = vertexPositionDataBytes
-                                                + meshletBufferBytes
-                                                + meshletVerticesBytes
-                                                + meshletPrimitivesBytes;
-
-    const auto stagingBufferMappedTask = [&](auto &, void *data) {
-        auto memory = static_cast<char *>(data);
-        memcpy(memory, vertexPositionData.data(), vertexPositionDataBytes);
-
-        memory += vertexPositionDataBytes;
-        memcpy(memory, meshlets.data(), meshletBufferBytes);
-
-        memory += meshletBufferBytes;
-        memcpy(memory, meshletVertices.data(), meshletVerticesBytes);
-
-        memory += meshletVerticesBytes;
-        memcpy(memory, meshletPrimitivesU32.data(), meshletPrimitivesBytes);
+    meshletsStats[meshCount] = {
+        .positionCount = static_cast<uint32_t>(vertexPositionData.size()),
+        .meshletCount = static_cast<uint32_t>(meshletCount),
+        .verticesCount = static_cast<uint32_t>(meshletVertices.size()),
+        .primitiveCount = static_cast<uint32_t>(meshletPrimitivesU32.size())
     };
 
-    const auto stagingBufferUnmappedTask = [&](auto &stagingBuffer) {
-        TransferSubmit([&](auto &commandBuffer) {
+    loadedMeshlets.resize(meshletCount);
+    vertexPositionsData.resize(vertexPositionsData.size() + vertexPositionData.size());
+    meshletsVerticesData.resize(meshletsVerticesData.size() + meshletVertices.size());
+    meshletsPrimitivesData.resize(meshletsPrimitivesData.size() + meshletPrimitivesU32.size());
+
+    memcpy(loadedMeshlets.data(), meshlets.data(), meshlets.size() * sizeof(meshopt_Meshlet));
+    memcpy(vertexPositionsData.data(), vertexPositionData.data(), vertexPositionData.size() * sizeof(float));
+    memcpy(meshletsVerticesData.data(), meshletVertices.data(), meshletVertices.size() * sizeof(uint32_t));
+    memcpy(meshletsPrimitivesData.data(), meshletPrimitivesU32.data(), meshletPrimitivesU32.size() * sizeof(uint32_t));
+
+    if (meshCount < meshOffsets.size() - 1)
+    {
+        meshOffsets[meshCount + 1] = {
+            static_cast<uint32_t>(vertexPositionData.size() * 4),
+            static_cast<uint32_t>(meshletVertices.size()),
+            static_cast<uint32_t>(meshletPrimitivesU32.size())
+        };
+    }
+
+    // vertexPositionsData[meshCount] = std::move(vertexPositionData);
+    // meshletsVerticesData[meshCount] = std::move(meshletVertices);
+    // meshletsPrimitivesData[meshCount] = std::move(meshletPrimitivesU32);
+
+    meshCount++;
+    // meshletStats.positionCount = vertexPositionData.size();
+    // meshletStats.meshletCount = meshletCount;
+    // meshletStats.verticesCount = meshletVertices.size();
+    // meshletStats.primitiveCount = meshletPrimitivesU32.size();
+    //
+    // const auto vertexPositionDataBytes = vertexPositionData.size() * sizeof(float);
+    // const auto meshletBufferBytes = meshlets.size() * sizeof(meshopt_Meshlet);
+    // const auto meshletVerticesBytes = meshletVertices.size() * sizeof(uint32_t);
+    // const auto meshletPrimitivesBytes = meshletPrimitivesU32.size() * sizeof(uint32_t);
+    //
+    // positionBuffer = memoryManager.createManagedBuffer({vertexPositionDataBytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, 0, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT});
+    // meshletBuffer = memoryManager.createManagedBuffer({meshletBufferBytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, 0, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT});
+    // meshletVerticesBuffer = memoryManager.createManagedBuffer({meshletVerticesBytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, 0, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT});
+    // meshletPrimitivesBuffer = memoryManager.createManagedBuffer({meshletPrimitivesBytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, 0, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT});
+    //
+    // const auto stagingBufferSize = vertexPositionDataBytes
+    //                                             + meshletBufferBytes
+    //                                             + meshletVerticesBytes
+    //                                             + meshletPrimitivesBytes;
+    //
+    // const auto stagingBufferMappedTask = [&](auto &, void *data) {
+    //     auto memory = static_cast<char *>(data);
+    //     memcpy(memory, vertexPositionData.data(), vertexPositionDataBytes);
+    //
+    //     memory += vertexPositionDataBytes;
+    //     memcpy(memory, meshlets.data(), meshletBufferBytes);
+    //
+    //     memory += meshletBufferBytes;
+    //     memcpy(memory, meshletVertices.data(), meshletVerticesBytes);
+    //
+    //     memory += meshletVerticesBytes;
+    //     memcpy(memory, meshletPrimitivesU32.data(), meshletPrimitivesBytes);
+    // };
+    //
+    // const auto stagingBufferUnmappedTask = [&](auto &stagingBuffer) {
+    //     TransferSubmit([&](auto &commandBuffer) {
+    //         VkBufferCopy positionCopyRegion{
+    //             0,
+    //             0,
+    //             vertexPositionDataBytes
+    //         };
+    //
+    //         VkBufferCopy meshletCopyRegion{
+    //             vertexPositionDataBytes,
+    //             0,
+    //             meshletBufferBytes
+    //         };
+    //
+    //         VkBufferCopy meshletVerticesCopyRegion{
+    //             vertexPositionDataBytes + meshletBufferBytes,
+    //             0,
+    //             meshletVerticesBytes
+    //         };
+    //
+    //         VkBufferCopy meshletPrimitivesCopyRegion{
+    //             vertexPositionDataBytes + meshletBufferBytes + meshletVerticesBytes,
+    //             0,
+    //             meshletPrimitivesBytes
+    //         };
+    //
+    //         vkCmdCopyBuffer(commandBuffer, stagingBuffer, positionBuffer.buffer, 1, &positionCopyRegion);
+    //         vkCmdCopyBuffer(commandBuffer, stagingBuffer, meshletBuffer.buffer, 1, &meshletCopyRegion);
+    //         vkCmdCopyBuffer(commandBuffer, stagingBuffer, meshletVerticesBuffer.buffer, 1, &meshletVerticesCopyRegion);
+    //         vkCmdCopyBuffer(commandBuffer, stagingBuffer, meshletPrimitivesBuffer.buffer, 1, &meshletPrimitivesCopyRegion);
+    //     });
+    // };
+    //
+    // memoryManager.stagingBuffer(stagingBufferSize, stagingBufferMappedTask, stagingBufferUnmappedTask);
+}
+
+void VkRenderer::CreateMeshletBuffers()
+{
+    // const size_t meshletStatsBytesSize = meshCount * sizeof(meshopt_Meshlet);
+    size_t meshletStatsBytesSize = 0;
+    for (size_t i = 0; i < meshCount; i++)
+    {
+        meshletStatsBytesSize += meshletsStats[i].meshletCount;
+    }
+    meshletStatsBytesSize *= sizeof(meshopt_Meshlet);
+    const size_t vertexPositionsDataBytesSize = vertexPositionsData.size() * sizeof(float);
+    const size_t meshletsVerticesDataBytesSize = meshletsVerticesData.size() * sizeof(uint32_t);
+    const size_t meshletsPrimitivesDataBytesSize = meshletsPrimitivesData.size() * sizeof(uint32_t);
+
+    // for (size_t i = 0; i < meshCount; i++)
+    // {
+    //     vertexPositionsDataBytesSize += vertexPositionsData[i].size() * sizeof(float);
+    //     meshletsVerticesDataBytesSize += meshletsVerticesData[i].size() * sizeof(uint32_t);
+    //     meshletsPrimitivesDataBytesSize += meshletsPrimitivesData[i].size() * sizeof(uint32_t);
+    // }
+
+    positionBuffer = memoryManager.createManagedBuffer({vertexPositionsDataBytesSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, 0, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT});
+    meshletBuffer = memoryManager.createManagedBuffer({meshletStatsBytesSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, 0, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT});
+    meshletVerticesBuffer = memoryManager.createManagedBuffer({meshletsVerticesDataBytesSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, 0, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT});
+    meshletPrimitivesBuffer = memoryManager.createManagedBuffer({meshletsPrimitivesDataBytesSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, 0, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT});
+
+    const auto stagingBufferSize = vertexPositionsDataBytesSize
+                                            + meshletStatsBytesSize
+                                            + meshletsVerticesDataBytesSize
+                                            + meshletsPrimitivesDataBytesSize;
+
+    const auto stagingBufferMappedTask = [&](void *data)
+    {
+        auto memory = static_cast<char *>(data);
+        memcpy(memory, vertexPositionsData.data(), vertexPositionsDataBytesSize);
+        memory += vertexPositionsDataBytesSize;
+        memcpy(memory, loadedMeshlets.data(), meshletStatsBytesSize);
+        memory += meshletStatsBytesSize;
+        memcpy(memory, meshletsVerticesData.data(), meshletsVerticesDataBytesSize);
+        memory += meshletsVerticesDataBytesSize;
+        memcpy(memory, meshletsPrimitivesData.data(), meshletsPrimitivesDataBytesSize);
+    };
+
+    const auto stagingBufferUnmappedTask = [&](auto stagingBuffer)
+    {
+        TransferSubmit([&](auto &commandBuffer)
+        {
             VkBufferCopy positionCopyRegion{
                 0,
                 0,
-                vertexPositionDataBytes
+                vertexPositionsDataBytesSize
             };
-
             VkBufferCopy meshletCopyRegion{
-                vertexPositionDataBytes,
+                vertexPositionsDataBytesSize,
                 0,
-                meshletBufferBytes
+                meshletStatsBytesSize
             };
-
             VkBufferCopy meshletVerticesCopyRegion{
-                vertexPositionDataBytes + meshletBufferBytes,
+                meshletCopyRegion.srcOffset + meshletStatsBytesSize,
                 0,
-                meshletVerticesBytes
+                meshletsVerticesDataBytesSize
             };
-
             VkBufferCopy meshletPrimitivesCopyRegion{
-                vertexPositionDataBytes + meshletBufferBytes + meshletVerticesBytes,
+                meshletVerticesCopyRegion.srcOffset + meshletsVerticesDataBytesSize,
                 0,
-                meshletPrimitivesBytes
+                meshletsPrimitivesDataBytesSize
             };
-
             vkCmdCopyBuffer(commandBuffer, stagingBuffer, positionBuffer.buffer, 1, &positionCopyRegion);
             vkCmdCopyBuffer(commandBuffer, stagingBuffer, meshletBuffer.buffer, 1, &meshletCopyRegion);
             vkCmdCopyBuffer(commandBuffer, stagingBuffer, meshletVerticesBuffer.buffer, 1, &meshletVerticesCopyRegion);
-            vkCmdCopyBuffer(commandBuffer, stagingBuffer, meshletPrimitivesBuffer.buffer, 1, &meshletPrimitivesCopyRegion);
+            vkCmdCopyBuffer(commandBuffer, stagingBuffer, meshletPrimitivesBuffer.buffer, 1,
+                            &meshletPrimitivesCopyRegion);
         });
     };
 
-    printf("Creating staging buffer of size: %llu\n", stagingBufferSize);
-    memoryManager->stagingBuffer(stagingBufferSize, stagingBufferMappedTask, stagingBufferUnmappedTask);
+    // printf("Creating staging buffer with size: %zu bytes\n", stagingBufferSize);
+    memoryManager.useStagingBuffer(stagingBufferMappedTask, stagingBufferUnmappedTask);
 }
 
 void VkRenderer::PickPhysicalDevice() {
@@ -1533,7 +1814,7 @@ void VkRenderer::CreateSwapChain() {
         swapChainMemory.resize(swapChainImageCount);
 
         for (uint32_t i = 0; i < swapChainImageCount; i++) {
-            auto [image, memory] = memoryManager->createExternalImage(imageInfo, memoryProperties, d3dDevice.Get(), d3dFramebuffers[i].Get());
+            auto [image, memory] = memoryManager.createExternalImage(imageInfo, memoryProperties, d3dDevice.Get(), d3dFramebuffers[i].Get());
             swapChainImages[i] = image;
             swapChainMemory[i] = memory;
         }
@@ -1612,7 +1893,7 @@ void VkRenderer::CreateDepthImage() {
         .subresourceRange = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, SHADOW_MAP_CASCADE_COUNT}
     };
 
-    shadowCascadeImage = memoryManager->createUnmanagedImage(
+    shadowCascadeImage = memoryManager.createUnmanagedImage(
             {0, VK_FORMAT_D16_UNORM, {SHADOW_MAP_SIZE, SHADOW_MAP_SIZE, 1}, VK_IMAGE_TILING_OPTIMAL,
              VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
              VK_IMAGE_LAYOUT_UNDEFINED, 0, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
@@ -1621,7 +1902,7 @@ void VkRenderer::CreateDepthImage() {
     viewCreateInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
     viewCreateInfo.subresourceRange.layerCount = 1;
 
-    depthImage = memoryManager->createUnmanagedImage(
+    depthImage = memoryManager.createUnmanagedImage(
             {0, VK_FORMAT_D16_UNORM, {swapChainExtent.width, swapChainExtent.height, 1}, VK_IMAGE_TILING_OPTIMAL,
              VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
              VK_IMAGE_LAYOUT_UNDEFINED, 0, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
@@ -2097,7 +2378,7 @@ void VkRenderer::CreateDefaultTexture() {
     constexpr uint32_t textureSize = 16;
     static constexpr std::array<uint32_t, textureSize * textureSize> pixels{UINT32_MAX};
 
-    defaultImage = memoryManager->createTexture(pixels.data(), this, {16, 16, 1}, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT);
+    defaultImage = memoryManager.createTexture(pixels.data(), this, {16, 16, 1}, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT);
 
     VkSamplerCreateInfo sample{ VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO };
 
@@ -2162,9 +2443,10 @@ void VkRenderer::CreateDescriptors() {
         builder.AddBinding(5, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_MESH_BIT_EXT);
         builder.AddBinding(6, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_MESH_BIT_EXT);
         builder.AddBinding(7, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_MESH_BIT_EXT);
+        builder.AddBinding(8, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_FRAGMENT_BIT);
     }
 
-    sceneDescriptorSetLayout = builder.Build(device);
+    sceneDescriptorSetLayout = builder.Build(device, VK_NULL_HANDLE, VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT);
 
     builder.Clear();
     builder.AddBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT);
@@ -2325,15 +2607,15 @@ void VkRenderer::CleanupSwapChain()
     }
 
 #ifdef _WIN32
-    memoryManager->destroyImage(shadowCascadeImage, false);
-    memoryManager->destroyImage(depthImage, false);
+    memoryManager.destroyImage(shadowCascadeImage, false);
+    memoryManager.destroyImage(depthImage, false);
     for (int i = 0; i < swapChainImages.size(); i++) {
-        memoryManager->destroyExternalImageMemory(swapChainImages[i], swapChainMemory[i]);
+        memoryManager.destroyExternalImageMemory(swapChainImages[i], swapChainMemory[i]);
     }
 #else
     vkDestroyFramebuffer(device, depthPrepassFramebuffer, nullptr);
-    memoryManager->destroyImage(shadowCascadeImage, false);
-    memoryManager->destroyImage(depthImage, false);
+    memoryManager.destroyImage(shadowCascadeImage, false);
+    memoryManager.destroyImage(depthImage, false);
     vkDestroySwapchainKHR(device, swapChain, nullptr);
 #endif
 }
@@ -2422,7 +2704,7 @@ void VkRenderer::UpdateCascades() {
         lastSplitDist = splitDist;
     }
 
-    memoryManager->copyToBuffer(cascadeViewProjectionBuffer, cascadeViewProjections.data(), sizeof(glm::mat4) * SHADOW_MAP_CASCADE_COUNT);
+    memoryManager.copyToBuffer(cascadeViewProjectionBuffer, cascadeViewProjections.data(), sizeof(glm::mat4) * SHADOW_MAP_CASCADE_COUNT);
 }
 
 void VkRenderer::UpdateScene(EngineStats &stats) {
@@ -2430,8 +2712,8 @@ void VkRenderer::UpdateScene(EngineStats &stats) {
     const auto proj = camera->ProjectionMatrix();
 
     sceneData.worldMatrix = proj * view;
-    memoryManager->copyToBuffer(sceneDataBuffer, &sceneData, sizeof(SceneData));
-    memoryManager->copyToBuffer(viewMatrix, &view, sizeof(glm::mat4));
+    memoryManager.copyToBuffer(sceneDataBuffer, &sceneData, sizeof(SceneData));
+    memoryManager.copyToBuffer(viewMatrix, &view, sizeof(glm::mat4));
 
     if (!meshShader)
         loadedScene.Draw(glm::mat4{1.f}, mainDrawContext);
@@ -2486,15 +2768,15 @@ void VkRenderer::CreateRandomLights() {
         totalLights->lights[i].color = {1.0f, 1.0f, 1.0f, 1.0f};
     }
 
-    lightBuffer = memoryManager->createManagedBuffer(
+    lightBuffer = memoryManager.createManagedBuffer(
             {sizeof(Light), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
              VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT});
 
-    const auto mappedMemoryTask = [&](auto &, auto *stagingBuffer) {
+    const auto mappedMemoryTask = [&](auto *stagingBuffer) {
         memcpy(stagingBuffer, totalLights, sizeof(Light));
     };
 
-    const auto unmappedMemoryTask = [&](auto &buf) {
+    const auto unmappedMemoryTask = [&](auto buf) {
         TransferSubmit([&](auto &cmd) {
             VkBufferCopy copyRegion{
                 0,
@@ -2506,20 +2788,20 @@ void VkRenderer::CreateRandomLights() {
         });
     };
 
-    memoryManager->stagingBuffer(sizeof(Light), mappedMemoryTask, unmappedMemoryTask);
+    memoryManager.useStagingBuffer(mappedMemoryTask, unmappedMemoryTask);
 
-    visibleLightBuffer = memoryManager->createManagedBuffer({sizeof(LightVisibility) * multiplier,
+    visibleLightBuffer = memoryManager.createManagedBuffer({sizeof(LightVisibility) * multiplier,
                                                              VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
                                                              VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
                                                              VK_BUFFER_USAGE_TRANSFER_DST_BIT, 0,
                                                              VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE,
                                                              VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT});
 
-    lightCountUniform = memoryManager->createManagedBuffer({sizeof(uint16_t) * MAX_LIGHTS_VISIBLE, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+    lightCountUniform = memoryManager.createManagedBuffer({sizeof(uint16_t) * MAX_LIGHTS_VISIBLE, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
                                                             0, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE,
                                                             VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT});
 
-    viewMatrix = memoryManager->createManagedBuffer({sizeof(glm::mat4), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+    viewMatrix = memoryManager.createManagedBuffer({sizeof(glm::mat4), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
                                                         VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT, VMA_MEMORY_USAGE_AUTO,
                                                         VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT});
 
@@ -2546,10 +2828,27 @@ void VkRenderer::UpdateDescriptorSets() {
     writer.WriteBuffer(3, viewMatrix.buffer, 0, sizeof(glm::mat4), VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
 
     if (meshShader) {
-        writer.WriteBuffer(4, positionBuffer.buffer, 0, sizeof(float) * meshletStats.positionCount, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
-        writer.WriteBuffer(5, meshletBuffer.buffer, 0, sizeof(meshopt_Meshlet) * meshletStats.meshletCount, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
-        writer.WriteBuffer(6, meshletVerticesBuffer.buffer, 0, sizeof(uint32_t) * meshletStats.verticesCount, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
-        writer.WriteBuffer(7, meshletPrimitivesBuffer.buffer, 0, sizeof(uint32_t) * meshletStats.primitiveCount, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+        // writer.WriteBuffer(4, positionBuffer.buffer, 0, sizeof(float) * meshletStats.positionCount, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+        // writer.WriteBuffer(5, meshletBuffer.buffer, 0, sizeof(meshopt_Meshlet) * meshletStats.meshletCount, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+        // writer.WriteBuffer(6, meshletVerticesBuffer.buffer, 0, sizeof(uint32_t) * meshletStats.verticesCount, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+        // writer.WriteBuffer(7, meshletPrimitivesBuffer.buffer, 0, sizeof(uint32_t) * meshletStats.primitiveCount, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+        size_t maxPositionCount = 0, maxMeshletCount = 0, maxVerticesCount = 0, maxPrimitiveCount = 0;
+        for (auto &[positionCount, meshletCount, verticesCount, primitiveCount] : meshletsStats) {
+            // maxPositionCount = std::max(maxPositionCount, static_cast<size_t>(positionCount));
+            // maxMeshletCount = std::max(maxMeshletCount, static_cast<size_t>(meshletCount));
+            // maxVerticesCount = std::max(maxVerticesCount, static_cast<size_t>(verticesCount));
+            // maxPrimitiveCount = std::max(maxPrimitiveCount, static_cast<size_t>(primitiveCount));
+            maxPositionCount += positionCount;
+            maxMeshletCount += meshletCount;
+            maxVerticesCount += verticesCount;
+            maxPrimitiveCount += primitiveCount;
+        }
+
+        writer.WriteBuffer(4, positionBuffer.buffer, 0, sizeof(float) * maxPositionCount, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+        writer.WriteBuffer(5, meshletBuffer.buffer, 0, sizeof(meshopt_Meshlet) * maxMeshletCount, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+        writer.WriteBuffer(6, meshletVerticesBuffer.buffer, 0, sizeof(uint32_t) * maxVerticesCount, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+        writer.WriteBuffer(7, meshletPrimitivesBuffer.buffer, 0, sizeof(uint32_t) * maxPrimitiveCount, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+        // writer.WriteBuffer(8, VK_NULL_HANDLE, 0, 0, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE); // TODO: fill this later
     }
 
     writer.UpdateSet(device, sceneDescriptorSet);
@@ -2581,13 +2880,13 @@ void VkRenderer::CreateSkybox() {
     const auto result = ktxTexture_CreateFromNamedFile("../assets/cubemap_vulkan.ktx", KTX_TEXTURE_CREATE_LOAD_IMAGE_DATA_BIT, &skyboxTexture);
     assert(result == KTX_SUCCESS);
 
-    skyboxImage = memoryManager->createKtxCubemap(skyboxTexture, this, VK_FORMAT_R8G8B8A8_UNORM);
+    skyboxImage = memoryManager.createKtxCubemap(skyboxTexture, this, VK_FORMAT_R8G8B8A8_UNORM);
 
     ktxTexture_Destroy(skyboxTexture);
 }
 
 void VkRenderer::CreateShadowCascades() {
-    cascadeViewProjectionBuffer = memoryManager->createManagedBuffer({sizeof(glm::mat4) * SHADOW_MAP_CASCADE_COUNT,
+    cascadeViewProjectionBuffer = memoryManager.createManagedBuffer({sizeof(glm::mat4) * SHADOW_MAP_CASCADE_COUNT,
                                                                       VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT |
                                                                       VK_BUFFER_USAGE_TRANSFER_DST_BIT, VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
                                                                       VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE,

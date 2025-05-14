@@ -9,6 +9,7 @@
 #include <glfw/glfw3.h>
 #include <glfw/glfw3native.h>
 #include <wrl/client.h>
+#include <meshoptimizer.h>
 
 using Microsoft::WRL::ComPtr;
 #else
@@ -112,7 +113,9 @@ public:
 // #ifdef _WIN32
 //     explicit VkRenderer(HINSTANCE hinstance, HWND hwnd, Camera *camera, bool dynamicRendering = true, bool asyncCompute = true, bool meshShader = false);
 // #else
-    explicit VkRenderer(GLFWwindow *window, Camera *camera, bool dynamicRendering = true, bool asyncCompute = true, bool meshShader = false);
+    // explicit VkRenderer(GLFWwindow *window, Camera *camera, bool dynamicRendering = true, bool asyncCompute = true, bool meshShader = false);
+    explicit VkRenderer();
+    void Initialize(GLFWwindow *, Camera *, bool dynamicRendering = true, bool asyncCompute = true, bool meshShader = false);
 // #endif
     ~VkRenderer();
     VkRenderer(const VkRenderer &) = delete;
@@ -130,8 +133,9 @@ public:
     void RecreateSwapChain();
     void ReloadShaders();
 
-    Mesh CreateMesh(std::span<VkVertex> vertices, std::span<uint32_t> indices) const;
+    Mesh CreateMesh(std::span<VkVertex> vertices, std::span<uint32_t> indices);
     void CreateFromMeshlets(const std::vector<VkVertex> &vertices, const std::vector<uint32_t> &indices);
+    void CreateMeshletBuffers();
 
     void ImmediateSubmit(std::function<void(const VkCommandBuffer &)> &&callback) const {
         const VkCommandBufferAllocateInfo allocInfo{
@@ -279,7 +283,7 @@ public:
     VkSurfaceFormatKHR surfaceFormat{};
     VkRenderPass renderPass{};
 
-    VkMemoryManager *memoryManager;
+    VkMemoryManager memoryManager;
 
     VkPhysicalDeviceProperties deviceProperties{};
     VkDeviceSize maxMemoryAllocationSize{};
@@ -380,16 +384,44 @@ public:
         }
     } queueFamilyIndices;
 
-    struct {
+    size_t meshCount;
+    struct MeshletStats {
         uint32_t positionCount;
         uint32_t meshletCount;
         uint32_t verticesCount;
         uint32_t primitiveCount;
-    } meshletStats;
+    };
+    // TODO: optimize this
+    std::vector<MeshletStats> meshletsStats;
+    std::vector<meshopt_Meshlet> loadedMeshlets; // TODO: supposed to be meshopt_Meshlet
+    std::vector<float> vertexPositionsData;
+    std::vector<uint32_t> meshletsVerticesData;
+    std::vector<uint32_t> meshletsPrimitivesData;
+
+    struct MeshOffsets
+    {
+        uint32_t positionOffset;
+        uint32_t vertexOffset;
+        uint32_t primitiveOffset;
+    };
+    std::vector<MeshOffsets> meshOffsets;
+    // struct LoadedMeshlet
+    // {
+    //     std::vector<MeshletStats> stats;
+    //     std::vector<glm::vec4> vertices;
+    //     std::vector<uint32_t> indices;
+    //     std::vector<uint32_t> primitives;
+    // };
+    // std::vector<LoadedMeshlet> loadedMeshlets{};
+    // std::vector<MeshletStats> meshletStats;
     VulkanBuffer positionBuffer{};
     VulkanBuffer meshletBuffer{};
     VulkanBuffer meshletVerticesBuffer{};
     VulkanBuffer meshletPrimitivesBuffer{};
+    // std::vector<VulkanBuffer> positionBuffers{};
+    // std::vector<VulkanBuffer> meshletBuffers{};
+    // std::vector<VulkanBuffer> meshletVerticesBuffers{};
+    // std::vector<VulkanBuffer> meshletPrimitivesBuffers{};
 
 private:
     uint16_t fpsLimit = 60;

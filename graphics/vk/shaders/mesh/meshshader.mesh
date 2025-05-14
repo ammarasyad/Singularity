@@ -16,6 +16,13 @@ layout(set = 0, binding = 3) uniform ViewMatrix {
     mat4 viewMatrix;
 };
 
+// layout(set = 0, binding = 4) readonly buffer MeshBuffer {
+//     Meshlet meshlets[];
+//     vec4 vertices[];
+//     uint meshletVertices[];
+//     uint meshletPrimitives[];
+// };
+
 layout(set = 0, binding = 4) readonly buffer PositionBuffer {
     vec4 vertices[];
 };
@@ -34,10 +41,12 @@ layout(set = 0, binding = 7) readonly buffer MeshletPrimitivesBuffer {
 
 layout(push_constant) uniform PushConstants {
     mat4 mvp;
+    uvec4 meshOffsets;
 } pushConstants;
 
 layout(location = 0) out VertexOutput {
     vec3 fragNormal;
+    vec3 fragPos;
 } vertexOutputs[];
 
 taskPayloadSharedEXT Payload payload;
@@ -50,7 +59,7 @@ void main() {
     SetMeshOutputsEXT(meshlet.vertex_count, meshlet.triangle_count);
 
     if (gtid < meshlet.triangle_count) {
-        uint packed = meshletPrimitives[meshlet.triangle_offset + gtid];
+        uint packed = meshletPrimitives[meshlet.triangle_offset + gtid + pushConstants.meshOffsets.z];
         uint i0 = (packed      ) & 0xFF;
         uint i1 = (packed >> 8 ) & 0xFF;
         uint i2 = (packed >> 16) & 0xFF;
@@ -59,9 +68,10 @@ void main() {
     }
 
     if (gtid < meshlet.vertex_count) {
-        uint vertexIndex = meshletVertices[meshlet.vertex_offset + gtid];
-        gl_MeshVerticesEXT[gtid].gl_Position = sceneData.worldMatrix * pushConstants.mvp * vertices[vertexIndex];
+        uint vertexIndex = meshletVertices[meshlet.vertex_offset + gtid + pushConstants.meshOffsets.y];
+        gl_MeshVerticesEXT[gtid].gl_Position = sceneData.worldMatrix * pushConstants.mvp * vertices[vertexIndex + pushConstants.meshOffsets.x];
 
         vertexOutputs[gtid].fragNormal = vec3(float(gid & 1), float(gid & 3) / 4, float(gid & 7) / 8);
+        vertexOutputs[gtid].fragPos = gl_MeshVerticesEXT[gtid].gl_Position.xyz;
     }
 }
