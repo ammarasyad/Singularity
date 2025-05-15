@@ -64,14 +64,11 @@ namespace glm {
 }
 
 struct FrameData {
-#if defined(_WIN32) && defined(USE_DXGI_SWAPCHAIN)
-    // ComPtr<ID3D12CommandAllocator> commandAllocator;
-    // ComPtr<ID3D12GraphicsCommandList> commandList;
-#else
+#if !defined(_WIN32) || !defined(USE_DXGI_SWAPCHAIN)
     VkSemaphore imageAvailableSemaphore{};
     VkSemaphore renderFinishedSemaphore{};
-    VkFence inFlightFence{};
 #endif
+    VkFence inFlightFence{};
 
     VkCommandPool commandPool{};
     VkCommandBuffer commandBuffer{};

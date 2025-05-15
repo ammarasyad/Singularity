@@ -381,19 +381,21 @@ void VkRenderer::Render(EngineStats &stats) {
     UpdateScene(stats);
 
 #if defined(_WIN32) && defined(USE_DXGI_SWAPCHAIN)
-    static std::array<VkFence, 2> fences{
+    std::array<VkFence, 3> fences{
             {
-                depthPrepassFence,
-                computeFinishedFence
+                frames[currentFrame].inFlightFence,
+                computeFinishedFence,
+                depthPrepassFence
             }
     };
-    VK_CHECK(vkWaitForFences(device, 2, fences.data(), VK_TRUE, UINT64_MAX));
-    ThrowIfFailed(d3dQueue->Signal(sharedFence.Get(), waitValue));
-    // ThrowIfFailed(frames[currentFrame].commandAllocator->Reset());
-    // ThrowIfFailed(frames[currentFrame].commandList->Reset(frames[currentFrame].commandAllocator.Get(), nullptr));
+    const auto size = fences.size() - !asyncCompute - meshShader;
+    VK_CHECK(vkWaitForFences(device, size, fences.data(), VK_TRUE, UINT64_MAX));
+
+    static uint64_t timelineCounter = 1;
+    ThrowIfFailed(sharedFence->Signal(timelineCounter++));
 
     uint32_t imageIndex = d3dSwapChain->GetCurrentBackBufferIndex();
-    VK_CHECK(vkResetFences(device, 2, fences.data()));
+    VK_CHECK(vkResetFences(device, size, fences.data()));
 #else
     static std::array<VkFence, 3> fences;
     fences[0] = frames[currentFrame].inFlightFence;
@@ -496,7 +498,7 @@ void VkRenderer::Render(EngineStats &stats) {
     const auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
     stats.meshDrawTime = static_cast<float>(elapsed) / 1000.f;
 
-    static constexpr VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT};
+    static constexpr VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT, VK_PIPELINE_STAGE_MESH_SHADER_BIT_EXT};
     static std::array<VkSemaphore, 3> waitSemaphores;
     if (meshShader)
     {
@@ -532,31 +534,16 @@ void VkRenderer::Render(EngineStats &stats) {
         &timelineSemaphore
     };
 
-    VK_CHECK(vkQueueSubmit(graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE));
+    VK_CHECK(vkQueueSubmit(graphicsQueue, 1, &submitInfo, frames[currentFrame].inFlightFence));
     ThrowIfFailed(d3dQueue->Wait(sharedFence.Get(), signalValue));
-
-    // D3D12_RESOURCE_BARRIER barrier{
-    //     .Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION,
-    //     .Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE,
-    //     .Transition = {
-    //         .pResource = d3dFramebuffers[currentFrame].Get(),
-    //         .Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,
-    //         .StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET,
-    //         .StateAfter = D3D12_RESOURCE_STATE_PRESENT,
-    //     }
-    // };
-    //
-    // frames[currentFrame].commandList->ResourceBarrier(1, &barrier);
-    // ThrowIfFailed(frames[currentFrame].commandList->Close());
-    // d3dQueue->ExecuteCommandLists(1, reinterpret_cast<ID3D12CommandList * const *>(frames[currentFrame].commandList.GetAddressOf()));
+    vkGetSemaphoreCounterValue(device, timelineSemaphore, &timelineCounter);
+    timelineCounter++;
     ThrowIfFailed(d3dSwapChain->Present(0, DXGI_PRESENT_ALLOW_TEARING));
-    // ThrowIfFailed(d3dSwapChain->Present(1, 0));
 
     if (framebufferResized)
     {
         framebufferResized = false;
     }
-
     waitValue++;
     signalValue++;
 #else
@@ -988,8 +975,8 @@ void VkRenderer::Shutdown() {
 #if !defined(_WIN32) || !defined(USE_DXGI_SWAPCHAIN)
         vkDestroySemaphore(device, frames[i].renderFinishedSemaphore, nullptr);
         vkDestroySemaphore(device, frames[i].imageAvailableSemaphore, nullptr);
-        vkDestroyFence(device, frames[i].inFlightFence, nullptr);
 #endif
+        vkDestroyFence(device, frames[i].inFlightFence, nullptr);
         vkDestroyCommandPool(device, frames[i].commandPool, nullptr);
         frames[i].frameDescriptors.Destroy(device);
     }
@@ -2338,13 +2325,13 @@ void VkRenderer::CreateSyncObjects() {
     semaphoreHandleInfo.semaphore = timelineSemaphore;
     VK_CHECK(fn_vkGetSemaphoreWin32HandleKHR(device, &semaphoreHandleInfo, &timelineSemaphoreHandle));
     ThrowIfFailed(d3dDevice->OpenSharedHandle(timelineSemaphoreHandle, __uuidof(ID3D12Fence), &sharedFence));
-#else
     for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+#else
         VK_CHECK(vkCreateSemaphore(device, &semaphoreInfo, VK_NULL_HANDLE, &frames[i].imageAvailableSemaphore));
         VK_CHECK(vkCreateSemaphore(device, &semaphoreInfo, VK_NULL_HANDLE, &frames[i].renderFinishedSemaphore));
+#endif
         VK_CHECK(vkCreateFence(device, &fenceInfo, VK_NULL_HANDLE, &frames[i].inFlightFence));
     }
-#endif
 }
 
 void VkRenderer::CreateDescriptors() {
