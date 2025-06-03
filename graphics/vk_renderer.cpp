@@ -40,7 +40,6 @@ VkRenderer::VkRenderer() : dynamicRendering(false),
                            allowTearing(false),
                            isShaderInvalidated(false),
                            glfwWindow(nullptr), camera(nullptr),
-                           totalLights(nullptr),
                            meshCount(0)
 {}
 
@@ -1005,7 +1004,6 @@ void VkRenderer::Shutdown() {
 
     // delete memoryManager;
     memoryManager.Shutdown();
-    delete totalLights;
 
     mainDescriptorAllocator.Destroy(device);
     vkDestroyDescriptorSetLayout(device, mainDescriptorSetLayout, nullptr);
@@ -2327,6 +2325,7 @@ void VkRenderer::CreateSyncObjects() {
     ThrowIfFailed(d3dDevice->OpenSharedHandle(timelineSemaphoreHandle, __uuidof(ID3D12Fence), &sharedFence));
     for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
 #else
+    for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
         VK_CHECK(vkCreateSemaphore(device, &semaphoreInfo, VK_NULL_HANDLE, &frames[i].imageAvailableSemaphore));
         VK_CHECK(vkCreateSemaphore(device, &semaphoreInfo, VK_NULL_HANDLE, &frames[i].renderFinishedSemaphore));
 #endif
@@ -2608,14 +2607,13 @@ void VkRenderer::UpdateCascades() {
         auto maxExtents = glm::vec3(radius);
         auto minExtents = -maxExtents;
 
-        const glm::vec4 &lightPosition = totalLights->lights[0].position;
-        auto lightDir = normalize(glm::vec3(lightPosition.x, -lightPosition.y, lightPosition.z));
+        const glm::vec3 lightDir = glm::normalize(glm::vec3{1.0f, -4.0f, 1.0f});
         auto lightView = lookAt(frustumCenter - lightDir * maxExtents.z, frustumCenter, camera->worldUp);
-        auto lightOrtho = glm::ortho(minExtents.x, maxExtents.x, minExtents.y, maxExtents.y, 0.0f, maxExtents.z - minExtents.z);
+        auto lightOrtho = glm::ortho(minExtents.x, maxExtents.x, minExtents.y, maxExtents.y, minExtents.z, maxExtents.z);
 
         lightOrtho[1][1] *= -1.0f;
 
-        cascadeSplits.arr[i] = d * -1.0f;
+        cascadeSplits.arr[i] = -d;
         cascadeViewProjections[i] = lightOrtho * lightView;
 
         lastSplitDist = splitDist;
@@ -2669,20 +2667,21 @@ void VkRenderer::DestroyDebugUtilsMessengerEXT(VkInstance instance, VkDebugUtils
 constexpr int multiplier = 16 * 9 * 6;
 
 void VkRenderer::CreateRandomLights() {
-    totalLights = new Light;
-    totalLights->lightCount = MAX_LIGHTS;
+    totalLights.lightCount = MAX_LIGHTS;
 
     std::random_device rd;
     std::mt19937 gen(rd());
 
-//    std::uniform_real_distribution<float> disXZ(-9.f, 9.f);
-//    std::uniform_real_distribution<float> disY(0.5f, 7.f);
-//
-//    std::uniform_real_distribution<float> disColor(0.f, 1.f);
+    std::uniform_real_distribution disXZ(-15.f, 15.f);
+    std::uniform_real_distribution disY(0.5f, 7.f);
 
-    for (size_t i = 0; i < totalLights->lightCount; i++) {
-        totalLights->lights[i].position = {20.0f, 20.0f, 0.0f, 500.f};
-        totalLights->lights[i].color = {1.0f, 1.0f, 1.0f, 1.0f};
+    std::uniform_real_distribution disColor(0.f, 1.f);
+
+    for (size_t i = 0; i < totalLights.lightCount; i++) {
+        // totalLights.lights[i].position = {20.0f, 20.0f, 0.0f, 10.f};
+        // totalLights.lights[i].color = {1.0f, 1.0f, 1.0f, 1.0f};
+        totalLights.lights[i].position = {disXZ(gen), disY(gen), disXZ(gen), 10.f};
+        totalLights.lights[i].color = {disColor(gen), disColor(gen), disColor(gen), 1.0f};
     }
 
     lightBuffer = memoryManager.createManagedBuffer(
@@ -2690,7 +2689,7 @@ void VkRenderer::CreateRandomLights() {
              VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT});
 
     const auto mappedMemoryTask = [&](auto *stagingBuffer) {
-        memcpy(stagingBuffer, totalLights, sizeof(Light));
+        memcpy(stagingBuffer, &totalLights, sizeof(Light));
     };
 
     const auto unmappedMemoryTask = [&](auto buf) {

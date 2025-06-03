@@ -19,10 +19,10 @@ vec3 ScreenSpaceToViewSpace(vec2 screenSpace) {
     vec2 ndc = screenSpace / vec2(pushConstants.viewportSize);
 //    vec4 clipSpace = vec4(2.0 * vec2(ndc.x, 1.0f - ndc.y) - 1.0, -1.0, 1.0);
     vec4 clipSpace = vec4(2.0 * ndc - 1.0, -1.0, 1.0);
-    vec4 view = vec4(pushConstants.inverseVp) * clipSpace;
-    view /= view.w;
+    vec4 view = pushConstants.inverseVp * clipSpace;
+    // view /= view.w;
 
-    return view.xyz;
+    return view.xyz / view.w;
 }
 
 vec3 LineIntersectionWithZPlane(vec3 lineStart, vec3 lineEnd, float z) {
@@ -31,16 +31,16 @@ vec3 LineIntersectionWithZPlane(vec3 lineStart, vec3 lineEnd, float z) {
 }
 
 void main() {
-    uint tileIndex = gl_GlobalInvocationID.x + gl_GlobalInvocationID.y * gl_NumWorkGroups.x + gl_GlobalInvocationID.z * gl_NumWorkGroups.x * gl_NumWorkGroups.y;
+    uint tileIndex = gl_GlobalInvocationID.x +
+                     gl_GlobalInvocationID.y * gl_NumWorkGroups.x +
+                     gl_GlobalInvocationID.z * gl_NumWorkGroups.x * gl_NumWorkGroups.y;
     vec2 tileSize = vec2(pushConstants.viewportSize) / gl_NumWorkGroups.xy;
 
-    vec2 workGroup = vec2(gl_WorkGroupID.xy);
-
-    vec3 minTile = ScreenSpaceToViewSpace(workGroup * tileSize);
-    vec3 maxTile = ScreenSpaceToViewSpace(workGroup * tileSize + tileSize);
+    vec3 minTile = ScreenSpaceToViewSpace(gl_WorkGroupID.xy * tileSize);
+    vec3 maxTile = ScreenSpaceToViewSpace((gl_WorkGroupID.xy + 1) * tileSize);
 
     vec2 workGroupRatio = vec2(gl_WorkGroupID.z / gl_NumWorkGroups.z, (gl_WorkGroupID.z + 1) / gl_NumWorkGroups.z);
-    vec2 planes = vec2(pow(Z_FAR / Z_NEAR, workGroupRatio.x), pow(Z_FAR / Z_NEAR, workGroupRatio.y)) * 0.1f;
+    vec2 planes = vec2(pow(Z_FAR / Z_NEAR, workGroupRatio.x), pow(Z_FAR / Z_NEAR, workGroupRatio.y)) * Z_NEAR;
 
     vec3 eye = vec3(0);
     vec3 minPointNear = LineIntersectionWithZPlane(eye, minTile, planes.x);
@@ -48,8 +48,8 @@ void main() {
     vec3 minPointFar = LineIntersectionWithZPlane(eye, minTile, planes.y);
     vec3 maxPointFar = LineIntersectionWithZPlane(eye, maxTile, planes.y);
 
-    frustumAABB.minPoint = vec4(min(minPointNear, minPointFar), 0.0);
-    frustumAABB.maxPoint = vec4(max(maxPointNear, maxPointFar), 0.0);
+    frustumAABB.minPoint = vec4(min(min(minPointNear, minPointFar), min(maxPointNear, maxPointFar)), 0.0);
+    frustumAABB.maxPoint = vec4(max(max(maxPointNear, maxPointFar), max(maxPointNear, maxPointFar)), 0.0);
 //    visibleLightIndices[tileIndex].minPoint = vec4(min(minPointNear, minPointFar), 0.0);
 //    visibleLightIndices[tileIndex].maxPoint = vec4(max(maxPointNear, maxPointFar), 0.0);
 }

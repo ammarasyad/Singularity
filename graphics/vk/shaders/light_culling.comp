@@ -33,7 +33,7 @@ layout(push_constant) uniform PushConstants {
 bool SphereAABBIntersection(vec4 sphere, float radius, vec3 aabbMin, vec3 aabbMax) {
     vec3 closestPointInAabb = clamp(sphere.xyz, aabbMin, aabbMax);
     vec3 distance = sphere.xyz - closestPointInAabb;
-    return dot(distance, distance) <= radius * radius;
+    return dot(distance, distance) <= 10000.0f;
 }
 
 void main() {
@@ -50,7 +50,8 @@ void main() {
 
         bool intersects = SphereAABBIntersection(pushConstants.viewMatrix * vec4(lightPosition.xyz, 1.0f), lightPosition.w, frustumAABB.minPoint.xyz, frustumAABB.maxPoint.xyz);
 
-        visibleLightIndex.indices[count] = uint16_t(mix(visibleLightIndex.indices[count], i, intersects));
+        // visibleLightIndex.indices[count] = uint16_t(mix(visibleLightIndex.indices[count], i, intersects));
+        visibleLightIndex.indices[count] = uint16_t(intersects ? i : visibleLightIndex.indices[count]);
         count += uint16_t(intersects);
     }
 

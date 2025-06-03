@@ -29,7 +29,7 @@ using Microsoft::WRL::ComPtr;
 #include "vk/vk_descriptor_layout.h"
 #include "engine/objects/gltf.h"
 
-#define USE_DXGI_SWAPCHAIN
+// #define USE_DXGI_SWAPCHAIN
 
 static constexpr uint32_t SHADOW_MAP_CASCADE_COUNT = 4;
 static constexpr uint32_t SHADOW_MAP_SIZE = 4096;
@@ -85,7 +85,7 @@ struct DepthPassPushConstants {
     uint32_t cascadeIndex;
 };
 
-#define MAX_LIGHTS 1
+#define MAX_LIGHTS 32
 #define MAX_LIGHTS_VISIBLE 256
 
 struct Light {
@@ -367,12 +367,11 @@ public:
     LoadedGLTF loadedScene{};
     SceneData sceneData{};
 
-    Light *totalLights;
+    Light totalLights;
 
     struct ShadowCascade {
         VkImageView shadowImageView;
         VkFramebuffer shadowMapFramebuffer;
-        float splitDepth;
     };
 
     std::array<ShadowCascade, SHADOW_MAP_CASCADE_COUNT> shadowCascades{};

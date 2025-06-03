@@ -113,7 +113,7 @@ VkGui::VkGui(const int width, const int height, const bool dynamicRendering, con
 
     // VkRenderer initialization
     // renderer = VkRenderer(window, &camera, dynamicRendering, asyncCompute, false);
-    renderer.Initialize(window, &camera, dynamicRendering, asyncCompute, true);
+    renderer.Initialize(window, &camera, dynamicRendering, asyncCompute, false);
 
     const auto instance = renderer.instance;
     const auto physicalDevice = renderer.physicalDevice;

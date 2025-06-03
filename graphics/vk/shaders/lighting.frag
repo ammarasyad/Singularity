@@ -20,7 +20,7 @@ layout(location = 0) out vec4 outColor;
 layout(constant_id = 0) const uint enablePCF = 1;
 layout(constant_id = 1) const uint MAX_CASCADES = 4;
 
-layout(set = 0, binding = 1) uniform CascadeData {
+layout(set = 0, binding = 1) uniform readonly CascadeData {
     mat4 viewProjectionMatrix[MAX_CASCADES];
 } cascadeData;
 
@@ -59,15 +59,15 @@ const mat4 biasMat = mat4(
 float textureProjection(vec4 shadowCoord, vec2 offset, uint cascadeIndex) {
     const float shadow = 1.0f;
     const float bias = 0.005f;
-    float dist = float(texture(shadowMap, vec3(shadowCoord.st + offset, cascadeIndex)).r);
+    float dist = texture(shadowMap, vec3(shadowCoord.st + offset, cascadeIndex)).r;
 
     return shadowCoord.z > -1.0f && shadowCoord.z < 1.0f && shadowCoord.w > 0.0f && dist < shadowCoord.z - bias ? ambient : shadow;
 }
 
 float filterPCF(vec4 shadowCoord, uint cascadeIndex) {
-    vec2 textureDim = vec2(textureSize(shadowMap, 0).xy);
+    vec2 textureDim = textureSize(shadowMap, 0).xy;
     const float scale = 0.75f;
-    vec2 diff = vec2(scale / textureDim);
+    vec2 diff = vec2(scale / textureDim.x, scale / textureDim.y);
 
     float shadowFactor = 0.0f;
     uint count = 0;
@@ -81,41 +81,60 @@ float filterPCF(vec4 shadowCoord, uint cascadeIndex) {
         }
     }
 
-    return shadowFactor / float(count);
+    return shadowFactor / count;
 }
 
 void main() {
     vec4 texColor = texture(colorTexture, fragUV);
     uint cascadeIndex = 0;
     for (uint i = 0; i < MAX_CASCADES - 1; i++) {
-        cascadeIndex += uint(gl_FragCoord.z < pushConstants.cascadeSplits[i]);
+        cascadeIndex += uint(fragPos.z < pushConstants.cascadeSplits[i]);
     }
 
-    vec3 position = vec3(fragPos);
-    vec4 shadowCoord = vec4(biasMat * cascadeData.viewProjectionMatrix[cascadeIndex] * vec4(fragPos, 1.0f));
+    vec4 shadowCoord = biasMat * cascadeData.viewProjectionMatrix[cascadeIndex] * vec4(fragPos, 1.0f);
 
-    uint zTile = uint(TILE_Z * log((-gl_FragCoord.z - Z_NEAR) / (Z_FAR / Z_NEAR)));
-    uvec3 tile = uvec3(gl_FragCoord.xy / (pushConstants.viewportSize / vec2(TILE_X, TILE_Y)), zTile);
+    uint zTile = uint(TILE_Z * log((-fragPos.z - Z_NEAR) / (Z_FAR / Z_NEAR)));
+    uvec3 tile = uvec3(fragPos.xy / (pushConstants.viewportSize / vec2(TILE_X, TILE_Y)), zTile);
     uint tileIndex = tile.x + tile.y * TILE_X + tile.z * TILE_X * TILE_Y;
     uint16_t numLightsInTile = lightCounts[tileIndex];
 
-    vec3 normal = vec3(normalize(fragNormal));
+    vec3 normal = normalize(fragNormal);
     vec3 diffuse = vec3(ambient);
 
+    float shadow = enablePCF == 1 ? filterPCF(shadowCoord / shadowCoord.w, cascadeIndex) : textureProjection(shadowCoord / shadowCoord.w, vec2(0.0f), cascadeIndex);
+    float shadowDiffuse = max(dot(normal, normalize(-vec3(1.0f, -4.0f, 1.0f))), ambient) * shadow;
     for (uint i = 0; i < numLightsInTile; i++) {
         Light light = lights[visibilities[tileIndex].indices[i]];
 
         vec3 lightPosition = light.position.xyz;
         vec4 lightColor = light.color;
 
-        // Directional Light
-        vec3 lightDir = normalize(lightPosition);
-        float lambertian = max(dot(normal, lightDir), 0.0f);
+        float lightDist = distance(lightPosition, fragPos);
+        vec3 lightDir = (lightPosition - fragPos) / lightDist;
+        vec3 halfDist = normalize(lightDir + normalize(lightPosition));
 
-        diffuse += lambertian * lightColor.rgb * lightColor.w;
+        float lambertian = max(dot(normal, lightDir), 0.0f);
+        float attenuation = clamp(1.0f / dot(lightDist, lightDist), 0.0f, 1.0f);
+        float specular = pow(clamp(dot(normal, halfDist), 0.0f, 1.0f), 32.0f);
+
+        diffuse += (lambertian * (1 - shadow) + specular) * lightColor.rgb * lightColor.w * attenuation;
     }
 
-    float shadow = enablePCF == 1 ? filterPCF(shadowCoord / shadowCoord.w, cascadeIndex) : textureProjection(shadowCoord / shadowCoord.w, vec2(0.0f), cascadeIndex);
-
+    // outColor = vec4(diffuse * (shadow), 1.0f) * texColor;
     outColor = vec4(diffuse, 1.0f) * texColor;
+    // outColor = vec4(vec3(textureProjection(shadowCoord / shadowCoord.w, vec2(0.0f), 2)), 1.0f);
+    // switch (cascadeIndex) {
+    //     case 0:
+    //         outColor *= vec4(1.0f, 0.25f, 0.25f, 1.0f);
+    //         break;
+    //     case 1:
+    //         outColor *= vec4(0.25f, 1.0f, 0.25f, 1.0f);
+    //         break;
+    //     case 2:
+    //         outColor *= vec4(0.25f, 0.25f, 1.0f, 1.0f);
+    //         break;
+    //     case 3:
+    //         outColor *= vec4(1.0f, 0.25f, 1.0f, 1.0f);
+    //         break;
+    // }
 }
