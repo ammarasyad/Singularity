@@ -88,6 +88,10 @@ add_executable(Singularity main.cpp
         graphics/vk/memory/vma_usage.h
         common/file_watcher.cpp
         common/file_watcher.h
+        graphics/vk/radiance_cascades/radiance_cascades.cpp
+        graphics/vk/radiance_cascades/radiance_cascades.h
+        graphics/vk/radiance_cascades/ray_tracing.cpp
+        graphics/vk/radiance_cascades/ray_tracing.h
 )
 
 set_target_properties(Singularity PROPERTIES WIN32_EXECUTABLE $<PLATFORM_ID:Windows>)
@@ -106,44 +110,50 @@ set(SHADER_FILES
         ${VK_SHADER_FOLDER}/lighting.frag
         ${VK_SHADER_FOLDER}/mesh.frag
         ${VK_SHADER_FOLDER}/mesh.vert
+        ${VK_SHADER_FOLDER}/rtmesh.vert
+        ${VK_SHADER_FOLDER}/radiance_cascades/radiance_cascades.frag
+        ${VK_SHADER_FOLDER}/radiance_cascades/radiance_cascades.comp
+        ${VK_SHADER_FOLDER}/radiance_cascades/raygen.rgen
+        ${VK_SHADER_FOLDER}/radiance_cascades/closesthit.rchit
+        ${VK_SHADER_FOLDER}/radiance_cascades/rtShadow.rmiss
         ${VK_SHADER_FOLDER}/shadowmap.vert
         ${VK_SHADER_FOLDER}/shadowmap.frag
         ${VK_SHADER_FOLDER}/skybox.frag
         ${VK_SHADER_FOLDER}/skybox.vert
 )
 
+file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/shaders/)
+
 foreach (FILE ${SHADER_FILES})
     get_filename_component(FILE_NAME ${FILE} NAME)
-    if (CMAKE_HOST_SYSTEM STREQUAL "Windows")
-        add_custom_command(
-                TARGET shaders
-                COMMAND third_party/shaderc/bin/glslc.exe ${FILE} --target-spv=spv1.6 -o ${CMAKE_CURRENT_BINARY_DIR}/shaders/${FILE_NAME}.spv -g
-                #MAIN_DEPENDENCY ${FILE}
-                WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-                VERBATIM
-                PRE_BUILD
-        )
-    else ()
-        add_custom_command(
-                TARGET shaders
-                COMMAND glslc ${FILE} --target-spv=spv1.6 -o ${CMAKE_CURRENT_BINARY_DIR}/shaders/${FILE_NAME}.spv -g
-                #MAIN_DEPENDENCY ${FILE}
-                WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-                VERBATIM
-                PRE_BUILD
-        )
-    endif ()
+    add_custom_command(
+            TARGET shaders
+            COMMAND glslc ${FILE} --target-env=vulkan1.3 --target-spv=spv1.6 -o ${CMAKE_CURRENT_BINARY_DIR}/shaders/${FILE_NAME}.spv -g
+            #MAIN_DEPENDENCY ${FILE}
+            WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+            VERBATIM
+            PRE_BUILD
+    )
 endforeach ()
 
 if (COMPILE_AVX2)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mavx2 -mfma")
+    if (CMAKE_CXX_COMPILER_ID STREQUAL "Clang" OR CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mavx2 -mfma")
+    elseif (CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /arch:AVX2")
+    endif()
 endif ()
 
-target_compile_options(Singularity PRIVATE -fopenmp)
+if (CMAKE_CXX_COMPILER_ID STREQUAL "Clang" OR CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    set(OMP_PARAM -fopenmp)
+elseif (CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
+    set(OMP_PARAM /openmp)
+endif()
+target_compile_options(Singularity PRIVATE ${OMP_PARAM})
 
 add_dependencies(Singularity shaders)
 target_include_directories(Singularity PRIVATE imgui third_party/glm third_party/fastgltf/include #[[third_party/libpng]])
-target_link_options(Singularity PRIVATE -fopenmp $<$<PLATFORM_ID:Windows>:-static>)
+target_link_options(Singularity PRIVATE ${OMP_PARAM} $<$<PLATFORM_ID:Windows>:-static>)
 
 if (CMAKE_HOST_SYSTEM_NAME STREQUAL "Windows")
     target_link_libraries(Singularity PRIVATE d3d12.lib dxgi.lib d3dcompiler.lib D3D12MemoryAllocator)

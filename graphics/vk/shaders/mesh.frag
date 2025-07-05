@@ -2,14 +2,15 @@
 
 #extension GL_GOOGLE_include_directive : require
 
-#include "input_structures.glsl"
+layout(set = 0, binding = 0) uniform sampler2D radianceImage;
 
-layout(location = 0) in vec3 fragNormal;
-layout(location = 1) in vec3 fragColor;
-layout(location = 2) in vec2 fragUV;
+layout(push_constant) uniform PushConstants {
+    vec2 viewportSize;
+} pc;
 
 layout(location = 0) out vec4 outColor;
 
 void main() {
-    outColor = vec4(fragColor * texture(colorTexture, fragUV).xyz, 1.0f);
+    vec2 uv = gl_FragCoord.xy / pc.viewportSize;
+    outColor = texture(radianceImage, uv);
 }

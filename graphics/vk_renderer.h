@@ -3,6 +3,7 @@
 
 #define GLFW_INCLUDE_VULKAN
 #define GLM_FORCE_RADIANS
+#include "vk/radiance_cascades/ray_tracing.h"
 
 #ifdef _WIN32
 #define GLFW_EXPOSE_NATIVE_WIN32
@@ -118,7 +119,7 @@ public:
 //     explicit VkRenderer(HINSTANCE hinstance, HWND hwnd, Camera *camera, bool dynamicRendering = true, bool asyncCompute = true, bool meshShader = false);
 // #else
     // explicit VkRenderer(GLFWwindow *window, Camera *camera, bool dynamicRendering = true, bool asyncCompute = true, bool meshShader = false);
-    explicit VkRenderer();
+    VkRenderer() = default;
     void Initialize(GLFWwindow *, Camera *, bool dynamicRendering = true, bool asyncCompute = true, bool meshShader = false);
 // #endif
     ~VkRenderer();
@@ -237,14 +238,20 @@ public:
 
     uint8_t currentFrame = 0;
     struct {
-        bool dynamicRendering : 1;
-        bool asyncCompute : 1;
-        bool raytracingCapable : 1;
-        bool framebufferResized : 1;
-        bool isIntegratedGPU : 1;
-        bool meshShader : 1;
-        bool allowTearing : 1;
-        bool isShaderInvalidated: 1;
+        // offset: 1
+
+        bool dynamicRendering : 1{};
+        bool asyncCompute : 1{};
+        bool raytracingCapable : 1{};
+        bool framebufferResized : 1{};
+        bool isIntegratedGPU : 1{};
+        bool meshShader : 1{};
+        bool allowTearing : 1{};
+        bool isShaderInvalidated: 1{};
+
+        // offset: 2
+
+        bool useRaytracing: 1{};
     };
     int32_t cascadeIndex = 0;
 
@@ -256,8 +263,8 @@ public:
         std::vector<VkPresentModeKHR> presentModes;
     };
 
-    GLFWwindow *glfwWindow;
-    Camera *camera;
+    GLFWwindow *glfwWindow{};
+    Camera *camera{};
 
     VkViewport viewport{};
     VkRect2D scissor{};
@@ -358,6 +365,8 @@ public:
     VulkanBuffer lightCountUniform{};
     VulkanBuffer viewMatrix{};
 
+    RayTracing rayTracing{};
+
     VkSampler textureSamplerLinear{};
     VkSampler textureSamplerNearest{};
 
@@ -367,7 +376,7 @@ public:
     LoadedGLTF loadedScene{};
     SceneData sceneData{};
 
-    Light totalLights;
+    Light totalLights{};
 
     struct ShadowCascade {
         VkImageView shadowImageView;
@@ -394,7 +403,7 @@ public:
         }
     } queueFamilyIndices;
 
-    size_t meshCount;
+    size_t meshCount{};
     struct MeshletStats {
         uint32_t positionCount;
         uint32_t meshletCount;
@@ -479,7 +488,7 @@ private:
 
     inline void SavePipelineCache() const;
 
-    inline void UpdateScene(EngineStats &stats);
+    inline void UpdateScene();
 
     inline void DrawObject(const VkCommandBuffer &commandBuffer, const VkRenderObject &draw, VkMaterialPipeline &lastPipeline, VkMaterialInstance &lastMaterialInstance, VkBuffer &lastIndexBuffer);
     inline void DrawDepthPrepass(/*const std::vector<size_t> &drawIndices*/);

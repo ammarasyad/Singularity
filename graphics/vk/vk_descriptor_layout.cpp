@@ -1,5 +1,5 @@
 #include "vk_descriptor_layout.h"
-#include <bits/ranges_algobase.h>
+#include <ranges>
 #pragma region DescriptorWriter
 void DescriptorWriter::WriteImage(int binding, VkImageView image, VkSampler sampler, VkImageLayout layout, VkDescriptorType type) {
     auto &info = imageInfos.emplace_back(sampler, image, layout);
@@ -33,6 +33,23 @@ void DescriptorWriter::WriteBuffer(int binding, VkBuffer buffer, VkDeviceSize of
         VK_NULL_HANDLE
     );
 }
+
+void DescriptorWriter::WriteAccelerationStructure(int binding, const VkAccelerationStructureKHR *accelerationStructure)
+{
+    accelerationStructureWrite.accelerationStructureCount = 1;
+    accelerationStructureWrite.pAccelerationStructures = accelerationStructure;
+
+    writes.emplace_back(
+        VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+        &accelerationStructureWrite,
+        VK_NULL_HANDLE,
+        binding,
+        0,
+        1,
+        VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR
+    );
+}
+
 void DescriptorWriter::Clear() {
     imageInfos.clear();
     bufferInfos.clear();

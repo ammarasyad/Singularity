@@ -76,8 +76,6 @@ PFN_vkGetMemoryWin32HandleKHR fn_vkGetMemoryWin32HandleKHR;
 //     }
 // }
 
-VkMemoryManager::VkMemoryManager() : allocator(nullptr), device(VK_NULL_HANDLE), pool(VK_NULL_HANDLE), availableMemory(0), totalMemory(0), isIntegratedGPU(false) {}
-
 void VkMemoryManager::Initialize(const VkRenderer *renderer, const bool customPool)
 {
     this->device = renderer->device;

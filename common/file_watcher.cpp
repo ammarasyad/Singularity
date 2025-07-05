@@ -3,7 +3,15 @@
 #include <atomic>
 #include <cstdint>
 #include <cstdio>
+#ifdef __has_include
+#if __has_include(<pthread.h>)
 #include <pthread.h>
+#define POSIX_THREADS 1
+#endif
+#else
+#include <thread>
+#define POSIX_THREADS 0
+#endif
 #include <immintrin.h>
 
 #include "min_windows.h"
@@ -15,7 +23,12 @@ struct thread_args
     void *arg;
 };
 
+#ifdef POSIX_THREADS
 static pthread_t fileWatcherThread;
+#else
+static HANDLE fileWatcherHandle;
+#endif
+
 static thread_args threadArgs{};
 static bool fileWatcherRunning = false;
 
@@ -116,11 +129,11 @@ void fileWatcherInit(thread_args *args)
 
     // CloseHandle(overlapped.hEvent);
     CloseHandle(hDir);
-    pthread_exit(nullptr);
 }
 
 void addFileWatcher(std::string path, void *(*callback)(void *), void *arg)
 {
+#ifdef POSIX_THREADS
     if (fileWatcherThread) return;
 
     threadArgs.path = path;
@@ -129,6 +142,29 @@ void addFileWatcher(std::string path, void *(*callback)(void *), void *arg)
 
     fileWatcherRunning = true;
     pthread_create(&fileWatcherThread, nullptr, reinterpret_cast<void *(*)(void *)>(fileWatcherInit), &threadArgs);
+#else
+    if (fileWatcherHandle) return;
+
+    threadArgs.path = path;
+    threadArgs.callback = callback;
+    threadArgs.arg = arg;
+
+    fileWatcherRunning = true;
+
+    fileWatcherHandle = CreateThread(
+        nullptr,
+        0,
+        reinterpret_cast<LPTHREAD_START_ROUTINE>(fileWatcherInit),
+        &threadArgs,
+        0,
+        nullptr);
+
+    if (fileWatcherHandle == nullptr)
+    {
+        fprintf(stderr, "Failed to create file watcher thread: %d\n", GetLastError());
+        return;
+    }
+#endif
 }
 
 void removeFileWatcher()
@@ -150,7 +186,13 @@ void removeFileWatcher()
         hDir = INVALID_HANDLE_VALUE;
     }
 
+#ifdef POSIX_THREADS
     pthread_join(fileWatcherThread, nullptr);
+#else
+    WaitForSingleObject(fileWatcherHandle, INFINITE);
+    CloseHandle(fileWatcherHandle);
+    fileWatcherHandle = nullptr;
+#endif
 }
 
 

@@ -11,8 +11,7 @@ static constexpr uint32_t MIN_IMAGE_COUNT = 2;
 
 // ImGui helper function
 namespace ImGui {
-    template<typename Getter, typename Setter>
-    void SliderFloat(const char *label, Getter getter, Setter setter, const float min, const float max, const char *format = "%.3f", ImGuiSliderFlags flags = 0) {
+    void SliderFloat(const char *label, const std::function<float()> &getter, const std::function<void(float)> &setter, const float min, const float max, const char *format = "%.3f", ImGuiSliderFlags flags = 0) {
         const float temp = getter();
         float newValue = temp;
 
@@ -23,9 +22,8 @@ namespace ImGui {
         }
     }
 
-    template<typename Getter, typename Setter>
-    void SliderInt(const char *label, Getter getter, Setter setter, const int min, const int max, const char *format = "%d", ImGuiSliderFlags flags = 0) {
-        int temp = getter();
+    void SliderInt(const char *label, const std::function<int()> &getter, const std::function<void(int)> &setter, const int min, const int max, const char *format = "%d", ImGuiSliderFlags flags = 0) {
+        const int temp = getter();
         int newValue = temp;
 
         SliderInt(label, &newValue, min, max, format, flags);
@@ -193,9 +191,11 @@ void VkGui::Loop() {
         {
             ImGui::Begin("Title or whatever");
             ImGui::Text("FPS: %.1f", ImGui::GetIO().Framerate);
+            ImGui::SameLine();
             ImGui::Text("Frame time: %.2f ms", stats.frameTime);
             ImGui::Text("Mesh Draw Time: %.2f ms", stats.meshDrawTime);
             ImGui::Text("Draw call count: %d", stats.drawCallCount);
+            ImGui::SameLine();
             ImGui::Text("Triangle count: %d", stats.triangleCount);
 
             const auto position = camera.position;

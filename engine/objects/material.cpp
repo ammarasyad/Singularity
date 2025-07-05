@@ -5,91 +5,137 @@
 
 void VkGLTFMetallic_Roughness::buildPipelines(const VkRenderer *renderer) {
     const auto device = renderer->device;
-    constexpr VkPushConstantRange pushConstantRange{
-        VK_SHADER_STAGE_VERTEX_BIT,
-        0,
-        sizeof(MeshPushConstants)
-    };
+    if (renderer->useRaytracing)
+    {
+        constexpr VkPushConstantRange pushConstantRange {
+            VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(RtMeshPushConstants)
+        };
 
-    constexpr VkPushConstantRange meshShaderPushConstantRange {
-        VK_SHADER_STAGE_MESH_BIT_EXT,
-        0,
-        sizeof(MeshShaderPushConstants)
-    };
+        DescriptorLayoutBuilder layoutBuilder;
 
-    const VkPushConstantRange fragmentPushConstantRange{
-        VK_SHADER_STAGE_FRAGMENT_BIT,
-        static_cast<uint32_t>(renderer->meshShader ? sizeof(MeshShaderPushConstants) : sizeof(MeshPushConstants)),
-        sizeof(FragmentPushConstants)
-    };
+        layoutBuilder.AddBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT);
 
-    DescriptorLayoutBuilder layoutBuilder;
+        materialLayout = layoutBuilder.Build(device);
 
-    layoutBuilder.AddBinding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_MESH_BIT_EXT);
-    layoutBuilder.AddBinding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT);
-    layoutBuilder.AddBinding(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT);
+        const VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo{
+            VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+            VK_NULL_HANDLE,
+            0,
+            1,
+            &materialLayout,
+            1,
+            &pushConstantRange
+        };
 
-    materialLayout = layoutBuilder.Build(device);
+        VkPipelineLayout pipelineLayout;
+        VK_CHECK(vkCreatePipelineLayout(device, &pipelineLayoutCreateInfo, VK_NULL_HANDLE, &pipelineLayout));
 
-    std::array setLayouts = {renderer->sceneDescriptorSetLayout, materialLayout, renderer->mainDescriptorSetLayout};
-    const std::array pushConstantRanges = { renderer->meshShader ? meshShaderPushConstantRange : pushConstantRange, fragmentPushConstantRange};
-    const VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo{
-        VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-        VK_NULL_HANDLE,
-        0,
-        setLayouts.size(),
-        setLayouts.data(),
-        pushConstantRanges.size(),
-        pushConstantRanges.data(),
-    };
+        opaquePipeline.layout = pipelineLayout;
 
-    VkPipelineLayout pipelineLayout;
-    VK_CHECK(vkCreatePipelineLayout(device, &pipelineLayoutCreateInfo, VK_NULL_HANDLE, &pipelineLayout));
+        VkGraphicsPipelineBuilder builder{};
+        builder.SetPipelineLayout(pipelineLayout);
 
-    opaquePipeline.layout = pipelineLayout;
-    transparentPipeline.layout = pipelineLayout;
+        builder.CreateShaderModules(device, "shaders/rtmesh.vert.spv", "shaders/mesh.frag.spv");
+        builder.SetTopology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
+        builder.SetPolygonMode(VK_POLYGON_MODE_FILL);
+        builder.SetCullingMode(VK_CULL_MODE_NONE, VK_FRONT_FACE_CLOCKWISE);
+        builder.EnableDepthTest(true, VK_COMPARE_OP_LESS_OR_EQUAL);
 
-    VkGraphicsPipelineBuilder builder{.isMeshShader = renderer->meshShader};
-    builder.SetPipelineLayout(pipelineLayout);
+        builder.SetColorAttachmentFormat(renderer->surfaceFormat.format);
+        builder.SetDepthFormat(renderer->depthImage.format);
 
-    if (builder.isMeshShader) {
-        builder.CreateShaderModules(device, "shaders/meshshader.mesh.spv", "shaders/meshshader.frag.spv", "shaders/meshshader.task.spv");
-    } else {
-        builder.CreateShaderModules(device, "shaders/mesh.vert.spv", "shaders/lighting.frag.spv");
+        opaquePipeline.pipeline = builder.Build(true, device, renderer->pipelineCache);
+
+        builder.DestroyShaderModules(device);
     }
+    else
+    {
+        constexpr VkPushConstantRange pushConstantRange{
+            VK_SHADER_STAGE_VERTEX_BIT,
+            0,
+            sizeof(MeshPushConstants)
+        };
 
-    builder.SetTopology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
-    builder.SetPolygonMode(VK_POLYGON_MODE_FILL);
-    builder.SetCullingMode(VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE);
-    builder.EnableDepthTest(true, VK_COMPARE_OP_LESS_OR_EQUAL);
+        constexpr VkPushConstantRange meshShaderPushConstantRange {
+            VK_SHADER_STAGE_MESH_BIT_EXT,
+            0,
+            sizeof(MeshShaderPushConstants)
+        };
 
-    static constexpr std::array<VkSpecializationMapEntry, 2> entries = {{
-         {0, 0, sizeof(uint32_t)},
-         {1, sizeof(uint32_t), sizeof(uint32_t)}
-    }};
+        const VkPushConstantRange fragmentPushConstantRange{
+            VK_SHADER_STAGE_FRAGMENT_BIT,
+            static_cast<uint32_t>(renderer->meshShader ? sizeof(MeshShaderPushConstants) : sizeof(MeshPushConstants)),
+            sizeof(FragmentPushConstants)
+        };
 
-    static constexpr uint32_t data[] = {1, SHADOW_MAP_CASCADE_COUNT};
+        DescriptorLayoutBuilder layoutBuilder;
 
-    VkSpecializationInfo specializationInfo{
-            entries.size(),
-            entries.data(),
-            sizeof(uint32_t) * 2,
-            data
-    };
+        layoutBuilder.AddBinding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_MESH_BIT_EXT);
+        layoutBuilder.AddBinding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT);
+        layoutBuilder.AddBinding(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT);
 
-    bool dynamicRendering = renderer->dynamicRendering;
-    if (dynamicRendering) {
-         builder.SetColorAttachmentFormat(renderer->surfaceFormat.format);
-         builder.SetDepthFormat(renderer->depthImage.format);
+        materialLayout = layoutBuilder.Build(device);
+
+        std::array setLayouts = {renderer->sceneDescriptorSetLayout, materialLayout, renderer->mainDescriptorSetLayout};
+        const std::array pushConstantRanges = { renderer->meshShader ? meshShaderPushConstantRange : pushConstantRange, fragmentPushConstantRange};
+        const VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo{
+            VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+            VK_NULL_HANDLE,
+            0,
+            setLayouts.size(),
+            setLayouts.data(),
+            pushConstantRanges.size(),
+            pushConstantRanges.data(),
+        };
+
+        VkPipelineLayout pipelineLayout;
+        VK_CHECK(vkCreatePipelineLayout(device, &pipelineLayoutCreateInfo, VK_NULL_HANDLE, &pipelineLayout));
+
+        opaquePipeline.layout = pipelineLayout;
+        transparentPipeline.layout = pipelineLayout;
+
+        VkGraphicsPipelineBuilder builder{.isMeshShader = renderer->meshShader};
+        builder.SetPipelineLayout(pipelineLayout);
+
+        if (builder.isMeshShader) {
+            builder.CreateShaderModules(device, "shaders/meshshader.mesh.spv", "shaders/meshshader.frag.spv", "shaders/meshshader.task.spv");
+        } else {
+            builder.CreateShaderModules(device, "shaders/mesh.vert.spv", "shaders/lighting.frag.spv");
+        }
+
+        builder.SetTopology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
+        builder.SetPolygonMode(VK_POLYGON_MODE_FILL);
+        builder.SetCullingMode(VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE);
+        builder.EnableDepthTest(true, VK_COMPARE_OP_LESS_OR_EQUAL);
+
+        static constexpr std::array<VkSpecializationMapEntry, 2> entries = {{
+             {0, 0, sizeof(uint32_t)},
+             {1, sizeof(uint32_t), sizeof(uint32_t)}
+        }};
+
+        static constexpr uint32_t data[] = {1, SHADOW_MAP_CASCADE_COUNT};
+
+        VkSpecializationInfo specializationInfo{
+                entries.size(),
+                entries.data(),
+                sizeof(uint32_t) * 2,
+                data
+        };
+
+        bool dynamicRendering = renderer->dynamicRendering;
+        if (dynamicRendering) {
+             builder.SetColorAttachmentFormat(renderer->surfaceFormat.format);
+             builder.SetDepthFormat(renderer->depthImage.format);
+        }
+
+        opaquePipeline.pipeline = builder.Build(dynamicRendering, device, renderer->pipelineCache, renderer->renderPass, {VK_SHADER_STAGE_FRAGMENT_BIT, specializationInfo});
+
+        builder.EnableBlendingAlphaBlend();
+        builder.EnableDepthTest(false, VK_COMPARE_OP_LESS_OR_EQUAL);
+        transparentPipeline.pipeline = builder.Build(dynamicRendering, device, renderer->pipelineCache, renderer->renderPass, {VK_SHADER_STAGE_FRAGMENT_BIT, specializationInfo});
+
+        builder.DestroyShaderModules(device);
     }
-
-    opaquePipeline.pipeline = builder.Build(dynamicRendering, device, renderer->pipelineCache, renderer->renderPass, {VK_SHADER_STAGE_FRAGMENT_BIT, specializationInfo});
-
-    builder.EnableBlendingAlphaBlend();
-    builder.EnableDepthTest(false, VK_COMPARE_OP_LESS_OR_EQUAL);
-    transparentPipeline.pipeline = builder.Build(dynamicRendering, device, renderer->pipelineCache, renderer->renderPass, {VK_SHADER_STAGE_FRAGMENT_BIT, specializationInfo});
-
-    builder.DestroyShaderModules(device);
 }
 
 void VkGLTFMetallic_Roughness::clearResources(const VkDevice &device) const {

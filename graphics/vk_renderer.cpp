@@ -31,20 +31,9 @@ static constexpr uint32_t MAX_MESHLET_VERTICES = 64;
 PFN_vkCmdDrawMeshTasksEXT fn_vkCmdDrawMeshTasksEXT = nullptr;
 PFN_vkGetSemaphoreWin32HandleKHR fn_vkGetSemaphoreWin32HandleKHR = nullptr;
 
-VkRenderer::VkRenderer() : dynamicRendering(false),
-                           asyncCompute(false),
-                           raytracingCapable(false),
-                           framebufferResized(false),
-                           isIntegratedGPU(false),
-                           meshShader(false),
-                           allowTearing(false),
-                           isShaderInvalidated(false),
-                           glfwWindow(nullptr), camera(nullptr),
-                           meshCount(0)
-{}
-
 void VkRenderer::Initialize(GLFWwindow *window, Camera *camera, bool dynamicRendering, bool asyncCompute, bool meshShader)
 {
+    useRaytracing = true;
     this->glfwWindow = window;
     this->camera = camera;
     this->dynamicRendering = dynamicRendering;
@@ -134,7 +123,8 @@ void VkRenderer::Initialize(GLFWwindow *window, Camera *camera, bool dynamicRend
         CreateFramebuffers();
     }
 
-    CreateShadowCascades();
+    if (!useRaytracing)
+        CreateShadowCascades();
 
     CreateCommandBuffers();
     CreateDefaultTexture();
@@ -163,9 +153,11 @@ void VkRenderer::Initialize(GLFWwindow *window, Camera *camera, bool dynamicRend
     CreateRandomLights();
     CreateSkybox();
     ComputeFrustum();
+    rayTracing.Init(this, device, physicalDevice, memoryManager, swapChainExtent);
     UpdateDescriptorSets();
 
-    UpdateCascades();
+    if (!useRaytracing)
+        UpdateCascades();
     isVkRunning = true;
 }
 
@@ -328,7 +320,7 @@ void VkRenderer::InitializeInstance() {
 // #endif
 
 bool isObjectVisible(const VkRenderObject &obj, const glm::mat4 &viewProjection) {
-    static constexpr std::array corners{
+    static std::array corners{
         glm::vec3 {1, 1, 1},
         glm::vec3 {1, 1, -1},
         glm::vec3 {1, -1, 1},
@@ -377,7 +369,7 @@ void VkRenderer::Render(EngineStats &stats) {
     stats.drawCallCount = 0;
     stats.triangleCount = 0;
 
-    UpdateScene(stats);
+    UpdateScene();
 
 #if defined(_WIN32) && defined(USE_DXGI_SWAPCHAIN)
     std::array<VkFence, 3> fences{
@@ -399,7 +391,7 @@ void VkRenderer::Render(EngineStats &stats) {
     static std::array<VkFence, 3> fences;
     fences[0] = frames[currentFrame].inFlightFence;
 
-    if (meshShader)
+    if (meshShader || useRaytracing)
     {
         fences[1] = computeFinishedFence;
     }
@@ -409,7 +401,7 @@ void VkRenderer::Render(EngineStats &stats) {
         fences[2] = computeFinishedFence;
     }
 
-    const auto size = fences.size() - !asyncCompute - meshShader;
+    const auto size = fences.size() - !asyncCompute - (meshShader | useRaytracing);
     VK_CHECK(vkWaitForFences(device, size, fences.data(), VK_TRUE, UINT64_MAX));
 
     uint32_t imageIndex;
@@ -486,10 +478,29 @@ void VkRenderer::Render(EngineStats &stats) {
     //     return surfaceA.materialInstance < surfaceB.materialInstance;
     // });
 
-    if (meshShader) {
+    if (meshShader)
+    {
         DrawMesh(frames[currentFrame].commandBuffer, imageIndex, stats);
-    } else {
-        DrawDepthPrepass(/*drawIndices*/);
+    }
+    // else if (useRaytracing)
+    // {
+    //     const auto viewInverse = glm::inverse(camera->ViewMatrix());
+    //     const auto projectionInverse = glm::inverse(camera->ProjectionMatrix());
+    //     static const glm::vec4 lightPosition{10.0f, 6.0f, 3.0f, 1.0f};
+    //     static const glm::vec4 lightColor{1.0f, 1.0f, 1.0f, 1.0f};
+    //     // TODO: draw all meshes
+    //     const auto vertexBufferAddress = mainDrawContext.opaqueSurfaces[0].vertexBufferAddress;
+    //     const auto indexBufferAddress = mainDrawContext.opaqueSurfaces[0].indexBufferAddress;
+    //     constexpr VkCommandBufferBeginInfo beginInfo{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO, nullptr, VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT};
+    //     rayTracing.UpdateDescriptorSets(sceneDataBuffer.buffer, device);
+    //     vkBeginCommandBuffer(frames[currentFrame].commandBuffer, &beginInfo);
+    //     rayTracing.TraceRay(frames[currentFrame].commandBuffer, viewInverse, projectionInverse, lightPosition, lightColor, vertexBufferAddress, indexBufferAddress, swapChainExtent);
+    //     vkEndCommandBuffer(frames[currentFrame].commandBuffer);
+    // }
+    else
+    {
+        if (!useRaytracing)
+            DrawDepthPrepass(/*drawIndices*/);
         Draw(frames[currentFrame].commandBuffer, imageIndex, stats);
     }
 
@@ -499,7 +510,7 @@ void VkRenderer::Render(EngineStats &stats) {
 
     static constexpr VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT, VK_PIPELINE_STAGE_MESH_SHADER_BIT_EXT};
     static std::array<VkSemaphore, 3> waitSemaphores;
-    if (meshShader)
+    if (meshShader || useRaytracing)
     {
         waitSemaphores[1] = computeFinishedSemaphore;
     }
@@ -515,7 +526,7 @@ void VkRenderer::Render(EngineStats &stats) {
     VkTimelineSemaphoreSubmitInfo semaphoreSubmitInfo{
         VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO,
         VK_NULL_HANDLE,
-        static_cast<uint32_t>(waitSemaphores.size() - !asyncCompute - meshShader),
+        static_cast<uint32_t>(waitSemaphores.size() - !asyncCompute - (meshShader | useRaytracing)),
         &waitValue,
         1,
         &signalValue
@@ -550,7 +561,7 @@ void VkRenderer::Render(EngineStats &stats) {
     VkSubmitInfo submitInfo{
         VK_STRUCTURE_TYPE_SUBMIT_INFO,
         VK_NULL_HANDLE,
-        static_cast<uint32_t>(waitSemaphores.size() - !asyncCompute - meshShader),
+        static_cast<uint32_t>(waitSemaphores.size() - !asyncCompute - (meshShader | useRaytracing)),
         waitSemaphores.data(),
         waitStages,
         1,
@@ -876,23 +887,121 @@ void VkRenderer::EndDraw(const VkCommandBuffer &commandBuffer, const uint32_t im
 }
 
 void VkRenderer::Draw(const VkCommandBuffer &commandBuffer, uint32_t imageIndex, EngineStats &stats) {
-    BeginDraw(commandBuffer, imageIndex);
-    DrawSkybox(commandBuffer, stats);
+    if (useRaytracing)
+    {
+        static constexpr VkCommandBufferBeginInfo beginInfo{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO, VK_NULL_HANDLE, VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT};
 
-    VkMaterialPipeline lastPipeline{};
-    VkMaterialInstance lastMaterialInstance{};
-    VkBuffer lastIndexBuffer = VK_NULL_HANDLE;
+        VK_CHECK(vkBeginCommandBuffer(commandBuffer, &beginInfo));
 
-    for (const auto &draw : mainDrawContext.opaqueSurfaces) {
-        DrawObject(commandBuffer, draw, lastPipeline, lastMaterialInstance, lastIndexBuffer);
-        stats.drawCallCount++;
-        stats.triangleCount += draw.indexCount / 3;
+        const auto viewInverse = glm::inverse(camera->ViewMatrix());
+        const auto projectionInverse = glm::inverse(camera->ProjectionMatrix());
+        static const glm::vec4 lightPosition{10.0f, 6.0f, 3.0f, 1.0f};
+        static const glm::vec4 lightColor{1.0f, 1.0f, 1.0f, 1.0f};
+
+        TransitionImage(commandBuffer, rayTracing.radianceImage, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT, VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR, VK_ACCESS_2_SHADER_WRITE_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
+        rayTracing.UpdateDescriptorSets(device, currentFrame);
+        rayTracing.TraceRay(commandBuffer, currentFrame, viewInverse, projectionInverse, lightPosition, lightColor, swapChainExtent);
+        TransitionImage(commandBuffer, rayTracing.radianceImage, VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR, VK_ACCESS_2_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+        VulkanImage swapChainImage{swapChainImages[imageIndex], swapChainImageViews[imageIndex], VK_NULL_HANDLE, {swapChainExtent.width, swapChainExtent.height, 1}, surfaceFormat.format};
+
+        if (dynamicRendering) {
+            TransitionImage(commandBuffer, swapChainImage, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, 0, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+            TransitionImage(commandBuffer, depthImage, VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT, 0, VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT, VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+
+            VkRenderingAttachmentInfo colorAttachment{
+                VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
+                VK_NULL_HANDLE,
+                swapChainImageViews[imageIndex],
+                VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                VK_RESOLVE_MODE_NONE,
+                VK_NULL_HANDLE,
+                VK_IMAGE_LAYOUT_UNDEFINED,
+                VK_ATTACHMENT_LOAD_OP_CLEAR,
+                VK_ATTACHMENT_STORE_OP_STORE,
+                {0.0f, 0.0f, 0.0f, 1.0f}
+            };
+
+            VkRenderingAttachmentInfo depthAttachment{
+                VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
+                VK_NULL_HANDLE,
+                depthImage.imageView,
+                VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+                VK_RESOLVE_MODE_NONE,
+                VK_NULL_HANDLE,
+                VK_IMAGE_LAYOUT_UNDEFINED,
+                VK_ATTACHMENT_LOAD_OP_CLEAR,
+                VK_ATTACHMENT_STORE_OP_STORE,
+                {.depthStencil = {1.0f, 0}}
+            };
+
+            VkRenderingInfo renderingInfo{
+                VK_STRUCTURE_TYPE_RENDERING_INFO,
+                VK_NULL_HANDLE,
+                {},
+                {0, 0, swapChainExtent.width, swapChainExtent.height},
+                1,
+                0,
+                1,
+                &colorAttachment,
+                &depthAttachment
+            };
+
+            vkCmdBeginRendering(commandBuffer, &renderingInfo);
+        } else {
+            static constexpr std::array<VkClearValue, 2> clearValues{
+                    {
+                            {.color = {0.0f, 0.0f, 0.0f, 1.0f}},
+                            {.depthStencil = {1.0f, 0}}
+                    }
+            };
+            VkRenderPassBeginInfo renderPassInfo{
+                VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
+                VK_NULL_HANDLE,
+                renderPass,
+                swapChainFramebuffers[imageIndex],
+                {{0, 0}, swapChainExtent},
+                clearValues.size(),
+                clearValues.data()
+            };
+
+            vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+        }
+
+        vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
+        vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
+
+        const auto pipeline = metalRoughMaterial.opaquePipeline;
+        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.pipeline);
+        vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.layout, 0, 1, &sceneDescriptorSet, 0, VK_NULL_HANDLE);
+
+        RtMeshPushConstants pushConstants{
+            {viewport.width, viewport.height}
+        };
+
+        vkCmdPushConstants(commandBuffer, pipeline.layout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(RtMeshPushConstants), &pushConstants);
+        vkCmdDraw(commandBuffer, 3, 1, 0, 0);
     }
+    else
+    {
+        BeginDraw(commandBuffer, imageIndex);
+        DrawSkybox(commandBuffer, stats);
 
-    for (const auto &r : std::ranges::reverse_view(mainDrawContext.transparentSurfaces)) {
-        DrawObject(commandBuffer, r, lastPipeline, lastMaterialInstance, lastIndexBuffer);
-        stats.drawCallCount++;
-        stats.triangleCount += r.indexCount / 3;
+        VkMaterialPipeline lastPipeline{};
+        VkMaterialInstance lastMaterialInstance{};
+        VkBuffer lastIndexBuffer = VK_NULL_HANDLE;
+
+        for (const auto &draw : mainDrawContext.opaqueSurfaces) {
+            DrawObject(commandBuffer, draw, lastPipeline, lastMaterialInstance, lastIndexBuffer);
+            stats.drawCallCount++;
+            stats.triangleCount += draw.indexCount / 3;
+        }
+
+        for (const auto &r : std::ranges::reverse_view(mainDrawContext.transparentSurfaces)) {
+            DrawObject(commandBuffer, r, lastPipeline, lastMaterialInstance, lastIndexBuffer);
+            stats.drawCallCount++;
+            stats.triangleCount += r.indexCount / 3;
+        }
     }
 
     EndDraw(commandBuffer, imageIndex);
@@ -927,30 +1036,6 @@ void VkRenderer::DrawMesh(const VkCommandBuffer &commandBuffer, const uint32_t i
 
         fn_vkCmdDrawMeshTasksEXT(commandBuffer, meshletsStats[i].meshletCount / 32 + 1, 1, 1);
     }
-
-    // for (size_t i = 0; i < 115; i++)
-    // {
-    //     DescriptorWriter writer;
-    //     writer.WriteBuffer(0, sceneDataBuffer.buffer, 0, sizeof(SceneData), VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
-    //     writer.WriteBuffer(1, cascadeViewProjectionBuffer.buffer, 0, sizeof(glm::mat4) * SHADOW_MAP_CASCADE_COUNT, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
-    //     writer.WriteImage(2, shadowCascadeImage.imageView, shadowCascadeImage.sampler, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
-    //     writer.WriteBuffer(3, viewMatrix.buffer, 0, sizeof(glm::mat4), VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
-    //
-    //     if (meshShader) {
-    //         writer.WriteBuffer(4, positionBuffers[i].buffer, 0, sizeof(float) * meshletStats.positionCount, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
-    //         writer.WriteBuffer(5, meshletBuffers[i].buffer, 0, sizeof(meshopt_Meshlet) * meshletStats.meshletCount, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
-    //         writer.WriteBuffer(6, meshletVerticesBuffers[i].buffer, 0, sizeof(uint32_t) * meshletStats.verticesCount, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
-    //         writer.WriteBuffer(7, meshletPrimitivesBuffers[i].buffer, 0, sizeof(uint32_t) * meshletStats.primitiveCount, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
-    //     }
-    //
-    //     writer.UpdateSet(device, sceneDescriptorSet);
-    //
-    //     vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, metalRoughMaterial.opaquePipeline.layout, 0, 1, &sceneDescriptorSet, 0, VK_NULL_HANDLE);
-    //
-    //     fn_vkCmdDrawMeshTasksEXT(commandBuffer, meshletStats.meshletCount / 32 + 1, 1, 1);
-    // }
-    // stats.drawCallCount++;
-    // stats.triangleCount += meshletStats.primitiveCount;
 
     EndDraw(commandBuffer, imageIndex);
 }
@@ -1003,6 +1088,7 @@ void VkRenderer::Shutdown() {
     vkDestroySampler(device, textureSamplerNearest, VK_NULL_HANDLE);
 
     // delete memoryManager;
+    rayTracing.Destroy(device, memoryManager);
     memoryManager.Shutdown();
 
     mainDescriptorAllocator.Destroy(device);
@@ -1107,10 +1193,11 @@ Mesh VkRenderer::CreateMesh(const std::span<VkVertex> vertices, const std::span<
 
     mesh.vertexBuffer = memoryManager.createManagedBuffer({verticesSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT |
                                                                           VK_BUFFER_USAGE_VERTEX_BUFFER_BIT |
-                                                                          VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+                                                                          VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT |
+                                                                          VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR,
                                                             0, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE,
                                                             VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT}).buffer;
-    const VkBufferDeviceAddressInfo deviceAddressInfo{
+    VkBufferDeviceAddressInfo deviceAddressInfo{
         VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
         VK_NULL_HANDLE,
         mesh.vertexBuffer
@@ -1118,8 +1205,11 @@ Mesh VkRenderer::CreateMesh(const std::span<VkVertex> vertices, const std::span<
 
     mesh.vertexBufferDeviceAddress = vkGetBufferDeviceAddress(device, &deviceAddressInfo);
     mesh.indexBuffer = memoryManager.createManagedBuffer(
-            {indicesSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT, 0,
+            {indicesSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT |
+                                                                          VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR, 0,
              VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT}).buffer;
+    deviceAddressInfo.buffer = mesh.indexBuffer;
+    mesh.indexBufferDeviceAddress = vkGetBufferDeviceAddress(device, &deviceAddressInfo);
 
     const auto stagingBufferUnmappedTask = [&](const VkBuffer &stagingBuffer) {
         TransferSubmit([&](auto &commandBuffer) {
@@ -1428,24 +1518,6 @@ void VkRenderer::PickPhysicalDevice() {
     isIntegratedGPU = deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU;
 #endif
 
-    // uint32_t maxScore = 0;
-    // for (const auto &gpu: physicalDevices) {
-    //     uint32_t score = 0;
-    //     vkGetPhysicalDeviceProperties(gpu, &deviceProperties);
-    //
-    //     if (deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
-    //         score += 1000;
-    //     }
-    //
-    //     score += deviceProperties.limits.maxImageDimension2D;
-    //
-    //     if (score > maxScore) {
-    //         maxScore = score;
-    //         physicalDevice = gpu;
-    //         isIntegratedGPU = deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU;
-    //     }
-    // }
-
     printf("Using device: %256s\n", deviceProperties.deviceName);
 
     VkPhysicalDeviceMeshShaderPropertiesEXT meshShaderProperties{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_PROPERTIES_EXT};
@@ -1491,16 +1563,9 @@ void VkRenderer::CreateLogicalDevice() {
                                       queuePriorities);
     }
 
-    VkPhysicalDeviceMeshShaderFeaturesEXT meshShaderFeatures{
-        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_FEATURES_EXT,
-        VK_NULL_HANDLE,
-        meshShader,
-        meshShader
-    };
-
     VkPhysicalDeviceVulkan11Features vulkan11Features{
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES,
-        .pNext = meshShader ? &meshShaderFeatures : VK_NULL_HANDLE,
+        // .pNext = meshShader ? &meshShaderFeatures : VK_NULL_HANDLE,
         .storageBuffer16BitAccess = VK_TRUE,
         .uniformAndStorageBuffer16BitAccess = VK_TRUE
     };
@@ -1510,6 +1575,7 @@ void VkRenderer::CreateLogicalDevice() {
         .pNext = &vulkan11Features,
         .shaderFloat16 = VK_TRUE,
         .descriptorIndexing = VK_TRUE,
+        .hostQueryReset = VK_TRUE,
         .timelineSemaphore = VK_TRUE,
         .bufferDeviceAddress = VK_TRUE,
     };
@@ -1525,7 +1591,7 @@ void VkRenderer::CreateLogicalDevice() {
     VkPhysicalDeviceFeatures2 deviceFeatures2{
         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
         &vulkan13Features,
-        {.multiDrawIndirect = VK_TRUE, .depthClamp = VK_TRUE, .samplerAnisotropy = VK_TRUE, .shaderInt16 = VK_TRUE }
+        {.multiDrawIndirect = VK_TRUE, .depthClamp = VK_TRUE, .samplerAnisotropy = VK_TRUE, .shaderInt64 = VK_TRUE, .shaderInt16 = VK_TRUE }
     };
 
 #if defined(_WIN32) && defined(USE_DXGI_SWAPCHAIN)
@@ -1573,9 +1639,14 @@ void VkRenderer::CreateLogicalDevice() {
             VK_TRUE,
     };
 
-    if (raytracingCapable) {
-        meshShaderFeatures.pNext = &rayTracingPipelineFeatures;
-    }
+    VkPhysicalDeviceMeshShaderFeaturesEXT meshShaderFeatures{
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_FEATURES_EXT,
+        &rayTracingPipelineFeatures,
+        meshShader,
+        meshShader
+    };
+
+    vulkan11Features.pNext = raytracingCapable ? (meshShader ? static_cast<void *>(&meshShaderFeatures) : static_cast<void *>(&rayTracingPipelineFeatures)) : VK_NULL_HANDLE;
 
     VkDeviceCreateInfo createInfo{
         VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
@@ -2028,6 +2099,8 @@ void VkRenderer::CreatePipelineLayout() {
     pipelineLayoutInfo.pPushConstantRanges = &frustumPushConstantRange;
     VK_CHECK(vkCreatePipelineLayout(device, &pipelineLayoutInfo, VK_NULL_HANDLE, &frustumPipelineLayout));
 
+    if (useRaytracing) return;
+
     pipelineLayoutInfo.pSetLayouts = &skyboxDescriptorSetLayout;
     pipelineLayoutInfo.pPushConstantRanges = &skyboxPushConstantRange;
     VK_CHECK(vkCreatePipelineLayout(device, &pipelineLayoutInfo, VK_NULL_HANDLE, &skyboxPipelineLayout));
@@ -2035,6 +2108,7 @@ void VkRenderer::CreatePipelineLayout() {
 
 void VkRenderer::CreateGraphicsPipeline() {
     metalRoughMaterial.buildPipelines(this);
+    if (useRaytracing) return;
 
     constexpr VkPushConstantRange depthPassPushConstantRange{
             VK_SHADER_STAGE_VERTEX_BIT,
@@ -2349,37 +2423,47 @@ void VkRenderer::CreateDescriptors() {
     mainDescriptorSetLayout = builder.Build(device);
 
     builder.Clear();
-    builder.AddBinding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_MESH_BIT_EXT);
-    builder.AddBinding(1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_FRAGMENT_BIT);
-    builder.AddBinding(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT);
-    builder.AddBinding(3, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_MESH_BIT_EXT);
-
-    if (meshShader) {
-        builder.AddBinding(4, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_MESH_BIT_EXT);
-        builder.AddBinding(5, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_MESH_BIT_EXT);
-        builder.AddBinding(6, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_MESH_BIT_EXT);
-        builder.AddBinding(7, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_MESH_BIT_EXT);
-        builder.AddBinding(8, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_FRAGMENT_BIT);
-    }
-
-    sceneDescriptorSetLayout = builder.Build(device, VK_NULL_HANDLE, VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT);
-
-    builder.Clear();
     builder.AddBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT);
     frustumDescriptorSetLayout = builder.Build(device);
 
     builder.Clear();
-    builder.AddBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT);
-    skyboxDescriptorSetLayout = builder.Build(device);
 
     VkDescriptorSetLayout layouts[] = {mainDescriptorSetLayout};
     mainDescriptorSet = mainDescriptorAllocator.Allocate(device, layouts);
+    if (useRaytracing)
+    {
+        builder.AddBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT);
+        sceneDescriptorSetLayout = builder.Build(device, VK_NULL_HANDLE, VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT);
+        layouts[0] = {sceneDescriptorSetLayout};
+        sceneDescriptorSet = mainDescriptorAllocator.Allocate(device, layouts);
+    }
+    else
+    {
+        builder.AddBinding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_MESH_BIT_EXT);
+        builder.AddBinding(1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_FRAGMENT_BIT);
+        builder.AddBinding(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT);
+        builder.AddBinding(3, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_MESH_BIT_EXT);
 
-    layouts[0] = sceneDescriptorSetLayout;
-    sceneDescriptorSet = mainDescriptorAllocator.Allocate(device, layouts);
+        if (meshShader) {
+            builder.AddBinding(4, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_MESH_BIT_EXT);
+            builder.AddBinding(5, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_MESH_BIT_EXT);
+            builder.AddBinding(6, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_MESH_BIT_EXT);
+            builder.AddBinding(7, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_MESH_BIT_EXT);
+            builder.AddBinding(8, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_FRAGMENT_BIT);
+        }
 
-    layouts[0] = skyboxDescriptorSetLayout;
-    skyboxDescriptorSet = mainDescriptorAllocator.Allocate(device, layouts);
+        sceneDescriptorSetLayout = builder.Build(device, VK_NULL_HANDLE, VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT);
+
+        builder.Clear();
+        builder.AddBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT);
+        skyboxDescriptorSetLayout = builder.Build(device);
+
+        layouts[0] = sceneDescriptorSetLayout;
+        sceneDescriptorSet = mainDescriptorAllocator.Allocate(device, layouts);
+
+        layouts[0] = skyboxDescriptorSetLayout;
+        skyboxDescriptorSet = mainDescriptorAllocator.Allocate(device, layouts);
+    }
 
     static constexpr DescriptorAllocator::PoolSizeRatio frameSizes[] = {
         { VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,          3 },
@@ -2622,7 +2706,7 @@ void VkRenderer::UpdateCascades() {
     memoryManager.copyToBuffer(cascadeViewProjectionBuffer, cascadeViewProjections.data(), sizeof(glm::mat4) * SHADOW_MAP_CASCADE_COUNT);
 }
 
-void VkRenderer::UpdateScene(EngineStats &stats) {
+void VkRenderer::UpdateScene() {
     const auto view = camera->ViewMatrix();
     const auto proj = camera->ProjectionMatrix();
 
@@ -2633,6 +2717,13 @@ void VkRenderer::UpdateScene(EngineStats &stats) {
     if (!meshShader)
         loadedScene.Draw(glm::mat4{1.f}, mainDrawContext);
 
+    static bool done;
+    if (!done)
+    {
+        done = true;
+        rayTracing.BuildBLAS(this, mainDrawContext.opaqueSurfaces);
+        rayTracing.BuildTLAS(this, mainDrawContext.opaqueSurfaces);
+    }
     // UpdateCascades();
 }
 
@@ -2732,39 +2823,45 @@ void VkRenderer::UpdateDescriptorSets() {
     writer.WriteBuffer(1, visibleLightBuffer.buffer, 0, sizeof(LightVisibility) * multiplier, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
     writer.WriteBuffer(2, lightCountUniform.buffer, 0, sizeof(uint16_t) * MAX_LIGHTS_VISIBLE, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
     writer.UpdateSet(device, mainDescriptorSet);
-
     writer.Clear();
-    writer.WriteImage(0, skyboxImage.imageView, skyboxImage.sampler, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
-    writer.UpdateSet(device, skyboxDescriptorSet);
+    if (useRaytracing)
+    {
+        writer.WriteImage(0, rayTracing.radianceImage.imageView, rayTracing.radianceImage.sampler, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+    }
+    else
+    {
+        writer.WriteImage(0, skyboxImage.imageView, skyboxImage.sampler, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+        writer.UpdateSet(device, skyboxDescriptorSet);
 
-    writer.Clear();
-    writer.WriteBuffer(0, sceneDataBuffer.buffer, 0, sizeof(SceneData), VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
-    writer.WriteBuffer(1, cascadeViewProjectionBuffer.buffer, 0, sizeof(glm::mat4) * SHADOW_MAP_CASCADE_COUNT, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
-    writer.WriteImage(2, shadowCascadeImage.imageView, shadowCascadeImage.sampler, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
-    writer.WriteBuffer(3, viewMatrix.buffer, 0, sizeof(glm::mat4), VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
+        writer.Clear();
+        writer.WriteBuffer(0, sceneDataBuffer.buffer, 0, sizeof(SceneData), VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
+        writer.WriteBuffer(1, cascadeViewProjectionBuffer.buffer, 0, sizeof(glm::mat4) * SHADOW_MAP_CASCADE_COUNT, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
+        writer.WriteImage(2, shadowCascadeImage.imageView, shadowCascadeImage.sampler, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+        writer.WriteBuffer(3, viewMatrix.buffer, 0, sizeof(glm::mat4), VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
 
-    if (meshShader) {
-        // writer.WriteBuffer(4, positionBuffer.buffer, 0, sizeof(float) * meshletStats.positionCount, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
-        // writer.WriteBuffer(5, meshletBuffer.buffer, 0, sizeof(meshopt_Meshlet) * meshletStats.meshletCount, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
-        // writer.WriteBuffer(6, meshletVerticesBuffer.buffer, 0, sizeof(uint32_t) * meshletStats.verticesCount, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
-        // writer.WriteBuffer(7, meshletPrimitivesBuffer.buffer, 0, sizeof(uint32_t) * meshletStats.primitiveCount, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
-        size_t maxPositionCount = 0, maxMeshletCount = 0, maxVerticesCount = 0, maxPrimitiveCount = 0;
-        for (auto &[positionCount, meshletCount, verticesCount, primitiveCount] : meshletsStats) {
-            // maxPositionCount = std::max(maxPositionCount, static_cast<size_t>(positionCount));
-            // maxMeshletCount = std::max(maxMeshletCount, static_cast<size_t>(meshletCount));
-            // maxVerticesCount = std::max(maxVerticesCount, static_cast<size_t>(verticesCount));
-            // maxPrimitiveCount = std::max(maxPrimitiveCount, static_cast<size_t>(primitiveCount));
-            maxPositionCount += positionCount;
-            maxMeshletCount += meshletCount;
-            maxVerticesCount += verticesCount;
-            maxPrimitiveCount += primitiveCount;
+        if (meshShader) {
+            // writer.WriteBuffer(4, positionBuffer.buffer, 0, sizeof(float) * meshletStats.positionCount, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+            // writer.WriteBuffer(5, meshletBuffer.buffer, 0, sizeof(meshopt_Meshlet) * meshletStats.meshletCount, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+            // writer.WriteBuffer(6, meshletVerticesBuffer.buffer, 0, sizeof(uint32_t) * meshletStats.verticesCount, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+            // writer.WriteBuffer(7, meshletPrimitivesBuffer.buffer, 0, sizeof(uint32_t) * meshletStats.primitiveCount, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+            size_t maxPositionCount = 0, maxMeshletCount = 0, maxVerticesCount = 0, maxPrimitiveCount = 0;
+            for (auto &[positionCount, meshletCount, verticesCount, primitiveCount] : meshletsStats) {
+                // maxPositionCount = std::max(maxPositionCount, static_cast<size_t>(positionCount));
+                // maxMeshletCount = std::max(maxMeshletCount, static_cast<size_t>(meshletCount));
+                // maxVerticesCount = std::max(maxVerticesCount, static_cast<size_t>(verticesCount));
+                // maxPrimitiveCount = std::max(maxPrimitiveCount, static_cast<size_t>(primitiveCount));
+                maxPositionCount += positionCount;
+                maxMeshletCount += meshletCount;
+                maxVerticesCount += verticesCount;
+                maxPrimitiveCount += primitiveCount;
+            }
+
+            writer.WriteBuffer(4, positionBuffer.buffer, 0, sizeof(float) * maxPositionCount, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+            writer.WriteBuffer(5, meshletBuffer.buffer, 0, sizeof(meshopt_Meshlet) * maxMeshletCount, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+            writer.WriteBuffer(6, meshletVerticesBuffer.buffer, 0, sizeof(uint32_t) * maxVerticesCount, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+            writer.WriteBuffer(7, meshletPrimitivesBuffer.buffer, 0, sizeof(uint32_t) * maxPrimitiveCount, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+            // writer.WriteBuffer(8, VK_NULL_HANDLE, 0, 0, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE); // TODO: fill this later
         }
-
-        writer.WriteBuffer(4, positionBuffer.buffer, 0, sizeof(float) * maxPositionCount, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
-        writer.WriteBuffer(5, meshletBuffer.buffer, 0, sizeof(meshopt_Meshlet) * maxMeshletCount, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
-        writer.WriteBuffer(6, meshletVerticesBuffer.buffer, 0, sizeof(uint32_t) * maxVerticesCount, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
-        writer.WriteBuffer(7, meshletPrimitivesBuffer.buffer, 0, sizeof(uint32_t) * maxPrimitiveCount, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
-        // writer.WriteBuffer(8, VK_NULL_HANDLE, 0, 0, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE); // TODO: fill this later
     }
 
     writer.UpdateSet(device, sceneDescriptorSet);

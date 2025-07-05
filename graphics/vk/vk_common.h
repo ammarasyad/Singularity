@@ -18,17 +18,27 @@
 #include "memory/vma_usage.h"
 #include <glm.hpp>
 
+#ifndef _NDEBUG
 #define VK_CHECK(x) do { VkResult err = x; if (err) { printf(#x ", file: " __FILE__ ", line %d: %s\n", __LINE__, string_VkResult(err)); abort(); } } while (0)
+#else
+#define VK_CHECK(x) x
+#endif
 
 struct Mesh {
     VkBuffer indexBuffer;
     VkBuffer vertexBuffer;
     VkDeviceAddress vertexBufferDeviceAddress;
+    VkDeviceAddress indexBufferDeviceAddress;
 };
 
 struct MeshPushConstants {
     alignas(16) glm::mat4 worldMatrix;
     alignas(16) VkDeviceAddress vertexBufferDeviceAddress;
+};
+
+struct RtMeshPushConstants
+{
+    glm::vec2 viewportSize;
 };
 
 struct alignas(16) MeshShaderPushConstants {
@@ -85,8 +95,8 @@ struct VkVertex {
     alignas(16) glm::vec2 uv;
 };
 
-inline void TransitionImage(VkCommandBuffer commandBuffer, VulkanImage image, VkPipelineStageFlags srcStageMask, VkPipelineStageFlags srcAccessMask, VkPipelineStageFlags dstStageMask, VkPipelineStageFlags dstAccessMask, VkImageLayout oldLayout, VkImageLayout newLayout, uint32_t mipLevels = -1, uint32_t layerCount = -1) {
-    const auto aspectMask = image.format == VK_FORMAT_D16_UNORM ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
+inline void TransitionImage(VkCommandBuffer commandBuffer, VulkanImage image, VkPipelineStageFlags2 srcStageMask, VkAccessFlags2 srcAccessMask, VkPipelineStageFlags2 dstStageMask, VkAccessFlags2 dstAccessMask, VkImageLayout oldLayout, VkImageLayout newLayout, uint32_t mipLevels = -1, uint32_t layerCount = -1) {
+    const VkImageAspectFlags aspectMask = image.format == VK_FORMAT_D16_UNORM ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
 
     VkImageMemoryBarrier2 imageBarrier{
         VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
@@ -101,7 +111,7 @@ inline void TransitionImage(VkCommandBuffer commandBuffer, VulkanImage image, Vk
         VK_QUEUE_FAMILY_IGNORED,
         image.image,
         {
-            static_cast<VkImageAspectFlags>(aspectMask),
+            aspectMask,
             0,
             mipLevels == -1 ? VK_REMAINING_MIP_LEVELS : mipLevels,
             0,

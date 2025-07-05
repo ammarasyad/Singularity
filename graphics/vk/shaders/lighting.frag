@@ -5,7 +5,6 @@
 #extension GL_EXT_shader_16bit_storage : require
 #extension GL_EXT_shader_explicit_arithmetic_types_int16 : require
 
-#include "input_structures.glsl"
 #include "tiled_shading.glsl"
 
 precision mediump float;
@@ -20,11 +19,24 @@ layout(location = 0) out vec4 outColor;
 layout(constant_id = 0) const uint enablePCF = 1;
 layout(constant_id = 1) const uint MAX_CASCADES = 4;
 
+layout(set = 0, binding = 0) uniform SceneData{
+    mat4 worldMatrix;
+} sceneData;
+
 layout(set = 0, binding = 1) uniform readonly CascadeData {
     mat4 viewProjectionMatrix[MAX_CASCADES];
 } cascadeData;
 
 layout(set = 0, binding = 2) uniform sampler2DArray shadowMap;
+layout(set = 0, binding = 3) uniform sampler2D radianceImage;
+
+layout(set = 1, binding = 0) uniform GLTFMaterialData{
+    vec4 colorFactors;
+    vec4 metalRoughFactors;
+} materialData;
+
+layout(set = 1, binding = 1) uniform sampler2D colorTexture;
+layout(set = 1, binding = 2) uniform sampler2D metalRoughTexture;
 
 layout(set = 2, binding = 0) buffer readonly lightBuffer {
     uint lightNum;

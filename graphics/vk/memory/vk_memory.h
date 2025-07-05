@@ -61,7 +61,7 @@ struct VulkanExternalImage
 class VkMemoryManager {
 public:
     // explicit VkMemoryManager(const VkRenderer *, bool customPool = false);
-    explicit VkMemoryManager();
+    VkMemoryManager() = default;
 
     void Initialize(const VkRenderer *, bool customPool = false);
     void Shutdown();
@@ -104,7 +104,7 @@ private:
     static inline void destroyVirtualBuffer(const VmaVirtualBlock &block);
     VmaAllocator allocator;
     VkDevice device;
-    VmaPool pool;
+    VmaPool pool{VK_NULL_HANDLE};
     VkDeviceSize availableMemory;
     VkDeviceSize totalMemory;
 

@@ -1,20 +1,12 @@
 #ifndef RENDEROBJECT_H
 #define RENDEROBJECT_H
 
-#ifdef _WIN32
-#include <d3d12.h>
-#include <wrl/client.h>
-#endif
-
-#include <cstdint>
 #include <glm.hpp>
-#include <thread>
 
 #include "graphics/vk/vk_common.h"
 #include "graphics/vk/memory/vk_mesh_assets.h"
 
 struct VkMaterialInstance;
-class D3D12Renderer;
 struct VkDrawContext;
 
 struct VkRenderObject {
@@ -26,6 +18,7 @@ struct VkRenderObject {
 
     VkBuffer indexBuffer{VK_NULL_HANDLE};
     VkDeviceAddress vertexBufferAddress{0};
+    VkDeviceAddress indexBufferAddress{0};
 
     VkMaterialInstance *materialInstance{nullptr};
 };
@@ -34,13 +27,6 @@ struct VkDrawContext {
     std::vector<VkRenderObject> opaqueSurfaces;
     std::vector<VkRenderObject> transparentSurfaces;
 };
-
-// struct D3D12RenderObject final : RenderObject {
-//     Microsoft::WRL::ComPtr<ID3D12Resource> vertexBuffer;
-//     D3D12_VERTEX_BUFFER_VIEW vertexBufferView{};
-//
-//     void Draw(const glm::mat4 &topMatrix, DrawContext &renderer) override;
-// };
 
 enum class NodeType {
     Node = 0,
@@ -59,7 +45,6 @@ struct Node {
 
     void RefreshTransform(const glm::mat4 &parentTransform) {
         worldTransform = parentTransform * localTransform;
-// #pragma omp parallel for ordered shared(children, worldTransform) default(none) num_threads(std::thread::hardware_concurrency())
         for (const auto &c : children) {
             c->RefreshTransform(worldTransform);
         }
@@ -73,10 +58,10 @@ struct Node {
                 for (auto &[startIndex, indexCount, bounds, material]: meshAsset.surfaces) {
                     switch (material.data.pass) {
                         case MaterialPass::MainColor:
-                            ctx.opaqueSurfaces.emplace_back(indexCount, startIndex, bounds, nodeMatrix, meshAsset.mesh.indexBuffer, meshAsset.mesh.vertexBufferDeviceAddress, &material.data);
+                            ctx.opaqueSurfaces.emplace_back(indexCount, startIndex, bounds, nodeMatrix, meshAsset.mesh.indexBuffer, meshAsset.mesh.vertexBufferDeviceAddress, meshAsset.mesh.indexBufferDeviceAddress, &material.data);
                             break;
                         case MaterialPass::Transparent:
-                            ctx.transparentSurfaces.emplace_back(indexCount, startIndex, bounds, nodeMatrix, meshAsset.mesh.indexBuffer, meshAsset.mesh.vertexBufferDeviceAddress,&material.data);
+                            ctx.transparentSurfaces.emplace_back(indexCount, startIndex, bounds, nodeMatrix, meshAsset.mesh.indexBuffer, meshAsset.mesh.vertexBufferDeviceAddress, meshAsset.mesh.indexBufferDeviceAddress, &material.data);
                             break;
                         default:
                             break;
@@ -85,7 +70,6 @@ struct Node {
             }
 
             case NodeType::Node: {
-// #pragma omp parallel for ordered shared(children, topMatrix, ctx) default(none) num_threads(std::thread::hardware_concurrency())
                 for (const auto &c: children) {
                     c->Draw(topMatrix, ctx);
                 }
