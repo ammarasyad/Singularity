@@ -21,6 +21,7 @@ struct Bounds {
 struct GeoSurface {
     uint32_t startIndex;
     uint32_t indexCount;
+    uint32_t vertexCount;
     Bounds bounds;
     GLTFMaterial material;
 };

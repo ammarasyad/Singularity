@@ -38,5 +38,4 @@ void main() {
                 payloadLocation);
 
     imageStore(outputImage, ivec2(gl_LaunchIDEXT.xy), vec4(hitValue, 1.0));
-    // imageStore(outputImage, ivec2(gl_LaunchIDEXT.xy), vec4(uv, 0.0, 1.0)); // Store the hit value in the output image
 }

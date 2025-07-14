@@ -243,6 +243,7 @@ std::optional<LoadedGLTF> LoadGLTF(VkRenderer *renderer, bool multithread, const
 
     int dataIndex = 0;
 
+    auto device = renderer->device;
     for (auto &material : gltf.materials) {
         GLTFMaterial newMaterial{};
 
@@ -255,7 +256,7 @@ std::optional<LoadedGLTF> LoadGLTF(VkRenderer *renderer, bool multithread, const
         constants.metalRoughFactors.x = material.pbrData.metallicFactor;
         constants.metalRoughFactors.y = material.pbrData.roughnessFactor;
 
-        materialConstants[dataIndex] = constants;
+        memcpy(materialConstants + dataIndex * sizeof(VkGLTFMetallic_Roughness::MaterialConstants), &constants, sizeof(VkGLTFMetallic_Roughness::MaterialConstants));
 
         auto passType = material.alphaMode == fastgltf::AlphaMode::Blend ? MaterialPass::Transparent : MaterialPass::MainColor;
 
@@ -282,9 +283,13 @@ std::optional<LoadedGLTF> LoadGLTF(VkRenderer *renderer, bool multithread, const
         materialResources.dataBuffer = scene.materialDataBuffer.buffer;
         materialResources.offset = dataIndex * sizeof(VkGLTFMetallic_Roughness::MaterialConstants);
 
-        auto device = renderer->device;
-        if (!renderer->useRaytracing)
-            newMaterial.data = renderer->metalRoughMaterial.writeMaterial(device, passType, materialResources, scene.descriptorAllocator);
+        newMaterial.data = renderer->metalRoughMaterial.writeMaterial(renderer->useRaytracing, device, passType, materialResources, scene.descriptorAllocator, dataIndex);
+        if (renderer->useRaytracing)
+        {
+            renderer->rayTracing.textureInfo.emplace_back(materialResources.colorSampler,
+                                              materialResources.colorImage.imageView,
+                                              VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        }
         dataIndex++;
         materials.emplace_back(newMaterial);
     }
@@ -294,25 +299,11 @@ std::optional<LoadedGLTF> LoadGLTF(VkRenderer *renderer, bool multithread, const
     std::vector<uint32_t> indices;
     std::vector<VkVertex> vertices;
 
-    // if (renderer->meshShader)
-    // {
-    //     const auto meshSize = gltf.meshes.size();
-    //
-    //     renderer->meshletStats.resize(meshSize);
-    //     renderer->positionBuffers.resize(meshSize);
-    //     renderer->meshletBuffers.resize(meshSize);
-    //     renderer->meshletVerticesBuffers.resize(meshSize);
-    //     renderer->meshletPrimitivesBuffers.resize(meshSize);
-    // }
-
     if (renderer->meshShader)
     {
         const auto meshSize = gltf.meshes.size();
         renderer->meshletsStats.resize(meshSize);
         renderer->meshOffsets.resize(meshSize);
-        // renderer->vertexPositionsData.resize(meshSize);
-        // renderer->meshletsVerticesData.resize(meshSize);
-        // renderer->meshletsPrimitivesData.resize(meshSize);
 
         for (auto &[primitives, weights, name] : gltf.meshes)
         {
@@ -334,12 +325,10 @@ std::optional<LoadedGLTF> LoadGLTF(VkRenderer *renderer, bool multithread, const
                 {
                     auto &posAccessor = gltf.accessors[primitive.findAttribute("POSITION")->accessorIndex];
                     vertices.resize(vertices.size() + posAccessor.count);
-                    fastgltf::iterateAccessorWithIndex<glm::vec3>(gltf, posAccessor, [&](auto value, const size_t index) {
+                    fastgltf::iterateAccessorWithIndex<glm::vec3>(gltf, posAccessor, [&](glm::vec3 value, const size_t index) {
                         vertices[initialVerticesSize + index] = {
                                 {value, 1.0f},
-                                {1, 0, 0},
-                                {1.f, 1.f, 1.f, 1.f},
-                                {0.f, 1.f}
+                                {1, 0, 0, 0},
                         };
                     });
                 }
@@ -362,14 +351,14 @@ std::optional<LoadedGLTF> LoadGLTF(VkRenderer *renderer, bool multithread, const
             {
                 GeoSurface geoSurface{
                     static_cast<uint32_t>(indices.size()),
-                    static_cast<uint32_t>(gltf.accessors[primitive.indicesAccessor.value()].count)
+                    static_cast<uint32_t>(gltf.accessors[primitive.indicesAccessor.value()].count),
                 };
                 size_t initialVerticesSize = vertices.size();
                 // Load indices
                 {
                     auto &indexAccessor = gltf.accessors[primitive.indicesAccessor.value()];
                     indices.reserve(indices.size() + indexAccessor.count);
-                    fastgltf::iterateAccessor<uint32_t>(gltf, indexAccessor, [&](auto value)
+                    fastgltf::iterateAccessor<uint32_t>(gltf, indexAccessor, [&](uint32_t value)
                     {
                         indices.push_back(static_cast<uint32_t>(initialVerticesSize + value));
                     });
@@ -378,45 +367,41 @@ std::optional<LoadedGLTF> LoadGLTF(VkRenderer *renderer, bool multithread, const
                 {
                     auto &posAccessor = gltf.accessors[primitive.findAttribute("POSITION")->accessorIndex];
                     vertices.resize(vertices.size() + posAccessor.count);
-                    fastgltf::iterateAccessorWithIndex<glm::vec3>(gltf, posAccessor, [&](auto value, const size_t index)
+                    fastgltf::iterateAccessorWithIndex<glm::vec3>(gltf, posAccessor, [&](glm::vec3 value, const size_t index)
                     {
                         vertices[initialVerticesSize + index] = {
-                            {value, 1.0f},
-                            {1, 0, 0},
-                            {1.f, 1.f, 1.f, 1.f},
-                            {0.f, 1.f}
+                            {value, 0},
+                            {0, 0, 0, 0},
                         };
                     });
+                    // geoSurface.vertexCount = vertices.size();
+                    for (auto &index : indices)
+                    {
+                        geoSurface.vertexCount = std::max(geoSurface.vertexCount, index + 1);
+                    }
                 }
                 // Load vertex normals
                 if (auto normals = primitive.findAttribute("NORMAL"); normals != primitive.attributes.end())
                 {
                     fastgltf::iterateAccessorWithIndex<glm::vec3>(gltf, gltf.accessors[normals->accessorIndex],
-                                                                  [&](auto value, const size_t index)
+                                                                  [&](glm::vec3 value, const size_t index)
                                                                   {
-                                                                      vertices[initialVerticesSize + index].normal =
-                                                                              value;
+                                                                      vertices[initialVerticesSize + index].normal = {value, 0};
                                                                   });
                 }
                 // Load tex coords
                 if (auto uv = primitive.findAttribute("TEXCOORD_0"); uv != primitive.attributes.end())
                 {
                     fastgltf::iterateAccessorWithIndex<glm::vec2>(gltf, gltf.accessors[uv->accessorIndex],
-                                                                  [&](auto value, const size_t index)
+                                                                  [&](glm::vec2 value, const size_t index)
                                                                   {
-                                                                      vertices[initialVerticesSize + index].uv = value;
+                                                                      const auto u = value.x;
+                                                                      const auto v = value.y;
+                                                                      vertices[initialVerticesSize + index].pos.w = u;
+                                                                      vertices[initialVerticesSize + index].normal.w = v;
                                                                   });
                 }
-                // Load vertex colors
-                if (auto color = primitive.findAttribute("COLOR_0"); color != primitive.attributes.end())
-                {
-                    fastgltf::iterateAccessorWithIndex<glm::vec4>(gltf, gltf.accessors[color->accessorIndex],
-                                                                  [&](auto value, const size_t index)
-                                                                  {
-                                                                      vertices[initialVerticesSize + index].color =
-                                                                              value;
-                                                                  });
-                }
+
                 geoSurface.material = materials[primitive.materialIndex.value() * primitive.materialIndex.has_value()];
                 glm::vec4 minPos = vertices[initialVerticesSize].pos;
                 glm::vec4 maxPos = vertices[initialVerticesSize].pos;

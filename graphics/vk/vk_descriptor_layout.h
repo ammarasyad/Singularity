@@ -9,8 +9,8 @@
 struct DescriptorLayoutBuilder {
     std::vector<VkDescriptorSetLayoutBinding> bindings;
 
-    void AddBinding(const uint32_t binding, const VkDescriptorType &type, const VkShaderStageFlags &stageFlags = VK_SHADER_STAGE_ALL) {
-        bindings.emplace_back(binding, type, 1, stageFlags, nullptr);
+    void AddBinding(const uint32_t binding, const VkDescriptorType &type, const VkShaderStageFlags &stageFlags = VK_SHADER_STAGE_ALL, const uint32_t descriptorCount = 1) {
+        bindings.emplace_back(binding, type, descriptorCount, stageFlags, nullptr);
     }
 
     void Clear() {
@@ -35,6 +35,7 @@ struct DescriptorLayoutBuilder {
 
 struct DescriptorWriter {
     void WriteImage(int binding, VkImageView image, VkSampler sampler, VkImageLayout layout, VkDescriptorType type);
+    void WriteImages(int binding, std::span<const VkDescriptorImageInfo> pImageInfos);
     void WriteBuffer(int binding, VkBuffer buffer, VkDeviceSize offset, VkDeviceSize range, VkDescriptorType type);
     void WriteAccelerationStructure(int binding, const VkAccelerationStructureKHR *accelerationStructure);
     void Clear();

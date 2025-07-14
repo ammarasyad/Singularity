@@ -48,7 +48,7 @@ std::optional<std::vector<std::shared_ptr<MeshAsset>>> LoadGltfMeshes(VkRenderer
                 auto &indexAccessor = gltf.accessors[primitive.indicesAccessor.value()];
                 indices.reserve(indices.size() + indexAccessor.count);
 
-                fastgltf::iterateAccessor<uint32_t>(gltf, indexAccessor, [&](auto value) {
+                fastgltf::iterateAccessor<uint32_t>(gltf, indexAccessor, [&](uint32_t value) {
                     indices.push_back(static_cast<uint32_t>(initialVerticesSize + value));
                 });
             }
@@ -58,44 +58,32 @@ std::optional<std::vector<std::shared_ptr<MeshAsset>>> LoadGltfMeshes(VkRenderer
                 auto &posAccessor = gltf.accessors[primitive.findAttribute("POSITION")->accessorIndex];
                 vertices.resize(vertices.size() + posAccessor.count);
 
-                fastgltf::iterateAccessorWithIndex<glm::vec3>(gltf, posAccessor, [&](auto value, const size_t index) {
+                fastgltf::iterateAccessorWithIndex<glm::vec3>(gltf, posAccessor, [&](glm::vec3 value, const size_t index) {
                     vertices[initialVerticesSize + index] = {
                         {value, 1.0f},
-                        {1, 0, 0},
-                        {1.f, 1.f, 1.f, 1.f},
-                        {0.f, 1.f}
+                        {1, 0, 0, 0}
                     };
                 });
             }
 
             // Load vertex normals
             if (auto normals = primitive.findAttribute("NORMAL"); normals != primitive.attributes.end()) {
-                fastgltf::iterateAccessorWithIndex<glm::vec3>(gltf, gltf.accessors[normals->accessorIndex], [&](auto value, const size_t index) {
-                    vertices[initialVerticesSize + index].normal = value;
+                fastgltf::iterateAccessorWithIndex<glm::vec3>(gltf, gltf.accessors[normals->accessorIndex], [&](glm::vec3 value, const size_t index) {
+                    vertices[initialVerticesSize + index].normal = {value, 0.f};
                 });
             }
 
             // Load tex coords
             if (auto uv = primitive.findAttribute("TEXCOORD_0"); uv != primitive.attributes.end()) {
-                fastgltf::iterateAccessorWithIndex<glm::vec2>(gltf, gltf.accessors[uv->accessorIndex], [&](auto value, const size_t index) {
-                    vertices[initialVerticesSize + index].uv = value;
-                });
-            }
-
-            // Load vertex colors
-            if (auto color = primitive.findAttribute("COLOR_0"); color != primitive.attributes.end()) {
-                fastgltf::iterateAccessorWithIndex<glm::vec4>(gltf, gltf.accessors[color->accessorIndex], [&](auto value, const size_t index) {
-                    vertices[initialVerticesSize + index].color = value;
+                fastgltf::iterateAccessorWithIndex<glm::vec2>(gltf, gltf.accessors[uv->accessorIndex], [&](glm::vec2 value, const size_t index) {
+                    const auto u = value.x;
+                    const auto v = value.y;
+                    vertices[initialVerticesSize + index].pos.w = u;
+                    vertices[initialVerticesSize + index].normal.w = v;
                 });
             }
 
             meshAsset.surfaces.push_back(geoSurface);
-        }
-        constexpr bool OverrideColors = false;
-        if (OverrideColors) {
-            for (auto &[pos, normal, color, uv] : vertices) {
-                color = glm::vec4{normal, 1.f};
-            }
         }
 
         meshAsset.mesh = renderer->CreateMesh(vertices, indices);

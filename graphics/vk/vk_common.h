@@ -89,10 +89,8 @@ struct std::hash<VulkanBuffer> {
 };
 
 struct VkVertex {
-    alignas(16) glm::vec4 pos;
-    alignas(16) glm::vec3 normal;
-    alignas(16) glm::vec4 color;
-    alignas(16) glm::vec2 uv;
+    glm::vec4 pos; // pos: xyz, u: w
+    glm::vec4 normal; // normal: xyz, v: w
 };
 
 inline void TransitionImage(VkCommandBuffer commandBuffer, VulkanImage image, VkPipelineStageFlags2 srcStageMask, VkAccessFlags2 srcAccessMask, VkPipelineStageFlags2 dstStageMask, VkAccessFlags2 dstAccessMask, VkImageLayout oldLayout, VkImageLayout newLayout, uint32_t mipLevels = -1, uint32_t layerCount = -1) {

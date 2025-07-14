@@ -146,13 +146,17 @@ void VkGLTFMetallic_Roughness::clearResources(const VkDevice &device) const {
     vkDestroyPipeline(device, transparentPipeline.pipeline, VK_NULL_HANDLE);
 }
 
-VkMaterialInstance VkGLTFMetallic_Roughness::writeMaterial(VkDevice &device, const MaterialPass pass, const MaterialResources &resources, DescriptorAllocator &allocator) {
+VkMaterialInstance VkGLTFMetallic_Roughness::writeMaterial(const bool raytracing, VkDevice &device, const MaterialPass pass, const MaterialResources &resources, DescriptorAllocator &allocator, const uint32_t textureIndex) {
     const VkDescriptorSetLayout setLayouts[] = {materialLayout};
     VkMaterialInstance matData{
         .pipeline = pass == MaterialPass::Transparent ? transparentPipeline : opaquePipeline,
         .descriptorSet = allocator.Allocate(device, setLayouts),
-        .pass = pass
+        .pass = pass,
+        .textureIndex = textureIndex
     };
+
+    if (raytracing)
+        return matData;
 
     descriptorWriter.Clear();
     descriptorWriter.WriteBuffer(0, resources.dataBuffer, resources.offset, sizeof(MaterialConstants), VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);

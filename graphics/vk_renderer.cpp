@@ -391,7 +391,7 @@ void VkRenderer::Render(EngineStats &stats) {
     static std::array<VkFence, 3> fences;
     fences[0] = frames[currentFrame].inFlightFence;
 
-    if (meshShader || useRaytracing)
+    if (meshShader && !useRaytracing)
     {
         fences[1] = computeFinishedFence;
     }
@@ -401,7 +401,7 @@ void VkRenderer::Render(EngineStats &stats) {
         fences[2] = computeFinishedFence;
     }
 
-    const auto size = fences.size() - !asyncCompute - (meshShader | useRaytracing);
+    const auto size = useRaytracing ? 1 : fences.size() - !asyncCompute - meshShader;
     VK_CHECK(vkWaitForFences(device, size, fences.data(), VK_TRUE, UINT64_MAX));
 
     uint32_t imageIndex;
@@ -422,7 +422,7 @@ void VkRenderer::Render(EngineStats &stats) {
     VK_CHECK(vkResetCommandBuffer(frames[currentFrame].commandBuffer, VK_COMMAND_BUFFER_RESET_RELEASE_RESOURCES_BIT));
     VK_CHECK(vkResetCommandBuffer(depthPrepassCommandBuffer, VK_COMMAND_BUFFER_RESET_RELEASE_RESOURCES_BIT));
 
-    if (asyncCompute) {
+    if (asyncCompute && !useRaytracing) {
         VK_CHECK(vkResetCommandBuffer(computeCommandBuffer, VK_COMMAND_BUFFER_RESET_RELEASE_RESOURCES_BIT));
 
         static constexpr VkCommandBufferBeginInfo beginInfo{
@@ -482,21 +482,6 @@ void VkRenderer::Render(EngineStats &stats) {
     {
         DrawMesh(frames[currentFrame].commandBuffer, imageIndex, stats);
     }
-    // else if (useRaytracing)
-    // {
-    //     const auto viewInverse = glm::inverse(camera->ViewMatrix());
-    //     const auto projectionInverse = glm::inverse(camera->ProjectionMatrix());
-    //     static const glm::vec4 lightPosition{10.0f, 6.0f, 3.0f, 1.0f};
-    //     static const glm::vec4 lightColor{1.0f, 1.0f, 1.0f, 1.0f};
-    //     // TODO: draw all meshes
-    //     const auto vertexBufferAddress = mainDrawContext.opaqueSurfaces[0].vertexBufferAddress;
-    //     const auto indexBufferAddress = mainDrawContext.opaqueSurfaces[0].indexBufferAddress;
-    //     constexpr VkCommandBufferBeginInfo beginInfo{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO, nullptr, VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT};
-    //     rayTracing.UpdateDescriptorSets(sceneDataBuffer.buffer, device);
-    //     vkBeginCommandBuffer(frames[currentFrame].commandBuffer, &beginInfo);
-    //     rayTracing.TraceRay(frames[currentFrame].commandBuffer, viewInverse, projectionInverse, lightPosition, lightColor, vertexBufferAddress, indexBufferAddress, swapChainExtent);
-    //     vkEndCommandBuffer(frames[currentFrame].commandBuffer);
-    // }
     else
     {
         if (!useRaytracing)
@@ -510,7 +495,7 @@ void VkRenderer::Render(EngineStats &stats) {
 
     static constexpr VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT, VK_PIPELINE_STAGE_MESH_SHADER_BIT_EXT};
     static std::array<VkSemaphore, 3> waitSemaphores;
-    if (meshShader || useRaytracing)
+    if (meshShader && !useRaytracing)
     {
         waitSemaphores[1] = computeFinishedSemaphore;
     }
@@ -561,7 +546,7 @@ void VkRenderer::Render(EngineStats &stats) {
     VkSubmitInfo submitInfo{
         VK_STRUCTURE_TYPE_SUBMIT_INFO,
         VK_NULL_HANDLE,
-        static_cast<uint32_t>(waitSemaphores.size() - !asyncCompute - (meshShader | useRaytracing)),
+        static_cast<uint32_t>(useRaytracing ? 1 : waitSemaphores.size() - !asyncCompute - meshShader - useRaytracing),
         waitSemaphores.data(),
         waitStages,
         1,
@@ -1575,6 +1560,9 @@ void VkRenderer::CreateLogicalDevice() {
         .pNext = &vulkan11Features,
         .shaderFloat16 = VK_TRUE,
         .descriptorIndexing = VK_TRUE,
+        .shaderSampledImageArrayNonUniformIndexing = VK_TRUE,
+        .runtimeDescriptorArray = VK_TRUE,
+        .scalarBlockLayout = VK_TRUE,
         .hostQueryReset = VK_TRUE,
         .timelineSemaphore = VK_TRUE,
         .bufferDeviceAddress = VK_TRUE,

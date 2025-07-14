@@ -30,6 +30,9 @@ struct VkMaterialInstance {
     VkDescriptorSet descriptorSet;
     MaterialPass pass;
 
+    // For ray tracing
+    uint32_t textureIndex;
+
     bool operator==(const VkMaterialInstance &other) const {
         return pipeline == other.pipeline && descriptorSet == other.descriptorSet && pass == other.pass;
     }
@@ -71,7 +74,7 @@ struct VkGLTFMetallic_Roughness {
     void buildPipelines(const VkRenderer *renderer);
     void clearResources(const VkDevice &device) const;
 
-    VkMaterialInstance writeMaterial(VkDevice &device, MaterialPass pass, const MaterialResources &resources, DescriptorAllocator &allocator);
+    VkMaterialInstance writeMaterial(bool raytracing, VkDevice &device, MaterialPass pass, const MaterialResources &resources, DescriptorAllocator &allocator, uint32_t textureIndex);
 };
 
 #endif //MATERIAL_H

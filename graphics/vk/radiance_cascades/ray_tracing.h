@@ -30,10 +30,12 @@ public:
     void BuildTLAS(VkRenderer *, const std::vector<VkRenderObject> &);
 
     VulkanImage radianceImage;
+    std::vector<VkDescriptorImageInfo> textureInfo;
 private:
     VkDeviceAddress getBlasDeviceAddress(VkDevice, uint32_t);
 
     DescriptorAllocator allocator;
+    DescriptorWriter writer;
     VkDescriptorSetLayout rayTracingDescriptorSetLayout;
     std::vector<VkDescriptorSet> rayTracingDescriptorSets;
     VkPipelineLayout rayTracingPipelineLayout;

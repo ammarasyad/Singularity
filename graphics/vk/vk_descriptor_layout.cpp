@@ -17,6 +17,24 @@ void DescriptorWriter::WriteImage(int binding, VkImageView image, VkSampler samp
         VK_NULL_HANDLE
     );
 }
+
+void DescriptorWriter::WriteImages(int binding, std::span<const VkDescriptorImageInfo> pImageInfos) {
+    imageInfos.insert(imageInfos.end(), pImageInfos.begin(), pImageInfos.end());
+
+    writes.emplace_back(
+        VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+        VK_NULL_HANDLE,
+        VK_NULL_HANDLE,
+        binding,
+        0,
+        pImageInfos.size(),
+        VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+        pImageInfos.data(),
+        VK_NULL_HANDLE,
+        VK_NULL_HANDLE
+    );
+}
+
 void DescriptorWriter::WriteBuffer(int binding, VkBuffer buffer, VkDeviceSize offset, VkDeviceSize range, VkDescriptorType type) {
     auto &info = bufferInfos.emplace_back(buffer, offset, range);
 

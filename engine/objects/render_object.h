@@ -11,6 +11,7 @@ struct VkDrawContext;
 
 struct VkRenderObject {
     uint32_t indexCount{};
+    uint32_t vertexCount{};
     uint32_t firstIndex{};
 
     Bounds bounds{};
@@ -55,13 +56,13 @@ struct Node {
             case NodeType::MeshNode: {
                 const glm::mat4 nodeMatrix = topMatrix * worldTransform;
 
-                for (auto &[startIndex, indexCount, bounds, material]: meshAsset.surfaces) {
+                for (auto &[startIndex, indexCount, vertexCount, bounds, material]: meshAsset.surfaces) {
                     switch (material.data.pass) {
                         case MaterialPass::MainColor:
-                            ctx.opaqueSurfaces.emplace_back(indexCount, startIndex, bounds, nodeMatrix, meshAsset.mesh.indexBuffer, meshAsset.mesh.vertexBufferDeviceAddress, meshAsset.mesh.indexBufferDeviceAddress, &material.data);
+                            ctx.opaqueSurfaces.emplace_back(indexCount, vertexCount, startIndex, bounds, nodeMatrix, meshAsset.mesh.indexBuffer, meshAsset.mesh.vertexBufferDeviceAddress, meshAsset.mesh.indexBufferDeviceAddress, &material.data);
                             break;
                         case MaterialPass::Transparent:
-                            ctx.transparentSurfaces.emplace_back(indexCount, startIndex, bounds, nodeMatrix, meshAsset.mesh.indexBuffer, meshAsset.mesh.vertexBufferDeviceAddress, meshAsset.mesh.indexBufferDeviceAddress, &material.data);
+                            ctx.transparentSurfaces.emplace_back(indexCount, vertexCount, startIndex, bounds, nodeMatrix, meshAsset.mesh.indexBuffer, meshAsset.mesh.vertexBufferDeviceAddress, meshAsset.mesh.indexBufferDeviceAddress, &material.data);
                             break;
                         default:
                             break;

@@ -11,10 +11,12 @@ struct RaygenPushConstants
     glm::mat4 projectionInverse;
 };
 
-struct MeshAddresses
+struct MeshData
 {
     VkDeviceAddress vertexBufferAddress;
     VkDeviceAddress indexBufferAddress;
+    uint32_t textureIndex;
+    uint32_t firstIndex;
 };
 
 struct HitPushConstants
@@ -56,7 +58,8 @@ void RayTracing::Init(const VkRenderer *renderer, VkDevice device, VkPhysicalDev
         static constexpr DescriptorAllocator::PoolSizeRatio sizes[] = {
             {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1},
             {VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, 1},
-            {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 2}
+            {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 2},
+            {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 100}
         };
 
         allocator.InitPool(device, 1, sizes);
@@ -67,6 +70,7 @@ void RayTracing::Init(const VkRenderer *renderer, VkDevice device, VkPhysicalDev
                            VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR);
         builder.AddBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR);
         builder.AddBinding(2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR);
+        builder.AddBinding(3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, 100);
         rayTracingDescriptorSetLayout = builder.Build(device, VK_NULL_HANDLE, VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT);;
 
         const VkDescriptorSetLayout layouts[] = {rayTracingDescriptorSetLayout};
@@ -389,12 +393,13 @@ void RayTracing::Destroy(VkDevice device, VkMemoryManager &memoryManager)
 
 void RayTracing::UpdateDescriptorSets(VkDevice device, const uint32_t frameIndex)
 {
-    DescriptorWriter writer;
+    writer.Clear();
     writer.WriteAccelerationStructure(0, &tlas);
     // TODO: Replace this with radiance cascades
     writer.WriteImage(1, radianceImage.imageView, radianceImage.sampler, VK_IMAGE_LAYOUT_GENERAL,
                       VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
     writer.WriteBuffer(2, meshAddressesBuffer.buffer, 0, VK_WHOLE_SIZE, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+    writer.WriteImages(3, textureInfo);
     writer.UpdateSet(device, rayTracingDescriptorSets[frameIndex]);
 }
 
@@ -467,7 +472,7 @@ void RayTracing::BuildBLAS(VkRenderer *renderer, const std::vector<VkRenderObjec
         geo.geometry.triangles.vertexFormat = VK_FORMAT_R32G32B32_SFLOAT;
         geo.geometry.triangles.vertexData.deviceAddress = mesh.vertexBufferAddress;
         geo.geometry.triangles.vertexStride = sizeof(VkVertex);
-        geo.geometry.triangles.maxVertex = mesh.indexCount; // Assuming indexCount is the number of vertices
+        geo.geometry.triangles.maxVertex = mesh.vertexCount - 1;
         geo.geometry.triangles.indexType = VK_INDEX_TYPE_UINT32;
         geo.geometry.triangles.indexData.deviceAddress = mesh.indexBufferAddress + mesh.firstIndex * sizeof(uint32_t);
 
@@ -602,18 +607,20 @@ void RayTracing::BuildBLAS(VkRenderer *renderer, const std::vector<VkRenderObjec
 
     memoryManager.destroyBuffer(scratchBuffer, false);
 
-    std::vector<MeshAddresses> meshAddresses(renderObjects.size());
+    std::vector<MeshData> meshAddresses(renderObjects.size());
     for (size_t i = 0; i < renderObjects.size(); ++i)
     {
         meshAddresses[i].vertexBufferAddress = renderObjects[i].vertexBufferAddress;
         meshAddresses[i].indexBufferAddress = renderObjects[i].indexBufferAddress;
+        meshAddresses[i].textureIndex = renderObjects[i].materialInstance->textureIndex;
+        meshAddresses[i].firstIndex = renderObjects[i].firstIndex;
     }
 
-    meshAddressesBuffer = memoryManager.createUnmanagedBuffer({renderObjects.size() * sizeof(MeshAddresses), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT, VMA_MEMORY_USAGE_AUTO});
+    meshAddressesBuffer = memoryManager.createUnmanagedBuffer({renderObjects.size() * sizeof(MeshData), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT, VMA_MEMORY_USAGE_AUTO});
 
     void *data;
     memoryManager.mapBuffer(meshAddressesBuffer, &data);
-    memcpy(data, meshAddresses.data(), meshAddresses.size() * sizeof(MeshAddresses));
+    memcpy(data, meshAddresses.data(), meshAddresses.size() * sizeof(MeshData));
     memoryManager.unmapBuffer(meshAddressesBuffer);
 }
 
