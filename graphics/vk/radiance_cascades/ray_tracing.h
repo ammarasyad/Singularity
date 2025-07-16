@@ -24,6 +24,7 @@ public:
     void Destroy(VkDevice device, VkMemoryManager &memoryManager);
     void UpdateDescriptorSets(VkDevice device, uint32_t frameIndex);
     void AddLight(glm::vec4 lightPosition, glm::vec4 lightColor, LightType lightType);
+    void ResetSceneData();
     void UpdateBuffers(const VkMemoryManager &memoryManager);
     void TraceRay(
         VkCommandBuffer commandBuffer,

@@ -423,6 +423,11 @@ void RayTracing::AddLight(const glm::vec4 lightPosition, glm::vec4 lightColor, c
     lightData.lights[lightData.lightCount++].lightColor = lightColor;
 }
 
+void RayTracing::ResetSceneData()
+{
+    lightData.lightCount = 0;
+}
+
 void RayTracing::UpdateBuffers(const VkMemoryManager &memoryManager)
 {
     // static HitUniformData hitUniformData{};

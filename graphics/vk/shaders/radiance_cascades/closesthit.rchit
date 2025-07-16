@@ -4,6 +4,11 @@
 #extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
 #extension GL_EXT_nonuniform_qualifier : require
 
+struct Payload {
+    vec3 hitValue;
+    int lightingType; // 0 for direct, 1 for indirect
+};
+
 struct Vertex {
     vec4 position; // x, y, z, u (texcoord)
     vec4 normal; // x, y, z, v (texcoord)
@@ -32,8 +37,9 @@ layout(set = 0, binding = 4) readonly buffer LightBuffer {
     LightData lights[];
 };
 
-layout(location = 0) rayPayloadInEXT vec3 hitValue;
+layout(location = 0) rayPayloadInEXT Payload hitPayload;
 layout(location = 1) rayPayloadEXT bool shadow;
+layout(location = 2) rayPayloadEXT Payload indirectHitPayload;
 
 hitAttributeEXT vec2 hitAttribute;
 
@@ -92,6 +98,67 @@ vec4 applyFog(vec3 start, vec3 end, vec3 lightDir, vec3 lightColor) {
     }
 
     return vec4(accumulation, transmittance);
+}   
+
+#define PI  3.14159265358
+#define TAU 6.28318530718
+
+vec3 CosineWeightedHemisphereSample(vec3 worldNormal) {
+    float u = gl_PrimitiveID / float(gl_LaunchSizeEXT.x * gl_LaunchSizeEXT.y * gl_LaunchSizeEXT.z);
+    float v = fract(bitfieldReverse(uint(gl_PrimitiveID)) * 2.383064365e-10);
+
+    float phi = TAU * u;
+    float cosTheta = sqrt(1.0 - v);
+    float sinTheta = sqrt(1.0 - cosTheta * cosTheta);
+
+    vec3 tangent = normalize(abs(worldNormal.x) < 0.999 ? cross(worldNormal, vec3(0.0, 1.0, 0.0)) : cross(worldNormal, vec3(1.0, 0.0, 0.0)));
+    vec3 bitangent = cross(worldNormal, tangent);
+
+    return vec3(sinTheta * cos(phi) * tangent + sinTheta * sin(phi) * bitangent + cosTheta * worldNormal);
+}
+
+vec3 directLighting(LightData light, vec3 worldPos, vec3 worldNormal) {
+    uint lightType = uint(light.lightColor.a);
+
+    vec3 L;
+    float lightDistance;
+    float lightIntensity;
+
+    switch (lightType) {
+        case 0:
+            // Directional light
+            L = normalize(light.lightPosition.xyz);
+            lightDistance = 10000.0;
+            lightIntensity = light.lightPosition.w;
+            break;
+        case 1:
+            // Point light
+            L = normalize(light.lightPosition.xyz - worldPos);
+            lightDistance = length(light.lightPosition.xyz - worldPos);
+            lightIntensity = light.lightPosition.w / (lightDistance * lightDistance);
+            break;
+    }
+
+    float dotNL = max(dot(worldNormal, L), 0.0);
+
+    shadow = true;
+    if (dotNL > 0) {
+        traceRayEXT(topLevelAS,
+                    gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsSkipClosestHitShaderEXT | gl_RayFlagsOpaqueEXT,
+                    0xFF, // cull mask
+                    0, // ray flags
+                    0, // ray type
+                    1, // miss shader index
+                    gl_WorldRayOriginEXT + gl_WorldRayDirectionEXT * gl_HitTEXT, // origin
+                    0.001, // tMin
+                    L, // direction
+                    lightDistance, // tMax
+                    1); // payload location
+    }
+
+    float occlusion = hitPayload.lightingType == 0.0 ? (shadow ? 0.4 : 1.0) : 0.0;
+
+    return dotNL * lightIntensity * light.lightColor.rgb * occlusion;
 }
 
 void main() {
@@ -134,46 +201,27 @@ void main() {
     for (uint i = 0; i < lightCount; i++) {
         LightData light = lights[i];
         uint lightType = uint(light.lightColor.a);
-
-        vec3 L;
-        float lightDistance;
-        float lightIntensity;
-
-        switch (lightType) {
-            case 0:
-                // Directional light
-                L = normalize(light.lightPosition.xyz);
-                lightDistance = 10000.0;
-                lightIntensity = light.lightPosition.w;
-                break;
-            case 1:
-                // Point light
-                L = normalize(light.lightPosition.xyz - worldPos);
-                lightDistance = length(light.lightPosition.xyz - worldPos);
-                lightIntensity = light.lightPosition.w / (lightDistance * lightDistance);
-                break;
-        }
-
-        float dotNL = max(dot(worldNormal, L), 0.0);
-
-        shadow = true;
-        if (dotNL > 0) {
-            traceRayEXT(topLevelAS,
-                        gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsSkipClosestHitShaderEXT | gl_RayFlagsOpaqueEXT,
-                        0xFF, // cull mask
-                        0, // ray flags
-                        0, // ray type
-                        1, // miss shader index
-                        gl_WorldRayOriginEXT + gl_WorldRayDirectionEXT * gl_HitTEXT, // origin
-                        0.001, // tMin
-                        L, // direction
-                        lightDistance, // tMax
-                        1); // payload location
-        }
-
-        // vec4 fog = applyFog(pc.cameraPosition, worldPos, L, light.lightColor.rgb);
-        diffuse += dotNL * lightIntensity * light.lightColor.rgb * (shadow ? vec3(0.2) : vec3(1.0));
+        diffuse += directLighting(light, worldPos, worldNormal);
     }
 
-    hitValue = diffuse * texColor;
+    indirectHitPayload = Payload(vec3(0.0), 1);
+    if (hitPayload.lightingType == 0) {
+        vec3 indirectLightDir = CosineWeightedHemisphereSample(worldNormal);
+
+        traceRayEXT(
+            topLevelAS,
+            gl_RayFlagsOpaqueEXT,
+            0xFF,
+            0, 0, 0,
+            worldPos + worldNormal * 0.01,
+            0.001,
+            indirectLightDir,
+            10000.0,
+            2
+        );
+
+        diffuse = (diffuse + indirectHitPayload.hitValue / PI) * texColor;
+    }
+
+    hitPayload.hitValue = diffuse;
 }

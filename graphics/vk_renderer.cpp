@@ -880,13 +880,22 @@ void VkRenderer::Draw(const VkCommandBuffer &commandBuffer, uint32_t imageIndex,
 
         const auto viewInverse = glm::inverse(camera->ViewMatrix());
         const auto projectionInverse = glm::inverse(camera->ProjectionMatrix());
-        static const glm::vec4 lightPosition{10.0f, 6.0f, 3.0f, 1.0f};
+        static const glm::vec4 lightPosition{0.0f, 10.0f, 0.0f, 1.0f};
         static const glm::vec4 lightColor{1.0f, 1.0f, 0.95f, 1.0f};
+
+        static glm::vec4 pointLightPosition{0.0, 4.0, 0.0, 5.0};
+        static glm::vec4 pointLightColor{0.1f, 1.0f, 0.95f, 1.0f};
+
+        static float angle = 0.0f;
+        angle += 0.01f;
+        pointLightPosition.x = 5.0f * glm::cos(angle);
 
         TransitionImage(commandBuffer, rayTracing.radianceImage, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT, VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR, VK_ACCESS_2_SHADER_WRITE_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
         rayTracing.UpdateDescriptorSets(device, currentFrame);
+        rayTracing.ResetSceneData();
         rayTracing.AddLight(lightPosition, lightColor, RayTracing::LightType::Directional);
-        rayTracing.AddLight({0.0, 4.0, 0.0, 10.0}, {0.35f, 0.65f, 0.95f, 1.0f}, RayTracing::LightType::Point);
+        // rayTracing.AddLight({0.0, 4.0, 0.0, 10.0}, {0.35f, 0.65f, 0.95f, 1.0f}, RayTracing::LightType::Point);
+        rayTracing.AddLight(pointLightPosition, pointLightColor, RayTracing::LightType::Point);
         rayTracing.UpdateBuffers(memoryManager);
         rayTracing.TraceRay(commandBuffer, currentFrame, viewInverse, projectionInverse, camera->position, swapChainExtent);
         TransitionImage(commandBuffer, rayTracing.radianceImage, VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR, VK_ACCESS_2_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);

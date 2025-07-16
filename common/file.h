@@ -7,11 +7,10 @@
 #include <immintrin.h>
 
 template<typename T>
-static inline std::vector<T> ReadFile(const std::filesystem::path &filename) {
+std::vector<T> ReadFile(const std::filesystem::path &filename) {
     std::ifstream file(filename, std::ios::ate | std::ios::binary);
 
     if (!file.is_open()) {
-        // throw std::runtime_error("Failed to open file: " + filename);
 #ifdef _WIN32
 #define FORMAT_SPECIFIER "%ls"
 #else
@@ -31,7 +30,7 @@ static inline std::vector<T> ReadFile(const std::filesystem::path &filename) {
     return std::move(buffer);
 }
 
-static inline void WriteFile(const std::filesystem::path &filename, const void *data, const std::streamsize size) {
+inline void WriteFile(const std::filesystem::path &filename, const void *data, const std::streamsize size) {
     std::ofstream file(filename, std::ios::binary);
     file.write(static_cast<const char *>(data), size);
     file.close();
