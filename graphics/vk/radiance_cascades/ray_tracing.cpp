@@ -21,8 +21,7 @@ struct MeshData
 
 struct HitPushConstants
 {
-    glm::vec4 lightPosition;
-    glm::vec4 lightColor;
+    glm::vec3 cameraPosition;
 };
 
 static VkBufferDeviceAddressInfo bufferDeviceAddressInfo{VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO};
@@ -56,6 +55,7 @@ void RayTracing::Init(const VkRenderer *renderer, VkDevice device, VkPhysicalDev
 #pragma region Descriptor Set Layout Creation
     {
         static constexpr DescriptorAllocator::PoolSizeRatio sizes[] = {
+            // {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1},
             {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1},
             {VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, 1},
             {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 2},
@@ -71,6 +71,7 @@ void RayTracing::Init(const VkRenderer *renderer, VkDevice device, VkPhysicalDev
         builder.AddBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR);
         builder.AddBinding(2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR);
         builder.AddBinding(3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, 100);
+        builder.AddBinding(4, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR);
         rayTracingDescriptorSetLayout = builder.Build(device, VK_NULL_HANDLE, VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT);;
 
         const VkDescriptorSetLayout layouts[] = {rayTracingDescriptorSetLayout};
@@ -359,6 +360,11 @@ void RayTracing::Init(const VkRenderer *renderer, VkDevice device, VkPhysicalDev
     };
 
     vkCreateSampler(device, &samplerCreateInfo, VK_NULL_HANDLE, &radianceImage.sampler);
+
+    hitUniformBuffer = memoryManager.createUnmanagedBuffer({
+        sizeof(LightData), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE,
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
+    });
 #pragma endregion
 }
 
@@ -384,6 +390,7 @@ void RayTracing::Destroy(VkDevice device, VkMemoryManager &memoryManager)
 
     memoryManager.destroyImage(radianceImage, false);
     memoryManager.destroyBuffer(meshAddressesBuffer, false);
+    memoryManager.destroyBuffer(hitUniformBuffer, false);
 
     allocator.Destroy(device);
     vkDestroyDescriptorSetLayout(device, rayTracingDescriptorSetLayout, nullptr);
@@ -400,12 +407,34 @@ void RayTracing::UpdateDescriptorSets(VkDevice device, const uint32_t frameIndex
                       VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
     writer.WriteBuffer(2, meshAddressesBuffer.buffer, 0, VK_WHOLE_SIZE, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
     writer.WriteImages(3, textureInfo);
+    writer.WriteBuffer(4, hitUniformBuffer.buffer, 0, sizeof(LightData), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
     writer.UpdateSet(device, rayTracingDescriptorSets[frameIndex]);
 }
 
-void RayTracing::TraceRay(VkCommandBuffer commandBuffer, const uint32_t frameIndex, const glm::mat4 & viewInverse,
-                          const glm::mat4 & projectionInverse, const glm::vec4 & lightPosition,
-                          const glm::vec4 & lightColor,
+void RayTracing::AddLight(const glm::vec4 lightPosition, glm::vec4 lightColor, const LightType lightType)
+{
+    if (lightData.lightCount >= maxLights)
+    {
+        return;
+    }
+
+    lightData.lights[lightData.lightCount].lightPosition = lightPosition;
+    lightColor.w = lightType;
+    lightData.lights[lightData.lightCount++].lightColor = lightColor;
+}
+
+void RayTracing::UpdateBuffers(const VkMemoryManager &memoryManager)
+{
+    // static HitUniformData hitUniformData{};
+    // hitUniformData.lightPosition = lightPosition;
+    // hitUniformData.lightColor = lightColor;
+    // memoryManager.copyToBuffer(hitUniformBuffer, &hitUniformData, sizeof(HitUniformData));
+    memoryManager.copyToBuffer(hitUniformBuffer, &lightData, sizeof(LightData));
+}
+
+void RayTracing::TraceRay(const VkCommandBuffer commandBuffer,
+                          const uint32_t frameIndex, const glm::mat4 & viewInverse,
+                          const glm::mat4 &projectionInverse, const glm::vec3 &cameraPosition,
                           const VkExtent2D &swapChainExtent)
 {
     vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, rayTracingPipeline);
@@ -417,10 +446,7 @@ void RayTracing::TraceRay(VkCommandBuffer commandBuffer, const uint32_t frameInd
         projectionInverse
     };
 
-    const HitPushConstants hitPushConstants{
-        lightPosition,
-        lightColor,
-    };
+    const HitPushConstants hitPushConstants{cameraPosition};
 
     vkCmdPushConstants(commandBuffer, rayTracingPipelineLayout, VK_SHADER_STAGE_RAYGEN_BIT_KHR, 0,
                        sizeof(RaygenPushConstants), &raygenPushConstants);
@@ -618,10 +644,11 @@ void RayTracing::BuildBLAS(VkRenderer *renderer, const std::vector<VkRenderObjec
 
     meshAddressesBuffer = memoryManager.createUnmanagedBuffer({renderObjects.size() * sizeof(MeshData), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT, VMA_MEMORY_USAGE_AUTO});
 
-    void *data;
-    memoryManager.mapBuffer(meshAddressesBuffer, &data);
-    memcpy(data, meshAddresses.data(), meshAddresses.size() * sizeof(MeshData));
-    memoryManager.unmapBuffer(meshAddressesBuffer);
+    memoryManager.copyToBuffer(meshAddressesBuffer, meshAddresses.data(), meshAddresses.size() * sizeof(MeshData));
+    // void *data;
+    // memoryManager.mapBuffer(meshAddressesBuffer, &data);
+    // memcpy(data, meshAddresses.data(), meshAddresses.size() * sizeof(MeshData));
+    // memoryManager.unmapBuffer(meshAddressesBuffer);
 }
 
 void RayTracing::CompactBLAS(VkRenderer *renderer)

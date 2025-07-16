@@ -116,6 +116,7 @@ set(SHADER_FILES
         ${VK_SHADER_FOLDER}/radiance_cascades/raygen.rgen
         ${VK_SHADER_FOLDER}/radiance_cascades/closesthit.rchit
         ${VK_SHADER_FOLDER}/radiance_cascades/rtShadow.rmiss
+        ${VK_SHADER_FOLDER}/radiance_cascades/miss.rmiss
         ${VK_SHADER_FOLDER}/shadowmap.vert
         ${VK_SHADER_FOLDER}/shadowmap.frag
         ${VK_SHADER_FOLDER}/skybox.frag

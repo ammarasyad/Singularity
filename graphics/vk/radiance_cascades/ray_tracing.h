@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "engine/objects/render_object.h"
+#include "graphics/vk/memory/vk_memory.h"
 
 class VkMemoryManager;
 class VkRenderer;
@@ -12,17 +13,24 @@ class VkRenderer;
 class RayTracing
 {
 public:
+    enum LightType : uint32_t
+    {
+        Directional,
+        Point
+    };
+
     RayTracing() = default;
     void Init(const VkRenderer *renderer, VkDevice device, VkPhysicalDevice physicalDevice, VkMemoryManager &memoryManager, const VkExtent2D &swapChainExtent);
     void Destroy(VkDevice device, VkMemoryManager &memoryManager);
     void UpdateDescriptorSets(VkDevice device, uint32_t frameIndex);
+    void AddLight(glm::vec4 lightPosition, glm::vec4 lightColor, LightType lightType);
+    void UpdateBuffers(const VkMemoryManager &memoryManager);
     void TraceRay(
         VkCommandBuffer commandBuffer,
         uint32_t frameIndex,
         const glm::mat4 & viewInverse,
         const glm::mat4 & projectionInverse,
-        const glm::vec4 & lightPosition,
-        const glm::vec4 & lightColor,
+        const glm::vec3 & cameraPosition,
         const VkExtent2D &swapChainExtent
     );
     void BuildBLAS(VkRenderer *, const std::vector<VkRenderObject> &);
@@ -32,6 +40,17 @@ public:
     VulkanImage radianceImage;
     std::vector<VkDescriptorImageInfo> textureInfo;
 private:
+    static constexpr size_t maxLights = 4;
+    struct LightData
+    {
+        uint32_t lightCount;
+        alignas(16) struct
+        {
+            glm::vec4 lightPosition;
+            glm::vec4 lightColor;
+        } lights[maxLights];
+    } lightData;
+
     VkDeviceAddress getBlasDeviceAddress(VkDevice, uint32_t);
 
     DescriptorAllocator allocator;
@@ -57,6 +76,7 @@ private:
     // VulkanBuffer tlasInstanceBuffer;
 
     VulkanBuffer meshAddressesBuffer;
+    VulkanBuffer hitUniformBuffer;
 
     VkAccelerationStructureKHR tlas;
     std::vector<VkAccelerationStructureKHR> blas;

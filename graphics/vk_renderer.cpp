@@ -881,11 +881,14 @@ void VkRenderer::Draw(const VkCommandBuffer &commandBuffer, uint32_t imageIndex,
         const auto viewInverse = glm::inverse(camera->ViewMatrix());
         const auto projectionInverse = glm::inverse(camera->ProjectionMatrix());
         static const glm::vec4 lightPosition{10.0f, 6.0f, 3.0f, 1.0f};
-        static const glm::vec4 lightColor{1.0f, 1.0f, 1.0f, 1.0f};
+        static const glm::vec4 lightColor{1.0f, 1.0f, 0.95f, 1.0f};
 
         TransitionImage(commandBuffer, rayTracing.radianceImage, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT, VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR, VK_ACCESS_2_SHADER_WRITE_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
         rayTracing.UpdateDescriptorSets(device, currentFrame);
-        rayTracing.TraceRay(commandBuffer, currentFrame, viewInverse, projectionInverse, lightPosition, lightColor, swapChainExtent);
+        rayTracing.AddLight(lightPosition, lightColor, RayTracing::LightType::Directional);
+        rayTracing.AddLight({0.0, 4.0, 0.0, 10.0}, {0.35f, 0.65f, 0.95f, 1.0f}, RayTracing::LightType::Point);
+        rayTracing.UpdateBuffers(memoryManager);
+        rayTracing.TraceRay(commandBuffer, currentFrame, viewInverse, projectionInverse, camera->position, swapChainExtent);
         TransitionImage(commandBuffer, rayTracing.radianceImage, VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR, VK_ACCESS_2_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
         VulkanImage swapChainImage{swapChainImages[imageIndex], swapChainImageViews[imageIndex], VK_NULL_HANDLE, {swapChainExtent.width, swapChainExtent.height, 1}, surfaceFormat.format};
