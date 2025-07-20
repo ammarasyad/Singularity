@@ -72,12 +72,21 @@ void RayTracing::Init(const VkRenderer *renderer, VkDevice device, VkPhysicalDev
         builder.AddBinding(2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR);
         builder.AddBinding(3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, 100);
         builder.AddBinding(4, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR);
-        rayTracingDescriptorSetLayout = builder.Build(device, VK_NULL_HANDLE, VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT);;
+        rayTracingDescriptorSetLayout = builder.Build(device, VK_NULL_HANDLE, VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT);
 
-        const VkDescriptorSetLayout layouts[] = {rayTracingDescriptorSetLayout};
-        rayTracingDescriptorSets.resize(MAX_FRAMES_IN_FLIGHT);
+        builder.Clear();
+        builder.AddBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT);
+        builder.AddBinding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT);
+        builder.AddBinding(2, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT);
+        accumulatedDescriptorSetLayout = builder.Build(device, VK_NULL_HANDLE, VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT);
+
+        const VkDescriptorSetLayout rayTracingLayout[] = {rayTracingDescriptorSetLayout};
+        const VkDescriptorSetLayout accumulatedLayout[] = {accumulatedDescriptorSetLayout};
         for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
-            rayTracingDescriptorSets[i] = allocator.Allocate(device, layouts);
+        {
+            rayTracingDescriptorSets[i] = allocator.Allocate(device, rayTracingLayout);
+            accumulatedDescriptorSets[i] = allocator.Allocate(device, accumulatedLayout);
+        }
     }
 #pragma endregion
 #pragma region Pipeline Layout
@@ -107,6 +116,26 @@ void RayTracing::Init(const VkRenderer *renderer, VkDevice device, VkPhysicalDev
         };
 
         VK_CHECK(vkCreatePipelineLayout(device, &layoutCreateInfo, nullptr, &rayTracingPipelineLayout));
+    }
+
+    {
+        constexpr VkPushConstantRange pushConstantRange {
+            VK_SHADER_STAGE_COMPUTE_BIT,
+            0,
+            sizeof(AccumulatedComputePushConstants)
+        };
+
+        const VkPipelineLayoutCreateInfo layoutCreateInfo{
+            VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+            VK_NULL_HANDLE,
+            0,
+            1,
+            &accumulatedDescriptorSetLayout,
+            1,
+            &pushConstantRange
+        };
+
+        VK_CHECK(vkCreatePipelineLayout(device, &layoutCreateInfo, nullptr, &accumulatedPipelineLayout));
     }
 #pragma endregion
 #pragma region Shader Modules and Pipeline Creation
@@ -200,7 +229,7 @@ void RayTracing::Init(const VkRenderer *renderer, VkDevice device, VkPhysicalDev
             shaderStages,
             4,
             groups,
-            2,
+            3,
             VK_NULL_HANDLE,
             VK_NULL_HANDLE,
             VK_NULL_HANDLE,
@@ -217,6 +246,41 @@ void RayTracing::Init(const VkRenderer *renderer, VkDevice device, VkPhysicalDev
         vkDestroyShaderModule(device, shaderModules[1], nullptr);
         vkDestroyShaderModule(device, shaderModules[2], nullptr);
         vkDestroyShaderModule(device, shaderModules[3], nullptr);
+    }
+
+    {
+        const auto accumulatedShaderCode = ReadFile<uint32_t>("shaders/temporalAccumulation.comp.spv");
+
+        const VkShaderModuleCreateInfo createInfo{
+            VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
+            VK_NULL_HANDLE,
+            0,
+            accumulatedShaderCode.size(),
+            accumulatedShaderCode.data()
+        };
+
+        VkShaderModule shaderModule;
+        VK_CHECK(vkCreateShaderModule(device, &createInfo, VK_NULL_HANDLE, &shaderModule));
+
+        VkComputePipelineCreateInfo pipelineCreateInfo{
+            VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
+            VK_NULL_HANDLE,
+            0,
+            {
+                VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+                VK_NULL_HANDLE,
+                0,
+                VK_SHADER_STAGE_COMPUTE_BIT,
+                shaderModule,
+                "main",
+                nullptr
+            },
+            accumulatedPipelineLayout
+        };
+
+        VK_CHECK(vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &pipelineCreateInfo, nullptr, &accumulatedPipeline));
+
+        vkDestroyShaderModule(device, shaderModule, nullptr);
     }
 #pragma endregion
 #pragma region Shader Binding Table
@@ -261,9 +325,9 @@ void RayTracing::Init(const VkRenderer *renderer, VkDevice device, VkPhysicalDev
         sbtBuffer = memoryManager.createUnmanagedBuffer({
             totalGroupBytes,
             VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_SHADER_BINDING_TABLE_BIT_KHR | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-            VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
-            VMA_MEMORY_USAGE_AUTO,
-            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+            0,
+            VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE,
+            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
         });
 
         const auto alignUp = [&](const VkDeviceAddress address, const uint32_t alignment)
@@ -283,10 +347,9 @@ void RayTracing::Init(const VkRenderer *renderer, VkDevice device, VkPhysicalDev
         hitSBT.deviceAddress = missSBT.deviceAddress + missSBT.size;
         hitSBT.stride = handleSizeAligned;
         hitSBT.size = alignUp(hitCount * handleSizeAligned, baseAlignment);
-
-        {
-            void *data;
-            memoryManager.mapBuffer(sbtBuffer, &data);
+        const auto mappedMemoryTask = [&](void *data){
+            // void *data;
+            // memoryManager.mapBuffer(sbtBuffer, &data);
             auto *sbtData = static_cast<uint8_t *>(data);
 
             auto getHandle = [shaderHandles, handleSize](const uint32_t handleIndex)
@@ -306,9 +369,23 @@ void RayTracing::Init(const VkRenderer *renderer, VkDevice device, VkPhysicalDev
             }
             // Hit
             memcpy(sbtData, getHandle(handleIndex++), handleSize);
+        };
 
-            memoryManager.unmapBuffer(sbtBuffer);
-        }
+        const auto unmappedMemoryTask = [&](VkBuffer stagingBuffer)
+        {
+            // memoryManager.unmapBuffer(stagingBuffer);
+            // vmaDestroyBuffer(memoryManager.allocator, stagingBuffer, allocation);
+            renderer->ImmediateSubmit([&](auto commandBuffer)
+            {
+                VkBufferCopy copyRegion{
+                    0,
+                    0,
+                    totalGroupBytes
+                };
+                vkCmdCopyBuffer(commandBuffer, stagingBuffer, sbtBuffer.buffer, 1, &copyRegion);
+            });
+        };
+        memoryManager.useStagingBuffer(mappedMemoryTask, unmappedMemoryTask);
     }
 #pragma endregion
 #pragma region Miscellaneous
@@ -317,7 +394,7 @@ void RayTracing::Init(const VkRenderer *renderer, VkDevice device, VkPhysicalDev
         .format = VK_FORMAT_R32G32B32A32_SFLOAT,
         .subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1}
     };
-    radianceImage = memoryManager.createUnmanagedImage({
+    const VulkanImageCreateInfo createInfo = {
         0,
         VK_FORMAT_R32G32B32A32_SFLOAT,
         {swapChainExtent.width, swapChainExtent.height, 1},
@@ -329,13 +406,26 @@ void RayTracing::Init(const VkRenderer *renderer, VkDevice device, VkPhysicalDev
         VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
         false,
         &radianceImageCreateInfo
-    });
+    };
+
+    radianceImage = memoryManager.createUnmanagedImage(createInfo);
+    for (auto &accumulatedImage : accumulatedImages)
+    {
+        accumulatedImage = memoryManager.createUnmanagedImage(createInfo);
+    }
 
     renderer->ImmediateSubmit([&](auto commandBuffer)
     {
         TransitionImage(commandBuffer, radianceImage, VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR, VK_ACCESS_2_NONE,
                         VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR, VK_ACCESS_2_SHADER_WRITE_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
                         VK_IMAGE_LAYOUT_GENERAL);
+
+        for (auto &accumulatedImage : accumulatedImages)
+        {
+            TransitionImage(commandBuffer, accumulatedImage, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR, VK_ACCESS_2_NONE,
+                            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR, VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
+                            VK_IMAGE_LAYOUT_GENERAL);
+        }
     });
 
     constexpr VkSamplerCreateInfo samplerCreateInfo{
@@ -361,9 +451,17 @@ void RayTracing::Init(const VkRenderer *renderer, VkDevice device, VkPhysicalDev
 
     vkCreateSampler(device, &samplerCreateInfo, VK_NULL_HANDLE, &radianceImage.sampler);
 
+    for (auto &accumulatedImage : accumulatedImages)
+        vkCreateSampler(device, &samplerCreateInfo, VK_NULL_HANDLE, &accumulatedImage.sampler);
+
     hitUniformBuffer = memoryManager.createUnmanagedBuffer({
         sizeof(LightData), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE,
         VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
+    });
+
+    renderer->camera->AddOnUpdateCallback([&]
+    {
+        computePushConstants.frameIndex = 0;
     });
 #pragma endregion
 }
@@ -385,10 +483,10 @@ void RayTracing::Destroy(VkDevice device, VkMemoryManager &memoryManager)
 
     memoryManager.destroyBuffer(sbtBuffer, false);
     memoryManager.destroyBuffer(tlasBuffer, false);
-    // memoryManager.destroyBuffer(tlasScratchBuffer, false);
-    // memoryManager.destroyBuffer(tlasInstanceBuffer, false);
 
     memoryManager.destroyImage(radianceImage, false);
+    for (auto &accumulatedImage : accumulatedImages)
+        memoryManager.destroyImage(accumulatedImage, false);
     memoryManager.destroyBuffer(meshAddressesBuffer, false);
     memoryManager.destroyBuffer(hitUniformBuffer, false);
 
@@ -396,6 +494,10 @@ void RayTracing::Destroy(VkDevice device, VkMemoryManager &memoryManager)
     vkDestroyDescriptorSetLayout(device, rayTracingDescriptorSetLayout, nullptr);
     vkDestroyPipelineLayout(device, rayTracingPipelineLayout, nullptr);
     vkDestroyPipeline(device, rayTracingPipeline, nullptr);
+
+    vkDestroyDescriptorSetLayout(device, accumulatedDescriptorSetLayout, nullptr);
+    vkDestroyPipelineLayout(device, accumulatedPipelineLayout, nullptr);
+    vkDestroyPipeline(device, accumulatedPipeline, nullptr);
 }
 
 void RayTracing::UpdateDescriptorSets(VkDevice device, const uint32_t frameIndex)
@@ -409,6 +511,15 @@ void RayTracing::UpdateDescriptorSets(VkDevice device, const uint32_t frameIndex
     writer.WriteImages(3, textureInfo);
     writer.WriteBuffer(4, hitUniformBuffer.buffer, 0, sizeof(LightData), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
     writer.UpdateSet(device, rayTracingDescriptorSets[frameIndex]);
+
+    writer.Clear();
+    writer.WriteImage(0, radianceImage.imageView, radianceImage.sampler, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+    writer.WriteImage(1, accumulatedImages[frameIndex & 1].imageView, accumulatedImages[frameIndex & 1].sampler, VK_IMAGE_LAYOUT_GENERAL,
+                      VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+    writer.WriteImage(2, accumulatedImages[(frameIndex + 1) % MAX_FRAMES_IN_FLIGHT].imageView,
+        accumulatedImages[(frameIndex + 1) % MAX_FRAMES_IN_FLIGHT].sampler,
+        VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
+    writer.UpdateSet(device, accumulatedDescriptorSets[frameIndex & 1]);
 }
 
 void RayTracing::AddLight(const glm::vec4 lightPosition, glm::vec4 lightColor, const LightType lightType)
@@ -464,6 +575,47 @@ void RayTracing::TraceRay(const VkCommandBuffer commandBuffer,
                       &hitSBT,
                       &callableSBT, // Callable SBT
                       swapChainExtent.width, swapChainExtent.height, 1); // Width, Height, Depth
+}
+
+void RayTracing::TransitionAccumulatedImages(VkCommandBuffer commandBuffer, VkPipelineStageFlags2 oldStage, VkPipelineStageFlags2 newStage)
+{
+    VkImageLayout dstLayout;
+    VkAccessFlagBits2 dstAccess;
+    if (oldStage == VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT && newStage == VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT)
+    {
+        dstLayout = VK_IMAGE_LAYOUT_GENERAL;
+        dstAccess = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT;
+    }
+    else
+    {
+        dstLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        dstAccess = VK_ACCESS_2_SHADER_READ_BIT;
+    }
+
+    for (auto &accumulatedImage : accumulatedImages)
+    {
+        TransitionImage(commandBuffer, accumulatedImage, oldStage, VK_ACCESS_2_NONE,
+                        newStage, dstAccess,
+                        VK_IMAGE_LAYOUT_UNDEFINED, dstLayout);
+    }
+}
+
+void RayTracing::AccumulateRadiance(VkCommandBuffer commandBuffer, const uint32_t updateFrameIndex, const VkExtent2D &swapChainExtent)
+{
+    vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, accumulatedPipeline);
+    vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, accumulatedPipelineLayout, 0, 1,
+                            &accumulatedDescriptorSets[updateFrameIndex % MAX_FRAMES_IN_FLIGHT], 0, nullptr);
+
+    // const AccumulatedComputePushConstants pushConstants{frameIndex};
+    vkCmdPushConstants(commandBuffer, accumulatedPipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(AccumulatedComputePushConstants), &computePushConstants);
+
+    vkCmdDispatch(commandBuffer, (swapChainExtent.width + 7) / 8, (swapChainExtent.height + 7) / 8, 1);
+
+    computePushConstants.frameIndex++;
+    if (computePushConstants.resetAccumulation)
+    {
+        computePushConstants.resetAccumulation = false;
+    }
 }
 
 void RayTracing::BuildBLAS(VkRenderer *renderer, const std::vector<VkRenderObject> &renderObjects)
@@ -627,13 +779,20 @@ void RayTracing::BuildBLAS(VkRenderer *renderer, const std::vector<VkRenderObjec
                                                       queryPool, 0);
     });
 
-    compactedSizes.resize(blas.size());
+    std::vector<VkDeviceSize> compactedSizes(blas.size());
     VK_CHECK(vkGetQueryPoolResults(device, queryPool, 0,
         static_cast<uint32_t>(blas.size()),
         compactedSizes.size() * sizeof(VkDeviceSize),
         compactedSizes.data(),
         sizeof(VkDeviceSize), VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT));
 
+    std::vector<VkDeviceSize> compactedOffsets(blas.size());
+    for (size_t i = 0; i < compactedSizes.size(); ++i)
+    {
+        compactedOffsets[i] = i == 0 ? 0 : compactedOffsets[i - 1] + (compactedSizes[i - 1] + blasAlignment - 1) & ~(blasAlignment - 1);
+    }
+
+    CompactBLAS(renderer, compactedSizes, compactedOffsets);
     vkDestroyQueryPool(device, queryPool, nullptr);
 
     memoryManager.destroyBuffer(scratchBuffer, false);
@@ -647,16 +806,40 @@ void RayTracing::BuildBLAS(VkRenderer *renderer, const std::vector<VkRenderObjec
         meshAddresses[i].firstIndex = renderObjects[i].firstIndex;
     }
 
-    meshAddressesBuffer = memoryManager.createUnmanagedBuffer({renderObjects.size() * sizeof(MeshData), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT, VMA_MEMORY_USAGE_AUTO});
+    meshAddressesBuffer = memoryManager.createUnmanagedBuffer({renderObjects.size() * sizeof(MeshData), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, 0, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT});
 
-    memoryManager.copyToBuffer(meshAddressesBuffer, meshAddresses.data(), meshAddresses.size() * sizeof(MeshData));
+    const auto mappedMemoryTask = [&](void *data)
+    {
+        // void *data;
+        // memoryManager.mapBuffer(meshAddressesBuffer, &data);
+        memcpy(data, meshAddresses.data(), meshAddresses.size() * sizeof(MeshData));
+    };
+
+    const auto unmappedMemoryTask = [&](VkBuffer stagingBuffer)
+    {
+        // memoryManager.unmapBuffer(stagingBuffer);
+        // vmaDestroyBuffer(memoryManager.allocator, stagingBuffer, allocation);
+        renderer->ImmediateSubmit([&](auto commandBuffer)
+        {
+            VkBufferCopy copyRegion{
+                0,
+                0,
+                renderObjects.size() * sizeof(MeshData)
+            };
+            vkCmdCopyBuffer(commandBuffer, stagingBuffer, meshAddressesBuffer.buffer, 1, &copyRegion);
+        });
+    };
+
+    memoryManager.useStagingBuffer(mappedMemoryTask, unmappedMemoryTask);
+
+    // memoryManager.copyToBuffer(meshAddressesBuffer, meshAddresses.data(), meshAddresses.size() * sizeof(MeshData));
     // void *data;
     // memoryManager.mapBuffer(meshAddressesBuffer, &data);
     // memcpy(data, meshAddresses.data(), meshAddresses.size() * sizeof(MeshData));
     // memoryManager.unmapBuffer(meshAddressesBuffer);
 }
 
-void RayTracing::CompactBLAS(VkRenderer *renderer)
+void RayTracing::CompactBLAS(VkRenderer *renderer, const std::vector<VkDeviceSize> &compactedSizes, const std::vector<VkDeviceSize> &compactedOffsets)
 {
     const auto device = renderer->device;
     VkAccelerationStructureCreateInfoKHR createInfo{
@@ -670,12 +853,9 @@ void RayTracing::CompactBLAS(VkRenderer *renderer)
     };
 
     size_t totalCompactedSize = 0;
-    std::vector<VkDeviceSize> compactedOffsets(blas.size());
-
-    for (auto &size: compactedOffsets)
+    for (auto &size : compactedSizes)
     {
-        size = (totalCompactedSize + blasAlignment - 1) & ~(blasAlignment - 1);
-        totalCompactedSize += size;
+        totalCompactedSize += (size + blasAlignment - 1) & ~(blasAlignment - 1);
     }
 
     printf("BLAS Compaction: \n"
@@ -834,6 +1014,7 @@ void RayTracing::BuildTLAS(VkRenderer *renderer,
             i,
             0xFF,
             0,
+            // VK_GEOMETRY_INSTANCE_TRIANGLE_FRONT_COUNTERCLOCKWISE_BIT_KHR,
             VK_GEOMETRY_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT_KHR,
             getBlasDeviceAddress(device, i)
         };

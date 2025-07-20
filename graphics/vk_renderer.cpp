@@ -880,7 +880,7 @@ void VkRenderer::Draw(const VkCommandBuffer &commandBuffer, uint32_t imageIndex,
 
         const auto viewInverse = glm::inverse(camera->ViewMatrix());
         const auto projectionInverse = glm::inverse(camera->ProjectionMatrix());
-        static const glm::vec4 lightPosition{0.0f, 10.0f, 0.0f, 1.0f};
+        static const glm::vec4 lightPosition{10.0f, 6.0f, 3.0f, 1.0f};
         static const glm::vec4 lightColor{1.0f, 1.0f, 0.95f, 1.0f};
 
         static glm::vec4 pointLightPosition{0.0, 4.0, 0.0, 5.0};
@@ -897,7 +897,10 @@ void VkRenderer::Draw(const VkCommandBuffer &commandBuffer, uint32_t imageIndex,
         // rayTracing.AddLight({0.0, 4.0, 0.0, 10.0}, {0.35f, 0.65f, 0.95f, 1.0f}, RayTracing::LightType::Point);
         rayTracing.AddLight(pointLightPosition, pointLightColor, RayTracing::LightType::Point);
         rayTracing.UpdateBuffers(memoryManager);
+        // rayTracing.TransitionAccumulatedImages(commandBuffer, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT);
         rayTracing.TraceRay(commandBuffer, currentFrame, viewInverse, projectionInverse, camera->position, swapChainExtent);
+        // rayTracing.AccumulateRadiance(commandBuffer, currentFrame, swapChainExtent);
+        // rayTracing.TransitionAccumulatedImages(commandBuffer, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT);
         TransitionImage(commandBuffer, rayTracing.radianceImage, VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR, VK_ACCESS_2_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
         VulkanImage swapChainImage{swapChainImages[imageIndex], swapChainImageViews[imageIndex], VK_NULL_HANDLE, {swapChainExtent.width, swapChainExtent.height, 1}, surfaceFormat.format};
@@ -2433,6 +2436,7 @@ void VkRenderer::CreateDescriptors() {
     if (useRaytracing)
     {
         builder.AddBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT);
+        builder.AddBinding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT);
         sceneDescriptorSetLayout = builder.Build(device, VK_NULL_HANDLE, VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT);
         layouts[0] = {sceneDescriptorSetLayout};
         sceneDescriptorSet = mainDescriptorAllocator.Allocate(device, layouts);
@@ -2827,6 +2831,7 @@ void VkRenderer::UpdateDescriptorSets() {
     if (useRaytracing)
     {
         writer.WriteImage(0, rayTracing.radianceImage.imageView, rayTracing.radianceImage.sampler, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+        writer.WriteImage(1, rayTracing.accumulatedImages[currentFrame].imageView, rayTracing.accumulatedImages[currentFrame].sampler, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
     }
     else
     {
@@ -2840,16 +2845,8 @@ void VkRenderer::UpdateDescriptorSets() {
         writer.WriteBuffer(3, viewMatrix.buffer, 0, sizeof(glm::mat4), VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
 
         if (meshShader) {
-            // writer.WriteBuffer(4, positionBuffer.buffer, 0, sizeof(float) * meshletStats.positionCount, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
-            // writer.WriteBuffer(5, meshletBuffer.buffer, 0, sizeof(meshopt_Meshlet) * meshletStats.meshletCount, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
-            // writer.WriteBuffer(6, meshletVerticesBuffer.buffer, 0, sizeof(uint32_t) * meshletStats.verticesCount, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
-            // writer.WriteBuffer(7, meshletPrimitivesBuffer.buffer, 0, sizeof(uint32_t) * meshletStats.primitiveCount, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
             size_t maxPositionCount = 0, maxMeshletCount = 0, maxVerticesCount = 0, maxPrimitiveCount = 0;
             for (auto &[positionCount, meshletCount, verticesCount, primitiveCount] : meshletsStats) {
-                // maxPositionCount = std::max(maxPositionCount, static_cast<size_t>(positionCount));
-                // maxMeshletCount = std::max(maxMeshletCount, static_cast<size_t>(meshletCount));
-                // maxVerticesCount = std::max(maxVerticesCount, static_cast<size_t>(verticesCount));
-                // maxPrimitiveCount = std::max(maxPrimitiveCount, static_cast<size_t>(primitiveCount));
                 maxPositionCount += positionCount;
                 maxMeshletCount += meshletCount;
                 maxVerticesCount += verticesCount;

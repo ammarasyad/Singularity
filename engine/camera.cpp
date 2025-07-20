@@ -54,6 +54,10 @@ void Camera::ProcessKeyboardInput(const int key, const int action, const float d
 
         if (key == GLFW_KEY_LEFT_CONTROL)
             position -= worldUp * sensitivity * deltaTime;
+
+        for (const auto &callback : onUpdateCallbacks) {
+            callback();
+        }
     }
 }
 
@@ -65,6 +69,10 @@ void Camera::ProcessMouseInput(double xpos, double ypos) {
 
     pitch = std::clamp(pitch, -90.0, 90.0);
     yaw = fmod(yaw, 360.0);
+
+    for (const auto &callback : onUpdateCallbacks) {
+        callback();
+    }
 
     UpdateVectors();
 }

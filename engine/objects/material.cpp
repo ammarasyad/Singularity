@@ -14,6 +14,7 @@ void VkGLTFMetallic_Roughness::buildPipelines(const VkRenderer *renderer) {
         DescriptorLayoutBuilder layoutBuilder;
 
         layoutBuilder.AddBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT);
+        layoutBuilder.AddBinding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT);
 
         materialLayout = layoutBuilder.Build(device);
 

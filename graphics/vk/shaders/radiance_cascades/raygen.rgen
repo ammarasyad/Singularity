@@ -4,6 +4,7 @@
 struct Payload {
     vec3 hitValue;
     int lightingType; // 0 for direct, 1 for indirect
+    int bounces;
 };
 
 layout(set = 0, binding = 0) uniform accelerationStructureEXT topLevelAS;
@@ -29,7 +30,7 @@ void main() {
     vec4 target = pc.projectionInverse * vec4(uv * 2.0 - 1.0, 1.0, 1.0); // Target point in world space
     vec4 direction = pc.viewInverse * vec4(normalize(target.xyz), 0.0); // Ray direction in world space
 
-    hitPayload = Payload(vec3(0.0), 0);
+    hitPayload = Payload(vec3(0.0), 0, 1);
     traceRayEXT(topLevelAS,
                 rayFlags,
                 cullMask,

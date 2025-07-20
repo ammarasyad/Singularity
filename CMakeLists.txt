@@ -117,6 +117,7 @@ set(SHADER_FILES
         ${VK_SHADER_FOLDER}/radiance_cascades/closesthit.rchit
         ${VK_SHADER_FOLDER}/radiance_cascades/rtShadow.rmiss
         ${VK_SHADER_FOLDER}/radiance_cascades/miss.rmiss
+        ${VK_SHADER_FOLDER}/radiance_cascades/temporalAccumulation.comp
         ${VK_SHADER_FOLDER}/shadowmap.vert
         ${VK_SHADER_FOLDER}/shadowmap.frag
         ${VK_SHADER_FOLDER}/skybox.frag
@@ -129,7 +130,8 @@ foreach (FILE ${SHADER_FILES})
     get_filename_component(FILE_NAME ${FILE} NAME)
     add_custom_command(
             TARGET shaders
-            COMMAND glslc ${FILE} --target-env=vulkan1.3 --target-spv=spv1.6 -o ${CMAKE_CURRENT_BINARY_DIR}/shaders/${FILE_NAME}.spv -g
+#            COMMAND glslc ${FILE} --target-env=vulkan1.3 --target-spv=spv1.6 -o ${CMAKE_CURRENT_BINARY_DIR}/shaders/${FILE_NAME}.spv -g
+            COMMAND glslangValidator --target-env vulkan1.3 -V ${FILE} -o ${CMAKE_CURRENT_BINARY_DIR}/shaders/${FILE_NAME}.spv -gVS
             #MAIN_DEPENDENCY ${FILE}
             WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
             VERBATIM

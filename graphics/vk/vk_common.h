@@ -19,7 +19,7 @@
 #include <glm.hpp>
 
 #ifndef _NDEBUG
-#define VK_CHECK(x) do { VkResult err = x; if (err) { printf(#x ", file: " __FILE__ ", line %d: %s\n", __LINE__, string_VkResult(err)); abort(); } } while (0)
+#define VK_CHECK(x) do { VkResult err = x; if (err) { printf(#x ", file: " __FILE__ ", line %d: %s\n", __LINE__, string_VkResult(err)); assert(0); } } while (0)
 #else
 #define VK_CHECK(x) x
 #endif

@@ -7,34 +7,30 @@
 
 class VkRenderer;
 
-struct RadianceProbe
-{
-    glm::vec4 position;
-    glm::vec4 irradiance;
-};
-
 struct RadianceCascade
 {
-    glm::vec3 gridOrigin;
-    glm::ivec3 resolution;
-    float spacing;
+    alignas(16) glm::vec3 origin;
+    alignas(16) glm::vec3 spacing;
+    alignas(16) glm::uvec3 resolution;
 };
 
 class RadianceCascades
 {
 public:
     RadianceCascades() = default;
-    void InitCascades(VkRenderer *renderer, const glm::vec3 &cameraPosition, int coverage);
-    void BuildRadianceCascades(VkDevice device, VkCommandBuffer commandBuffer);
-private:
-    RadianceCascade cascades[NUM_CASCADES];
-    uint32_t totalProbeCount;
-    VulkanBuffer cascadesBuffer;
+    void InitCascades(VkRenderer *renderer);
 
-    VkDescriptorSetLayout cascadesLayout;
-    VkDescriptorSet cascadesDescriptorSet;
-    VkPipelineLayout radiancePipelineLayout;
-    VkPipeline radianceComputePipeline;
+    struct RadianceCascadesParameters
+    {
+        RadianceCascade cascades[NUM_CASCADES];
+        uint32_t cascadeIndex;
+        uint32_t probeIndex;
+        uint32_t raysPerProbe;
+        uint32_t rayIndex;
+    } cascadeData;
+
+    VulkanBuffer cascadesBuffer;
+    VulkanImage radianceImageArray;
 };
 
 #endif

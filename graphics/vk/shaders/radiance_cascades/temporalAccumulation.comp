@@ -1,0 +1,36 @@
+#version 460
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(set = 0, binding = 0) uniform sampler2D radianceImage;
+layout(set = 0, binding = 1) uniform sampler2D accumulatedImagePrevious;
+layout(set = 0, binding = 2) uniform writeonly image2D accumulatedImage;
+
+layout(push_constant) uniform PushConstants {
+    uint frameIndex;
+    uint resetAccumulation; // 0 to reset accumulation, 1 to continue
+} pc;
+
+void main() {
+    ivec2 pixelCoords = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 texSize = textureSize(accumulatedImagePrevious, 0);
+    if (any(greaterThanEqual(pixelCoords, texSize))) {
+        return; // Out of bounds
+    }
+
+    vec2 uv = vec2(pixelCoords) / vec2(texSize);
+
+    vec4 radiance = texelFetch(radianceImage, pixelCoords, 0);
+
+    if (pc.frameIndex == 0 || pc.resetAccumulation == 1) {
+        imageStore(accumulatedImage, pixelCoords, radiance);
+        return;
+    }
+
+    vec4 accumulated = texelFetch(accumulatedImagePrevious, pixelCoords, 0);
+
+    float alpha = 1.0 / float(pc.frameIndex + 1);
+    vec4 newAccumulated = mix(accumulated, radiance, alpha);
+
+    imageStore(accumulatedImage, pixelCoords, newAccumulated);
+}

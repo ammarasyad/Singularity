@@ -3,7 +3,7 @@
 
 #include "graphics/vk/vk_common.h"
 #include <vector>
-
+#include "radiance_cascades.h"
 #include "engine/objects/render_object.h"
 #include "graphics/vk/memory/vk_memory.h"
 
@@ -34,11 +34,14 @@ public:
         const glm::vec3 & cameraPosition,
         const VkExtent2D &swapChainExtent
     );
+    void TransitionAccumulatedImages(VkCommandBuffer commandBuffer, VkPipelineStageFlags2 oldStage, VkPipelineStageFlags2 newStage);
+    void AccumulateRadiance(VkCommandBuffer commandBuffer, uint32_t updateFrameIndex, const VkExtent2D &swapChainExtent);
     void BuildBLAS(VkRenderer *, const std::vector<VkRenderObject> &);
-    void CompactBLAS(VkRenderer *);
+    void CompactBLAS(VkRenderer *, const std::vector<VkDeviceSize> &compactedSizes, const std::vector<VkDeviceSize> &compactedOffsets);
     void BuildTLAS(VkRenderer *, const std::vector<VkRenderObject> &);
 
     VulkanImage radianceImage;
+    std::array<VulkanImage, 2> accumulatedImages;
     std::vector<VkDescriptorImageInfo> textureInfo;
 private:
     static constexpr size_t maxLights = 4;
@@ -57,9 +60,14 @@ private:
     DescriptorAllocator allocator;
     DescriptorWriter writer;
     VkDescriptorSetLayout rayTracingDescriptorSetLayout;
-    std::vector<VkDescriptorSet> rayTracingDescriptorSets;
+    std::array<VkDescriptorSet, 2> rayTracingDescriptorSets;
     VkPipelineLayout rayTracingPipelineLayout;
     VkPipeline rayTracingPipeline;
+
+    VkDescriptorSetLayout accumulatedDescriptorSetLayout;
+    std::array<VkDescriptorSet, 2> accumulatedDescriptorSets;
+    VkPipelineLayout accumulatedPipelineLayout;
+    VkPipeline accumulatedPipeline;
 
     VkPhysicalDeviceRayTracingPipelinePropertiesKHR rayTracingPipelineProperties;
 
@@ -69,6 +77,12 @@ private:
     // VkStridedDeviceAddressRegionKHR shadowSBT{};
 
     uint32_t totalPrimitiveCount;
+    struct AccumulatedComputePushConstants
+    {
+        uint32_t frameIndex;
+        uint32_t resetAccumulation{0};
+    } computePushConstants;
+    // bool radianceCascadesEnabled{false};
 
     VulkanBuffer sbtBuffer;
     VulkanBuffer blasBuffer;
@@ -82,7 +96,8 @@ private:
     VkAccelerationStructureKHR tlas;
     std::vector<VkAccelerationStructureKHR> blas;
     std::vector<VulkanBuffer> blasScratchBuffers;
-    std::vector<VkDeviceSize> compactedSizes;
+
+    RadianceCascades radianceCascades;
 
     PFN_vkGetAccelerationStructureBuildSizesKHR vkGetAccelerationStructureBuildSizesKHR;
     PFN_vkGetAccelerationStructureDeviceAddressKHR vkGetAccelerationStructureDeviceAddressKHR;

@@ -1,6 +1,7 @@
 #ifndef D3D12_STUFF_CAMERA_H
 #define D3D12_STUFF_CAMERA_H
 
+#include <functional>
 #include <glm.hpp>
 
 class Camera {
@@ -17,6 +18,10 @@ public:
     void UpdateVectors();
 
     void UpdateAspectRatio(float newWidth, float newHeight);
+    void AddOnUpdateCallback(const std::function<void()> &callback)
+    {
+        onUpdateCallbacks.push_back(callback);
+    }
     void setFov(float newFov) {
         fov = newFov;
         needsUpdate = true;
@@ -40,6 +45,8 @@ private:
     float aspectRatio{16.f / 9.f};
 
     bool needsUpdate{true};
+
+    std::vector<std::function<void()>> onUpdateCallbacks;
 };
 
 

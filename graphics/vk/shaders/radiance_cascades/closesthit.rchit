@@ -7,6 +7,7 @@
 struct Payload {
     vec3 hitValue;
     int lightingType; // 0 for direct, 1 for indirect
+    int bounces;
 };
 
 struct Vertex {
@@ -39,7 +40,8 @@ layout(set = 0, binding = 4) readonly buffer LightBuffer {
 
 layout(location = 0) rayPayloadInEXT Payload hitPayload;
 layout(location = 1) rayPayloadEXT bool shadow;
-layout(location = 2) rayPayloadEXT Payload indirectHitPayload;
+layout(location = 2) rayPayloadEXT Payload firstHitPayload;
+layout(location = 3) rayPayloadEXT Payload secondHitPayload;
 
 hitAttributeEXT vec2 hitAttribute;
 
@@ -56,6 +58,7 @@ const float fogScattering = 0.2;
 
 #define STEPS 16
 #define M_PI 3.14159265358979323846 
+#define INV_PI 0.31830988618379067154
 
 float heyeyGreensteinPhaseFunction(float cosTheta, float g) {
     float denom = 4.0 * M_PI * pow(1.0 + g * g - 2.0 * g * cosTheta, 1.5);
@@ -100,12 +103,20 @@ vec4 applyFog(vec3 start, vec3 end, vec3 lightDir, vec3 lightColor) {
     return vec4(accumulation, transmittance);
 }   
 
-#define PI  3.14159265358
 #define TAU 6.28318530718
+#define FLT_MAX 3.402823466e+38
+
+uint seed = 0;
+
+float random() {
+    seed = (seed * 48271u) % 2147483647u;
+    return float(seed) / 2147483647.0;
+}
 
 vec3 CosineWeightedHemisphereSample(vec3 worldNormal) {
-    float u = gl_PrimitiveID / float(gl_LaunchSizeEXT.x * gl_LaunchSizeEXT.y * gl_LaunchSizeEXT.z);
-    float v = fract(bitfieldReverse(uint(gl_PrimitiveID)) * 2.383064365e-10);
+    const float r = random();
+    float u = r / float(gl_LaunchSizeEXT.x * gl_LaunchSizeEXT.y * gl_LaunchSizeEXT.z);
+    float v = fract(bitfieldReverse(uint(r)) * 2.383064365e-10);
 
     float phi = TAU * u;
     float cosTheta = sqrt(1.0 - v);
@@ -120,15 +131,18 @@ vec3 CosineWeightedHemisphereSample(vec3 worldNormal) {
 vec3 directLighting(LightData light, vec3 worldPos, vec3 worldNormal) {
     uint lightType = uint(light.lightColor.a);
 
+    // vec3 L = normalize(light.lightPosition.xyz - worldPos * lightType);
+    // float lightDistance = lightType == 0 ? FLT_MAX : length(light.lightPosition.xyz - worldPos);
+    // float lightIntensity = lightType == 0 ? light.lightPosition.w : light.lightPosition.w / (lightDistance * lightDistance);
+
     vec3 L;
     float lightDistance;
     float lightIntensity;
-
     switch (lightType) {
         case 0:
             // Directional light
             L = normalize(light.lightPosition.xyz);
-            lightDistance = 10000.0;
+            lightDistance = FLT_MAX;
             lightIntensity = light.lightPosition.w;
             break;
         case 1:
@@ -149,39 +163,44 @@ vec3 directLighting(LightData light, vec3 worldPos, vec3 worldNormal) {
                     0, // ray flags
                     0, // ray type
                     1, // miss shader index
-                    gl_WorldRayOriginEXT + gl_WorldRayDirectionEXT * gl_HitTEXT, // origin
+                    // gl_WorldRayOriginEXT + gl_WorldRayDirectionEXT * gl_HitTEXT, // origin
+                    worldPos + worldNormal * 0.01, // origin
                     0.001, // tMin
                     L, // direction
                     lightDistance, // tMax
                     1); // payload location
     }
 
-    float occlusion = hitPayload.lightingType == 0.0 ? (shadow ? 0.4 : 1.0) : 0.0;
-
+    float occlusion = shadow ? 0.0 : 1.0;
     return dotNL * lightIntensity * light.lightColor.rgb * occlusion;
 }
 
 void main() {
-    MeshData mesh = meshData[gl_InstanceCustomIndexEXT];
+    const MeshData mesh = meshData[gl_InstanceCustomIndexEXT];
 
     VertexBuffer vb = VertexBuffer(mesh.vertexBufferAddress);
     IndexBuffer ib = IndexBuffer(mesh.indexBufferAddress);
-    uint textureIndex = mesh.textureIndex;
+    const uint textureIndex = mesh.textureIndex;
 
-    const uint primitiveIndex = mesh.firstIndex + gl_PrimitiveID * 3;
+    const uint primitiveIndex = gl_PrimitiveID * 3 + mesh.firstIndex;
 
     const uint i0 = ib.indices[primitiveIndex + 0];
     const uint i1 = ib.indices[primitiveIndex + 1];
     const uint i2 = ib.indices[primitiveIndex + 2];
 
-    Vertex v0 = vb.vertices[i0];
-    Vertex v1 = vb.vertices[i1];
-    Vertex v2 = vb.vertices[i2];
+    const Vertex v0 = vb.vertices[i0];
+    const Vertex v1 = vb.vertices[i1];
+    const Vertex v2 = vb.vertices[i2];
 
     const vec3 barycentrics = vec3(1.0 - hitAttribute.x - hitAttribute.y,
                                     hitAttribute.x,
                                     hitAttribute.y);
 
+    const vec2 uv = vec2(v0.position.w, v0.normal.w) * barycentrics.x + 
+                        vec2(v1.position.w, v1.normal.w) * barycentrics.y + 
+                        vec2(v2.position.w, v2.normal.w) * barycentrics.z;
+
+    const vec3 texColor = (texture(textures[nonuniformEXT(textureIndex)], uv)).rgb;
     const vec3 position = barycentrics.x * v0.position.xyz + 
                           barycentrics.y * v1.position.xyz + 
                           barycentrics.z * v2.position.xyz;
@@ -191,37 +210,52 @@ void main() {
                         barycentrics.y * v1.normal.xyz + 
                         barycentrics.z * v2.normal.xyz);
     const vec3 worldNormal = normalize(vec3(normal * gl_WorldToObjectEXT));
-    vec2 uv = vec2(v0.position.w, v0.normal.w) * barycentrics.x + 
-                        vec2(v1.position.w, v1.normal.w) * barycentrics.y + 
-                        vec2(v2.position.w, v2.normal.w) * barycentrics.z;
-
-    vec3 texColor = (texture(textures[nonuniformEXT(textureIndex)], uv)).rgb;
 
     vec3 diffuse = vec3(0.0);
     for (uint i = 0; i < lightCount; i++) {
         LightData light = lights[i];
-        uint lightType = uint(light.lightColor.a);
         diffuse += directLighting(light, worldPos, worldNormal);
     }
 
-    indirectHitPayload = Payload(vec3(0.0), 1);
-    if (hitPayload.lightingType == 0) {
-        vec3 indirectLightDir = CosineWeightedHemisphereSample(worldNormal);
+    if (hitPayload.bounces > 0) {
+        const uint indirectLightingSamples = hitPayload.lightingType == 0 ? 2 : 1;
+        const float inverseLightingSamples = 1.0 / float(indirectLightingSamples);
+        for (uint i = 0; i < indirectLightingSamples; i++) {
+            const vec3 indirectLightDir = CosineWeightedHemisphereSample(worldNormal);
 
-        traceRayEXT(
-            topLevelAS,
-            gl_RayFlagsOpaqueEXT,
-            0xFF,
-            0, 0, 0,
-            worldPos + worldNormal * 0.01,
-            0.001,
-            indirectLightDir,
-            10000.0,
-            2
-        );
+            if (hitPayload.bounces == 2) {
+                firstHitPayload = Payload(vec3(0.0), 1, 1);
+                traceRayEXT(
+                    topLevelAS,
+                    gl_RayFlagsOpaqueEXT,
+                    0xFF,
+                    0, 0, 0,
+                    worldPos + worldNormal * 0.01,
+                    0.001,
+                    indirectLightDir,
+                    FLT_MAX,
+                    2
+                );
 
-        diffuse = (diffuse + indirectHitPayload.hitValue / PI) * texColor;
+                diffuse += firstHitPayload.hitValue * INV_PI * inverseLightingSamples;
+            } else if (hitPayload.bounces == 1) {
+                secondHitPayload = Payload(vec3(0.0), 1, 0);
+                traceRayEXT(
+                    topLevelAS,
+                    gl_RayFlagsOpaqueEXT,
+                    0xFF,
+                    0, 0, 0,
+                    worldPos + worldNormal * 0.01,
+                    0.001,
+                    indirectLightDir,
+                    FLT_MAX,
+                    3
+                );
+
+                diffuse += secondHitPayload.hitValue * INV_PI * inverseLightingSamples;
+            }
+        }
     }
 
-    hitPayload.hitValue = diffuse;
+    hitPayload.hitValue = diffuse * texColor;
 }
