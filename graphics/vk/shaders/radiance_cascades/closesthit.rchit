@@ -218,42 +218,38 @@ void main() {
     }
 
     if (hitPayload.bounces > 0) {
-        const uint indirectLightingSamples = hitPayload.lightingType == 0 ? 2 : 1;
-        const float inverseLightingSamples = 1.0 / float(indirectLightingSamples);
-        for (uint i = 0; i < indirectLightingSamples; i++) {
-            const vec3 indirectLightDir = CosineWeightedHemisphereSample(worldNormal);
+        const vec3 indirectLightDir = CosineWeightedHemisphereSample(worldNormal);
 
-            if (hitPayload.bounces == 2) {
-                firstHitPayload = Payload(vec3(0.0), 1, 1);
-                traceRayEXT(
-                    topLevelAS,
-                    gl_RayFlagsOpaqueEXT,
-                    0xFF,
-                    0, 0, 0,
-                    worldPos + worldNormal * 0.01,
-                    0.001,
-                    indirectLightDir,
-                    FLT_MAX,
-                    2
-                );
+        if (hitPayload.bounces == 2) {
+            firstHitPayload = Payload(vec3(0.0), 1, 1);
+            traceRayEXT(
+                topLevelAS,
+                gl_RayFlagsOpaqueEXT,
+                0xFF,
+                0, 0, 0,
+                worldPos + worldNormal * 0.01,
+                0.001,
+                indirectLightDir,
+                FLT_MAX,
+                2
+            );
 
-                diffuse += firstHitPayload.hitValue * INV_PI * inverseLightingSamples;
-            } else if (hitPayload.bounces == 1) {
-                secondHitPayload = Payload(vec3(0.0), 1, 0);
-                traceRayEXT(
-                    topLevelAS,
-                    gl_RayFlagsOpaqueEXT,
-                    0xFF,
-                    0, 0, 0,
-                    worldPos + worldNormal * 0.01,
-                    0.001,
-                    indirectLightDir,
-                    FLT_MAX,
-                    3
-                );
+            diffuse += firstHitPayload.hitValue * INV_PI;
+        } else if (hitPayload.bounces == 1) {
+            secondHitPayload = Payload(vec3(0.0), 1, 0);
+            traceRayEXT(
+                topLevelAS,
+                gl_RayFlagsOpaqueEXT,
+                0xFF,
+                0, 0, 0,
+                worldPos + worldNormal * 0.01,
+                0.001,
+                indirectLightDir,
+                FLT_MAX,
+                3
+            );
 
-                diffuse += secondHitPayload.hitValue * INV_PI * inverseLightingSamples;
-            }
+            diffuse += secondHitPayload.hitValue * INV_PI;
         }
     }
 

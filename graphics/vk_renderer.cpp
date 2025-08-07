@@ -884,7 +884,7 @@ void VkRenderer::Draw(const VkCommandBuffer &commandBuffer, uint32_t imageIndex,
         static const glm::vec4 lightColor{1.0f, 1.0f, 0.95f, 1.0f};
 
         static glm::vec4 pointLightPosition{0.0, 4.0, 0.0, 5.0};
-        static glm::vec4 pointLightColor{0.1f, 1.0f, 0.95f, 1.0f};
+        static glm::vec4 pointLightColor{1.0f, 0.0f, 0.4f, 1.0f};
 
         static float angle = 0.0f;
         angle += 0.01f;

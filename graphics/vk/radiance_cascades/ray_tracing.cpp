@@ -375,7 +375,7 @@ void RayTracing::Init(const VkRenderer *renderer, VkDevice device, VkPhysicalDev
         {
             // memoryManager.unmapBuffer(stagingBuffer);
             // vmaDestroyBuffer(memoryManager.allocator, stagingBuffer, allocation);
-            renderer->ImmediateSubmit([&](auto commandBuffer)
+            renderer->TransferSubmit([&](auto commandBuffer)
             {
                 VkBufferCopy copyRegion{
                     0,
@@ -733,21 +733,9 @@ void RayTracing::BuildBLAS(VkRenderer *renderer, const std::vector<VkRenderObjec
     VK_CHECK(vkCreateQueryPool(device, &queryPoolInfo, VK_NULL_HANDLE, &queryPool));
     vkResetQueryPool(device, queryPool, 0, blas.size());
 
-    size_t offset = 0;
-    size_t scratchSize = 0;
-    for (size_t i = 0; i < renderObjects.size(); i++)
-    {
-        scratchSize = scratchSizes[i];
-        buildGeometryInfos[i].scratchData.deviceAddress = scratchAddress + offset;
-        buildGeometryInfos[i].dstAccelerationStructure = blas[i];
-        buildRanges[i].primitiveCount = primitiveCounts[i];
-        buildRangesPtrs[i] = &buildRanges[i];
-
-        offset = (offset + scratchSize + blasAlignment - 1) & ~(blasAlignment - 1);
-    }
-
     renderer->ImmediateSubmit([&](const auto &commandBuffer)
     {
+        size_t offset = 0;
         for (size_t i = 0; i < renderObjects.size(); ++i)
         {
             VkBufferMemoryBarrier2 scratchBarrier{
@@ -763,6 +751,13 @@ void RayTracing::BuildBLAS(VkRenderer *renderer, const std::vector<VkRenderObjec
                 0,
                 scratchBufferSize
             };
+
+            buildGeometryInfos[i].scratchData.deviceAddress = scratchAddress + offset;
+            buildGeometryInfos[i].dstAccelerationStructure = blas[i];
+            buildRanges[i].primitiveCount = primitiveCounts[i];
+            buildRangesPtrs[i] = &buildRanges[i];
+
+            offset = (offset + scratchSizes[i] + blasAlignment - 1) & ~(blasAlignment - 1);
 
             VkDependencyInfo dependencyInfo{
                 .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
@@ -787,9 +782,9 @@ void RayTracing::BuildBLAS(VkRenderer *renderer, const std::vector<VkRenderObjec
         sizeof(VkDeviceSize), VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT));
 
     std::vector<VkDeviceSize> compactedOffsets(blas.size());
-    for (size_t i = 0; i < compactedSizes.size(); ++i)
+    for (size_t i = 1; i < compactedSizes.size(); ++i)
     {
-        compactedOffsets[i] = i == 0 ? 0 : compactedOffsets[i - 1] + (compactedSizes[i - 1] + blasAlignment - 1) & ~(blasAlignment - 1);
+        compactedOffsets[i] = (compactedOffsets[i - 1] + compactedSizes[i - 1] + blasAlignment - 1) & ~(blasAlignment - 1);
     }
 
     CompactBLAS(renderer, compactedSizes, compactedOffsets);
@@ -810,16 +805,12 @@ void RayTracing::BuildBLAS(VkRenderer *renderer, const std::vector<VkRenderObjec
 
     const auto mappedMemoryTask = [&](void *data)
     {
-        // void *data;
-        // memoryManager.mapBuffer(meshAddressesBuffer, &data);
         memcpy(data, meshAddresses.data(), meshAddresses.size() * sizeof(MeshData));
     };
 
     const auto unmappedMemoryTask = [&](VkBuffer stagingBuffer)
     {
-        // memoryManager.unmapBuffer(stagingBuffer);
-        // vmaDestroyBuffer(memoryManager.allocator, stagingBuffer, allocation);
-        renderer->ImmediateSubmit([&](auto commandBuffer)
+        renderer->TransferSubmit([&](auto commandBuffer)
         {
             VkBufferCopy copyRegion{
                 0,
@@ -831,15 +822,9 @@ void RayTracing::BuildBLAS(VkRenderer *renderer, const std::vector<VkRenderObjec
     };
 
     memoryManager.useStagingBuffer(mappedMemoryTask, unmappedMemoryTask);
-
-    // memoryManager.copyToBuffer(meshAddressesBuffer, meshAddresses.data(), meshAddresses.size() * sizeof(MeshData));
-    // void *data;
-    // memoryManager.mapBuffer(meshAddressesBuffer, &data);
-    // memcpy(data, meshAddresses.data(), meshAddresses.size() * sizeof(MeshData));
-    // memoryManager.unmapBuffer(meshAddressesBuffer);
 }
 
-void RayTracing::CompactBLAS(VkRenderer *renderer, const std::vector<VkDeviceSize> &compactedSizes, const std::vector<VkDeviceSize> &compactedOffsets)
+inline void RayTracing::CompactBLAS(VkRenderer *renderer, const std::vector<VkDeviceSize> &compactedSizes, const std::vector<VkDeviceSize> &compactedOffsets)
 {
     const auto device = renderer->device;
     VkAccelerationStructureCreateInfoKHR createInfo{

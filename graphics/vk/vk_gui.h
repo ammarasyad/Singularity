@@ -23,11 +23,7 @@ struct EngineStats {
 
 class VkGui {
 public:
-// #ifdef _WIN32
-//     explicit VkGui(HINSTANCE hInstance, int width, int height, bool dynamicRendering = true, bool asyncCompute = true);
-// #else
     explicit VkGui(int width, int height, bool dynamicRendering = true, bool asyncCompute = true);
-// #endif
     ~VkGui() = default;
 
     void Loop();

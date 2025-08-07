@@ -37,13 +37,13 @@ public:
     void TransitionAccumulatedImages(VkCommandBuffer commandBuffer, VkPipelineStageFlags2 oldStage, VkPipelineStageFlags2 newStage);
     void AccumulateRadiance(VkCommandBuffer commandBuffer, uint32_t updateFrameIndex, const VkExtent2D &swapChainExtent);
     void BuildBLAS(VkRenderer *, const std::vector<VkRenderObject> &);
-    void CompactBLAS(VkRenderer *, const std::vector<VkDeviceSize> &compactedSizes, const std::vector<VkDeviceSize> &compactedOffsets);
     void BuildTLAS(VkRenderer *, const std::vector<VkRenderObject> &);
 
     VulkanImage radianceImage;
     std::array<VulkanImage, 2> accumulatedImages;
     std::vector<VkDescriptorImageInfo> textureInfo;
 private:
+    inline void CompactBLAS(VkRenderer *, const std::vector<VkDeviceSize> &compactedSizes, const std::vector<VkDeviceSize> &compactedOffsets);
     static constexpr size_t maxLights = 4;
     struct LightData
     {

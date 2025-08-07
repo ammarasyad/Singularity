@@ -12,11 +12,10 @@ layout(push_constant) uniform PushConstants {
 layout(location = 0) out vec4 outColor;
 
 void main() {
-    vec2 uv = gl_FragCoord.xy / pc.viewportSize;
     // vec4 radiance = texture(radianceImage, uv);
     // vec4 accumulated = texture(accumulatedImage, uv);
 
     // float alpha = 1.0 / float(pc.frameIndex + 1);
     // outColor = mix(accumulated, radiance, alpha);
-    outColor = texture(radianceImage, uv);
+    outColor = texture(radianceImage, gl_FragCoord.xy / pc.viewportSize);
 }

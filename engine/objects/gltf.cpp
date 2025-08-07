@@ -125,7 +125,7 @@ static std::vector<LoadedImage> loadImagesMultithreaded(const fastgltf::Asset &g
     return loadedImages;
 }
 
-inline static VkFilter extractFilter(const fastgltf::Filter filter) {
+inline VkFilter extractFilter(const fastgltf::Filter filter) {
     switch (filter) {
         case fastgltf::Filter::Linear:
         case fastgltf::Filter::LinearMipMapLinear:
@@ -141,7 +141,7 @@ inline static VkFilter extractFilter(const fastgltf::Filter filter) {
     }
 }
 
-inline static VkSamplerMipmapMode extractMipmapMode(const fastgltf::Filter filter) {
+inline VkSamplerMipmapMode extractMipmapMode(const fastgltf::Filter filter) {
     switch (filter) {
         case fastgltf::Filter::LinearMipMapLinear:
         case fastgltf::Filter::NearestMipMapLinear:
@@ -248,15 +248,12 @@ std::optional<LoadedGLTF> LoadGLTF(VkRenderer *renderer, bool multithread, const
         GLTFMaterial newMaterial{};
 
         VkGLTFMetallic_Roughness::MaterialConstants constants{};
-        constants.colorFactors.x = material.pbrData.baseColorFactor[0];
-        constants.colorFactors.y = material.pbrData.baseColorFactor[1];
-        constants.colorFactors.z = material.pbrData.baseColorFactor[2];
-        constants.colorFactors.w = material.pbrData.baseColorFactor[3];
+        memcpy(&constants.colorFactors, material.pbrData.baseColorFactor.data(), sizeof(constants.colorFactors));
 
         constants.metalRoughFactors.x = material.pbrData.metallicFactor;
         constants.metalRoughFactors.y = material.pbrData.roughnessFactor;
 
-        memcpy(materialConstants + dataIndex * sizeof(VkGLTFMetallic_Roughness::MaterialConstants), &constants, sizeof(VkGLTFMetallic_Roughness::MaterialConstants));
+        memcpy(materialConstants + dataIndex, &constants, sizeof(VkGLTFMetallic_Roughness::MaterialConstants));
 
         auto passType = material.alphaMode == fastgltf::AlphaMode::Blend ? MaterialPass::Transparent : MaterialPass::MainColor;
 
@@ -432,10 +429,10 @@ std::optional<LoadedGLTF> LoadGLTF(VkRenderer *renderer, bool multithread, const
         }
 
         std::visit(fastgltf::visitor {
-            [&](fastgltf::math::fmat4x4 &matrix) {
+            [newNode](fastgltf::math::fmat4x4 &matrix) {
                 memcpy(&newNode->localTransform, matrix.data(), sizeof(matrix));
             },
-            [&](fastgltf::TRS &trs) {
+            [newNode, identity](fastgltf::TRS &trs) {
                 const glm::vec3 tl = *reinterpret_cast<glm::vec3 *>(&trs.translation);
                 const glm::quat rot{trs.rotation[3], trs.rotation[0], trs.rotation[1], trs.rotation[2]};
                 const glm::vec3 sc = *reinterpret_cast<glm::vec3 *>(&trs.scale);
